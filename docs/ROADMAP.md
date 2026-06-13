@@ -9,6 +9,13 @@ and MCP servers visually — the same primitives the CLI exposes through files.
 > `hooks`, `skills: 'all' | string[]`, `agents`, `mcpServers`, `plugins`,
 > `settingSources`, `canUseTool`.
 
+> **Progress:** ✅ **Roadmap complete.** Phase 0 (settingSources + stable
+> workspace) plus all six features ship in the **EXTEND** tab:
+> ✅ #1 Skills · ✅ #2 Hooks · ✅ #3 Commands · ✅ #4 MCP · ✅ #5 Agents ·
+> ✅ #6 Plugins. Each is filesystem-backed (`.claude/` or a Forge-private
+> `forge-*.json`) and wired into the SDK run/capabilities options. Verified
+> end-to-end via CDP (UI → IPC → on-disk).
+
 ## Prerequisite — Phase 0: enable `settingSources` (small, unblocks all)
 **Current state:** `src/main/agent.ts` does **not** set `settingSources`, so the
 SDK runs hermetic and **ignores the filesystem `.claude/`** (skills, commands,

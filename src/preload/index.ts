@@ -7,8 +7,30 @@ import type {
   SessionInfo,
   UsageInfo,
   TranscriptItem,
-  Persona
+  Persona,
+  QuestionResult
 } from '../main/agent'
+import type {
+  SkillMeta,
+  SkillDetail,
+  SkillInput,
+  SkillWriteResult
+} from '../main/skills'
+import type {
+  CommandMeta,
+  CommandDetail,
+  CommandInput,
+  CommandWriteResult
+} from '../main/commands'
+import type { HookRule } from '../main/hooks'
+import type { McpServerEntry, McpSaveInput, McpSaveResult } from '../main/mcp'
+import type {
+  AgentMeta,
+  AgentDetail,
+  AgentInput,
+  AgentWriteResult
+} from '../main/agents'
+import type { PluginEntry, PluginSaveResult } from '../main/plugins'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -26,6 +48,8 @@ const forge = {
     interrupt: (runId: string): Promise<void> => ipcRenderer.invoke('agent:interrupt', runId),
     respondPermission: (id: string, allow: boolean): Promise<void> =>
       ipcRenderer.invoke('agent:permission-result', id, allow),
+    respondDialog: (id: string, result: QuestionResult): Promise<void> =>
+      ipcRenderer.invoke('agent:dialog-result', id, result),
     capabilities: (): Promise<Capabilities> => ipcRenderer.invoke('agent:capabilities'),
     sessions: (): Promise<SessionInfo[]> => ipcRenderer.invoke('agent:sessions'),
     usage: (): Promise<UsageInfo> => ipcRenderer.invoke('agent:usage'),
@@ -43,6 +67,46 @@ const forge = {
   persona: {
     get: (): Promise<Persona> => ipcRenderer.invoke('persona:get'),
     set: (persona: Persona): Promise<Persona> => ipcRenderer.invoke('persona:set', persona)
+  },
+  skills: {
+    list: (): Promise<SkillMeta[]> => ipcRenderer.invoke('skills:list'),
+    read: (name: string): Promise<SkillDetail | null> => ipcRenderer.invoke('skills:read', name),
+    write: (input: SkillInput): Promise<SkillWriteResult> =>
+      ipcRenderer.invoke('skills:write', input),
+    delete: (name: string): Promise<SkillMeta[]> => ipcRenderer.invoke('skills:delete', name),
+    toggle: (name: string, enabled: boolean): Promise<SkillMeta[]> =>
+      ipcRenderer.invoke('skills:toggle', name, enabled)
+  },
+  commands: {
+    list: (): Promise<CommandMeta[]> => ipcRenderer.invoke('commands:list'),
+    read: (name: string): Promise<CommandDetail | null> =>
+      ipcRenderer.invoke('commands:read', name),
+    write: (input: CommandInput): Promise<CommandWriteResult> =>
+      ipcRenderer.invoke('commands:write', input),
+    delete: (name: string): Promise<CommandMeta[]> => ipcRenderer.invoke('commands:delete', name)
+  },
+  hooks: {
+    list: (): Promise<HookRule[]> => ipcRenderer.invoke('hooks:list'),
+    save: (rules: HookRule[]): Promise<HookRule[]> => ipcRenderer.invoke('hooks:save', rules)
+  },
+  mcp: {
+    list: (): Promise<McpServerEntry[]> => ipcRenderer.invoke('mcp:list'),
+    save: (input: McpSaveInput): Promise<McpSaveResult> => ipcRenderer.invoke('mcp:save', input),
+    delete: (name: string): Promise<McpServerEntry[]> => ipcRenderer.invoke('mcp:delete', name)
+  },
+  agents: {
+    list: (): Promise<AgentMeta[]> => ipcRenderer.invoke('agents:list'),
+    read: (name: string): Promise<AgentDetail | null> => ipcRenderer.invoke('agents:read', name),
+    write: (input: AgentInput): Promise<AgentWriteResult> =>
+      ipcRenderer.invoke('agents:write', input),
+    delete: (name: string): Promise<AgentMeta[]> => ipcRenderer.invoke('agents:delete', name)
+  },
+  plugins: {
+    list: (): Promise<PluginEntry[]> => ipcRenderer.invoke('plugins:list'),
+    add: (path: string): Promise<PluginSaveResult> => ipcRenderer.invoke('plugins:add', path),
+    toggle: (path: string, enabled: boolean): Promise<PluginEntry[]> =>
+      ipcRenderer.invoke('plugins:toggle', path, enabled),
+    remove: (path: string): Promise<PluginEntry[]> => ipcRenderer.invoke('plugins:remove', path)
   },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),

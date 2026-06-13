@@ -1,6 +1,11 @@
-import type { WebContents } from 'electron'
+import { app, type WebContents } from 'electron'
+import { promises as fs } from 'fs'
+import { join } from 'path'
 import { resolveAuthEnv } from './auth'
 import { getPersona, personaToSystemPrompt } from './persona'
+import { resolveSkillsOption } from './skills'
+import { toSdkMcpServers } from './mcp'
+import { toSdkPlugins } from './plugins'
 
 export type { Persona, PersonaMode } from './persona'
 
@@ -124,6 +129,19 @@ export type AgentEvent =
       input: Record<string, unknown>
     }
   | {
+      /**
+       * A `request_user_dialog` from the subprocess (e.g. the AskUserQuestion
+       * tool surfaces as dialogKind 'permission_ask_user_question'). The renderer
+       * shows an interactive UI and replies via respondDialog.
+       */
+      runId: string
+      type: 'dialog'
+      id: string
+      dialogKind: string
+      payload: Record<string, unknown>
+      toolUseID?: string
+    }
+  | {
       runId: string
       type: 'result'
       ok: boolean
@@ -140,13 +158,23 @@ type PermissionResult =
   | { behavior: 'allow' }
   | { behavior: 'deny'; message: string }
 
+/**
+ * Reply to an AskUserQuestion prompt. This is an SDK PermissionResult: on allow
+ * the chosen answers ride along in `updatedInput` (the tool reads them from
+ * `updatedInput.answers`); on deny the run continues without an answer.
+ */
+export type QuestionResult =
+  | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+  | { behavior: 'deny'; message: string }
+
 /** Omit that distributes over a union, so each member keeps its own fields. */
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never
 type AgentEventBody = DistributiveOmit<AgentEvent, 'runId'>
 
-// Active queries (for STOP) and pending permission prompts (for ASK).
+// Active queries (for STOP), pending ASK prompts, and pending question prompts.
 const active = new Map<string, any>()
 const pendingPerms = new Map<string, (r: PermissionResult) => void>()
+const pendingDialogs = new Map<string, (r: QuestionResult) => void>()
 
 /** Build the subprocess env, applying auth overrides (undefined = delete). */
 async function buildEnv(): Promise<Record<string, string>> {
@@ -159,6 +187,47 @@ async function buildEnv(): Promise<Record<string, string>> {
   return Object.fromEntries(
     Object.entries(env).filter(([, v]) => v != null)
   ) as Record<string, string>
+}
+
+/**
+ * Phase 0 — filesystem `.claude/` discovery.
+ *
+ * The SDK only finds project Skills / Commands / Agents / hooks / MCP when it is
+ * (a) told which setting sources to read and (b) given a cwd whose `.claude/` is
+ * the source of truth. process.cwd() is unreliable for this: in a packaged build
+ * it's the (often read-only) install dir, and `~` is wiped on reboot on this
+ * machine. So Forge anchors a stable, writable workspace under userData and
+ * treats its `.claude/` as the project root for every run.
+ *
+ * 'user' + 'project' mirror the CLI defaults; 'local' is intentionally omitted.
+ */
+const SETTING_SOURCES = ['user', 'project'] as const
+
+let workspaceReady: Promise<string> | null = null
+
+/** Path to Forge's persistent project workspace (its `.claude/` lives here). */
+export function workspaceDir(): string {
+  return join(app.getPath('userData'), 'workspace')
+}
+
+/**
+ * Create the workspace and its `.claude/` skill/command/agent dirs once, then
+ * reuse the cached result. Best-effort: the SDK tolerates a missing `.claude/`,
+ * so a mkdir failure still yields a usable cwd.
+ */
+function ensureWorkspace(): Promise<string> {
+  if (!workspaceReady) {
+    const dir = workspaceDir()
+    const claude = join(dir, '.claude')
+    workspaceReady = Promise.all([
+      fs.mkdir(join(claude, 'skills'), { recursive: true }),
+      fs.mkdir(join(claude, 'commands'), { recursive: true }),
+      fs.mkdir(join(claude, 'agents'), { recursive: true })
+    ])
+      .then(() => dir)
+      .catch(() => dir)
+  }
+  return workspaceReady
 }
 
 function resultErrorMessage(subtype: string): string {
@@ -211,6 +280,15 @@ export function respondPermission(id: string, allow: boolean): void {
   }
 }
 
+/** Resolve a pending AskUserQuestion prompt with the renderer's answer. */
+export function respondDialog(id: string, result: QuestionResult): void {
+  const resolve = pendingDialogs.get(id)
+  if (resolve) {
+    pendingDialogs.delete(id)
+    resolve(result)
+  }
+}
+
 /** STOP — interrupt the active run. */
 export async function interruptRun(runId: string): Promise<void> {
   const q = active.get(runId)
@@ -231,11 +309,27 @@ export async function interruptRun(runId: string): Promise<void> {
 export async function getCapabilities(): Promise<Capabilities> {
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const env = await buildEnv()
+  const cwd = await ensureWorkspace()
+  const mcpServers = await toSdkMcpServers()
+  const plugins = await toSdkPlugins()
   // Keep the input open so the query stays alive while we inspect it.
   async function* idle(): AsyncGenerator<any> {
     await new Promise<void>(() => {})
   }
-  const q: any = query({ prompt: idle(), options: { env, persistSession: false } } as any)
+  // Same setting sources as a real run, so project `.claude/` commands and MCP
+  // servers show up in supportedCommands()/mcpServerStatus(). The idle prompt
+  // submits nothing, so no UserPromptSubmit/Stop hooks fire during this probe.
+  const q: any = query({
+    prompt: idle(),
+    options: {
+      env,
+      cwd,
+      settingSources: [...SETTING_SOURCES],
+      persistSession: false,
+      ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
+      ...(plugins.length ? { plugins } : {})
+    }
+  } as any)
   try {
     const [models, commands, mcp, account] = await Promise.all([
       q.supportedModels(),
@@ -273,13 +367,21 @@ export async function compactSession(
 ): Promise<{ ok: boolean; sessionId: string; error?: string }> {
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const env = await buildEnv()
+  const cwd = await ensureWorkspace()
   let sid = sessionId
   let ok = false
   let error: string | undefined
   try {
+    // cwd must match the run that created the session, or resume can't locate it.
     const q: any = query({
       prompt: '/compact',
-      options: { permissionMode: 'bypassPermissions', maxTurns: 1, resume: sessionId, env } as any
+      options: {
+        permissionMode: 'bypassPermissions',
+        maxTurns: 1,
+        resume: sessionId,
+        env,
+        cwd
+      } as any
     })
     for await (const msg of q as AsyncIterable<any>) {
       if (msg.session_id) sid = msg.session_id
@@ -378,7 +480,9 @@ export async function getSessions(): Promise<SessionInfo[]> {
   const sdk: any = await import('@anthropic-ai/claude-agent-sdk')
   try {
     const all: any[] = (await sdk.listSessions()) ?? []
-    const cwd = process.cwd()
+    // Runs are anchored to the Forge workspace (see ensureWorkspace), so match
+    // sessions to it — not process.cwd(), which differs in dev vs packaged.
+    const cwd = workspaceDir()
     return all
       .filter((s) => !s.cwd || s.cwd === cwd)
       // Hide internal/utility sessions (usage probes, empty capability queries).
@@ -411,34 +515,84 @@ export async function runStreaming(
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const env = await buildEnv()
+  const cwd = await ensureWorkspace()
 
-  const options: Record<string, unknown> = { includePartialMessages: true, env }
+  // Phase 0: read the filesystem `.claude/` (skills · commands · agents ·
+  // settings · hooks · mcp). Without settingSources the SDK runs hermetic and
+  // ignores all of it.
+  const options: Record<string, unknown> = {
+    includePartialMessages: true,
+    env,
+    cwd,
+    settingSources: [...SETTING_SOURCES]
+  }
   if (opts.effort) options.effort = opts.effort
   if (opts.model) options.model = opts.model
   if (opts.resume) options.resume = opts.resume
   if (opts.maxTurns && opts.maxTurns > 0) options.maxTurns = opts.maxTurns
   if (opts.maxBudgetUsd && opts.maxBudgetUsd > 0) options.maxBudgetUsd = opts.maxBudgetUsd
 
+  // Skills (roadmap #1): turn the user's authored `.claude/skills` on, honoring
+  // the per-skill enable toggles. null = no authored skills → leave default.
+  const skills = await resolveSkillsOption()
+  if (skills) options.skills = skills
+
+  // MCP (roadmap #4): Forge owns these connections (configured in the EXTEND
+  // console), passed programmatically rather than via project `.claude/`.
+  const mcpServers = await toSdkMcpServers()
+  if (Object.keys(mcpServers).length) options.mcpServers = mcpServers
+
+  // Plugins (roadmap #6): local plugin bundles registered in the EXTEND console.
+  const plugins = await toSdkPlugins()
+  if (plugins.length) options.plugins = plugins
+
   // A per-agent system prompt (squad) overrides the global persona; otherwise
   // fall back to the user's global persona.
   const systemPrompt = opts.systemPrompt ?? personaToSystemPrompt(await getPersona())
   if (systemPrompt !== undefined) options.systemPrompt = systemPrompt
 
+  options.permissionMode =
+    opts.permission === 'ask' ? 'default' : (opts.permission ?? 'bypassPermissions')
+
+  // A single canUseTool handles two things:
+  //  1. AskUserQuestion — the model's interactive question tool. It is delivered
+  //     through canUseTool (NOT onUserDialog), and fires even under
+  //     bypassPermissions, so we must always provide this callback. The answer is
+  //     returned as { behavior:'allow', updatedInput: { ...input, answers } } where
+  //     answers maps each question string to the chosen label(s).
+  //  2. Normal permission prompts — only in ASK mode; other modes auto-allow
+  //     (preserving bypass/plan/acceptEdits behavior).
   let permCounter = 0
-  if (opts.permission === 'ask') {
-    options.permissionMode = 'default'
-    options.canUseTool = async (
-      toolName: string,
-      input: Record<string, unknown>
-    ): Promise<PermissionResult> => {
+  options.canUseTool = async (
+    toolName: string,
+    input: Record<string, unknown>
+  ): Promise<QuestionResult> => {
+    if (toolName === 'AskUserQuestion') {
+      const id = `${runId}:q:${permCounter++}`
+      return await new Promise<QuestionResult>((resolve) => {
+        pendingDialogs.set(id, resolve)
+        send({
+          type: 'dialog',
+          id,
+          dialogKind: 'permission_ask_user_question',
+          payload: { questions: Array.isArray(input.questions) ? input.questions : [] }
+        })
+      })
+    }
+    if (opts.permission === 'ask') {
       const id = `${runId}:${permCounter++}`
-      return await new Promise<PermissionResult>((resolve) => {
-        pendingPerms.set(id, resolve)
+      return await new Promise<QuestionResult>((resolve) => {
+        pendingPerms.set(id, (r) =>
+          resolve(
+            r.behavior === 'allow'
+              ? { behavior: 'allow', updatedInput: input }
+              : { behavior: 'deny', message: r.message }
+          )
+        )
         send({ type: 'permission', id, toolName, input })
       })
     }
-  } else {
-    options.permissionMode = opts.permission ?? 'bypassPermissions'
+    return { behavior: 'allow', updatedInput: input }
   }
 
   const q: any = query({ prompt: singlePrompt(prompt, opts.attachments), options } as any)
@@ -531,6 +685,13 @@ export async function runStreaming(
     for (const [id, resolve] of pendingPerms) {
       if (id.startsWith(`${runId}:`)) {
         pendingPerms.delete(id)
+        resolve({ behavior: 'deny', message: 'Run ended' })
+      }
+    }
+    // Deny any unanswered question prompts for this run.
+    for (const [id, resolve] of pendingDialogs) {
+      if (id.startsWith(`${runId}:`)) {
+        pendingDialogs.delete(id)
         resolve({ behavior: 'deny', message: 'Run ended' })
       }
     }

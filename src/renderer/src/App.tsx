@@ -89,6 +89,15 @@ type TranscriptItem = import('../../main/agent').TranscriptItem
 type Attachment = import('../../main/agent').Attachment
 type AgentEvent = import('../../main/agent').AgentEvent
 type Persona = import('../../main/agent').Persona
+type SkillMeta = import('../../main/skills').SkillMeta
+type SkillDetail = import('../../main/skills').SkillDetail
+type CommandMeta = import('../../main/commands').CommandMeta
+type HookRule = import('../../main/hooks').HookRule
+type McpServer = import('../../main/agent').McpServer
+type McpServerEntry = import('../../main/mcp').McpServerEntry
+type McpTransport = import('../../main/mcp').McpTransport
+type AgentMeta = import('../../main/agents').AgentMeta
+type PluginEntry = import('../../main/plugins').PluginEntry
 
 type EffortLabel = 'AUTO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX'
 const EFFORTS: EffortLabel[] = ['AUTO', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX']
@@ -239,7 +248,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [maxBudget, setMaxBudget] = useState(0) // 0 = off
   const [autoCompact, setAutoCompact] = useState(false)
   const [costSaver, setCostSaver] = useState(false)
-  const [view, setView] = useState<'chat' | 'squad'>('chat')
+  const [view, setView] = useState<'chat' | 'squad' | 'extend'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
 
@@ -248,6 +257,11 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   }
   function refreshUsage(): void {
     window.forge.agent.usage().then(setSubUsage).catch(() => {})
+  }
+  // Re-probe capabilities (slash commands, MCP, models) — e.g. after the EXTEND
+  // console authors a new command, so it appears in the composer slash menu.
+  function refreshCaps(): void {
+    window.forge.agent.capabilities().then(setCaps).catch(() => {})
   }
 
   useEffect(() => {
@@ -590,6 +604,12 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           >
             ⚔ SQUAD
           </button>
+          <button
+            className={`mode-tab ${view === 'extend' ? 'on' : ''}`}
+            onClick={() => setView('extend')}
+          >
+            🧩 EXTEND
+          </button>
         </div>
         <div className="view-body">
           <div className="view-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
@@ -621,6 +641,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               onResult={onResult}
             />
           </div>
+          <div className="view-pane" style={{ display: view === 'extend' ? 'flex' : 'none' }}>
+            <ExtendView
+              onCommandsChanged={refreshCaps}
+              mcpStatus={mcpServers}
+              onMcpChanged={refreshCaps}
+            />
+          </div>
         </div>
       </main>
       {showPersona && (
@@ -633,6 +660,1408 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             setShowPersona(false)
           }}
         />
+      )}
+    </div>
+  )
+}
+
+/* ============================ EXTEND (console) ============================ */
+
+type ExtendSection = 'skills' | 'commands' | 'hooks' | 'mcp' | 'agents' | 'plugins'
+
+const EXTEND_SECTIONS: { id: ExtendSection; label: string; icon: string; ready: boolean }[] = [
+  { id: 'skills', label: 'Skills', icon: '🧩', ready: true },
+  { id: 'commands', label: 'Commands', icon: '⌨', ready: true },
+  { id: 'hooks', label: 'Hooks', icon: '🪝', ready: true },
+  { id: 'mcp', label: 'MCP', icon: '🔌', ready: true },
+  { id: 'agents', label: 'Agents', icon: '🤖', ready: true },
+  { id: 'plugins', label: 'Plugins', icon: '📦', ready: true }
+]
+
+/** The EXTEND tab: a console over the filesystem `.claude/` extension points. */
+function ExtendView({
+  onCommandsChanged,
+  mcpStatus,
+  onMcpChanged
+}: {
+  onCommandsChanged?: () => void
+  mcpStatus: McpServer[]
+  onMcpChanged?: () => void
+}): JSX.Element {
+  const [section, setSection] = useState<ExtendSection>('skills')
+  const active = EXTEND_SECTIONS.find((s) => s.id === section)
+  return (
+    <div className="extend-view">
+      <nav className="extend-nav">
+        <div className="extend-nav-title">EXTEND</div>
+        {EXTEND_SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            className={`extend-nav-item ${section === s.id ? 'on' : ''}`}
+            onClick={() => setSection(s.id)}
+          >
+            <span className="extend-nav-icon">{s.icon}</span>
+            <span className="extend-nav-label">{s.label}</span>
+            {!s.ready && <span className="extend-soon">soon</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="extend-body">
+        {section === 'skills' ? (
+          <SkillsPanel />
+        ) : section === 'commands' ? (
+          <CommandsPanel onChanged={onCommandsChanged} />
+        ) : section === 'hooks' ? (
+          <HooksPanel />
+        ) : section === 'mcp' ? (
+          <McpPanel status={mcpStatus} onChanged={onMcpChanged} />
+        ) : section === 'agents' ? (
+          <AgentsPanel />
+        ) : section === 'plugins' ? (
+          <PluginsPanel onChanged={onMcpChanged} />
+        ) : (
+          <div className="extend-stub">
+            <div className="extend-stub-icon">{active?.icon}</div>
+            <div className="extend-stub-title">{active?.label} — coming next</div>
+            <div className="extend-stub-desc">
+              This panel lands in a later roadmap phase. Skills is live now.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface SkillDraft {
+  /** Set when editing an existing skill (the previous dir name). */
+  originalName?: string
+  name: string
+  description: string
+  body: string
+}
+
+const SKILL_TEMPLATE = `# Overview
+Describe what this skill does and the steps the agent should follow.
+
+## When to use
+- Trigger conditions / example requests.
+
+## Steps
+1. ...
+2. ...
+`
+
+/** Skills manager — list / toggle / create / edit / delete `.claude/skills`. */
+function SkillsPanel(): JSX.Element {
+  const [skills, setSkills] = useState<SkillMeta[] | null>(null)
+  const [editing, setEditing] = useState<SkillDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function refresh(): void {
+    window.forge.skills
+      .list()
+      .then(setSkills)
+      .catch(() => setSkills([]))
+  }
+  useEffect(refresh, [])
+
+  async function toggle(s: SkillMeta): Promise<void> {
+    setBusy(true)
+    try {
+      setSkills(await window.forge.skills.toggle(s.name, !s.enabled))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function openEdit(name: string): Promise<void> {
+    const d = await window.forge.skills.read(name)
+    if (d)
+      setEditing({ originalName: d.name, name: d.name, description: d.description, body: d.body })
+  }
+  function openNew(): void {
+    setEditing({ name: '', description: '', body: SKILL_TEMPLATE })
+  }
+  async function remove(s: SkillMeta): Promise<void> {
+    if (!window.confirm(`Delete skill "${s.name}"? This permanently removes its files.`)) return
+    setBusy(true)
+    try {
+      setSkills(await window.forge.skills.delete(s.name))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const enabledCount = skills?.filter((s) => s.enabled).length ?? 0
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">SKILLS</div>
+          <div className="skills-sub">
+            Authored in <code>.claude/skills</code> · toggles control which ones the model can use
+            {skills && skills.length > 0 ? ` · ${enabledCount}/${skills.length} on` : ''}
+          </div>
+        </div>
+        <button className="primary skills-new" onClick={openNew}>
+          + New skill
+        </button>
+      </div>
+
+      {skills === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : skills.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">🧩</div>
+          <div className="skills-empty-title">No skills yet</div>
+          <div className="skills-empty-desc">
+            Create one to give the agent a reusable, on-demand capability — discovered from
+            <code>.claude/skills</code> on every run.
+          </div>
+        </div>
+      ) : (
+        <div className="skill-list">
+          {skills.map((s) => (
+            <div key={s.name} className={`skill-row ${s.enabled ? '' : 'off'}`}>
+              <button
+                className={`skill-switch ${s.enabled ? 'on' : ''}`}
+                title={s.enabled ? 'Enabled — click to hide from the model' : 'Disabled — click to enable'}
+                disabled={busy}
+                onClick={() => toggle(s)}
+              >
+                <span className="skill-knob" />
+              </button>
+              <button className="skill-main" onClick={() => openEdit(s.name)}>
+                <div className="skill-name">{s.name}</div>
+                <div className="skill-desc">{s.description || 'No description'}</div>
+              </button>
+              <div className="skill-actions">
+                <button className="skill-act" onClick={() => openEdit(s.name)}>
+                  Edit
+                </button>
+                <button className="skill-act danger" disabled={busy} onClick={() => remove(s)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <SkillEditor
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(list) => {
+            setSkills(list)
+            setEditing(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+function SkillEditor({
+  draft,
+  onClose,
+  onSaved
+}: {
+  draft: SkillDraft
+  onClose: () => void
+  onSaved: (skills: SkillMeta[]) => void
+}): JSX.Element {
+  const isNew = !draft.originalName
+  const [name, setName] = useState(draft.name)
+  const [description, setDescription] = useState(draft.description)
+  const [body, setBody] = useState(draft.body)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const nameOk = SKILL_NAME_RE.test(name.trim())
+
+  async function save(): Promise<void> {
+    if (!nameOk) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await window.forge.skills.write({
+        name: name.trim(),
+        description,
+        body,
+        originalName: draft.originalName
+      })
+      if (res.ok) onSaved(res.skills)
+      else setError(res.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal skill-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">{isNew ? 'NEW SKILL' : `EDIT · ${draft.originalName}`}</div>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Name <span className="skill-hint">lowercase-hyphen id · the directory name</span>
+          </span>
+          <input
+            className={`skill-input ${name && !nameOk ? 'bad' : ''}`}
+            value={name}
+            placeholder="pdf-export"
+            spellCheck={false}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus={isNew}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Description <span className="skill-hint">tells the model when to reach for it</span>
+          </span>
+          <input
+            className="skill-input"
+            value={description}
+            placeholder="Convert and export documents to PDF."
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Instructions <span className="skill-hint">Markdown body of SKILL.md</span>
+          </span>
+          <textarea
+            className="skill-body"
+            value={body}
+            rows={11}
+            spellCheck={false}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </label>
+
+        {error && <div className="skill-error">{error}</div>}
+        <div className="skill-note">
+          Skills run real instructions locally. Saved to{' '}
+          <code>.claude/skills/{name.trim() || 'name'}/SKILL.md</code>.
+        </div>
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!nameOk || saving} onClick={save}>
+            {saving ? 'Saving…' : 'Save skill'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface CommandDraft {
+  originalName?: string
+  name: string
+  description: string
+  argumentHint: string
+  body: string
+}
+
+const COMMAND_TEMPLATE = `Summarize what the user wants using the arguments below.
+
+User input: $ARGUMENTS
+`
+
+/** Custom slash-command manager — `.claude/commands/<name>.md`. */
+function CommandsPanel({ onChanged }: { onChanged?: () => void }): JSX.Element {
+  const [commands, setCommands] = useState<CommandMeta[] | null>(null)
+  const [editing, setEditing] = useState<CommandDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function refresh(): void {
+    window.forge.commands
+      .list()
+      .then(setCommands)
+      .catch(() => setCommands([]))
+  }
+  useEffect(refresh, [])
+
+  async function openEdit(name: string): Promise<void> {
+    const d = await window.forge.commands.read(name)
+    if (d)
+      setEditing({
+        originalName: d.name,
+        name: d.name,
+        description: d.description,
+        argumentHint: d.argumentHint ?? '',
+        body: d.body
+      })
+  }
+  function openNew(): void {
+    setEditing({ name: '', description: '', argumentHint: '', body: COMMAND_TEMPLATE })
+  }
+  async function remove(c: CommandMeta): Promise<void> {
+    if (!window.confirm(`Delete command "/${c.name}"? This removes its file.`)) return
+    setBusy(true)
+    try {
+      setCommands(await window.forge.commands.delete(c.name))
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">SLASH COMMANDS</div>
+          <div className="skills-sub">
+            Authored in <code>.claude/commands</code> · type <code>/name</code> in the composer ·
+            body is a prompt template using <code>$ARGUMENTS</code>
+          </div>
+        </div>
+        <button className="primary skills-new" onClick={openNew}>
+          + New command
+        </button>
+      </div>
+
+      {commands === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : commands.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">⌨</div>
+          <div className="skills-empty-title">No custom commands yet</div>
+          <div className="skills-empty-desc">
+            Create reusable prompt templates — they appear in the composer slash menu on the next
+            run.
+          </div>
+        </div>
+      ) : (
+        <div className="skill-list">
+          {commands.map((c) => (
+            <div key={c.name} className="skill-row">
+              <button className="skill-main" onClick={() => openEdit(c.name)}>
+                <div className="skill-name">
+                  /{c.name}
+                  {c.argumentHint ? <span className="cmd-hint">{c.argumentHint}</span> : null}
+                </div>
+                <div className="skill-desc">{c.description || 'No description'}</div>
+              </button>
+              <div className="skill-actions">
+                <button className="skill-act" onClick={() => openEdit(c.name)}>
+                  Edit
+                </button>
+                <button className="skill-act danger" disabled={busy} onClick={() => remove(c)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <CommandEditor
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(list) => {
+            setCommands(list)
+            setEditing(null)
+            onChanged?.()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function CommandEditor({
+  draft,
+  onClose,
+  onSaved
+}: {
+  draft: CommandDraft
+  onClose: () => void
+  onSaved: (commands: CommandMeta[]) => void
+}): JSX.Element {
+  const isNew = !draft.originalName
+  const [name, setName] = useState(draft.name)
+  const [description, setDescription] = useState(draft.description)
+  const [argumentHint, setArgumentHint] = useState(draft.argumentHint)
+  const [body, setBody] = useState(draft.body)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const nameOk = SKILL_NAME_RE.test(name.trim())
+
+  async function save(): Promise<void> {
+    if (!nameOk) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await window.forge.commands.write({
+        name: name.trim(),
+        description,
+        argumentHint,
+        body,
+        originalName: draft.originalName
+      })
+      if (res.ok) onSaved(res.commands)
+      else setError(res.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal skill-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">{isNew ? 'NEW COMMAND' : `EDIT · /${draft.originalName}`}</div>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Name <span className="skill-hint">invoked as /name · lowercase-hyphen</span>
+          </span>
+          <input
+            className={`skill-input ${name && !nameOk ? 'bad' : ''}`}
+            value={name}
+            placeholder="review-pr"
+            spellCheck={false}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus={isNew}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Description <span className="skill-hint">shown in the slash menu</span>
+          </span>
+          <input
+            className="skill-input"
+            value={description}
+            placeholder="Review the current PR diff and suggest fixes."
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Argument hint <span className="skill-hint">optional · e.g. [pr-number]</span>
+          </span>
+          <input
+            className="skill-input"
+            value={argumentHint}
+            placeholder="[pr-number]"
+            spellCheck={false}
+            onChange={(e) => setArgumentHint(e.target.value)}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Prompt template <span className="skill-hint">use $ARGUMENTS for the typed input</span>
+          </span>
+          <textarea
+            className="skill-body"
+            value={body}
+            rows={9}
+            spellCheck={false}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </label>
+
+        {error && <div className="skill-error">{error}</div>}
+        <div className="skill-note">
+          Saved to <code>.claude/commands/{name.trim() || 'name'}.md</code>. New commands appear in
+          the composer slash menu automatically.
+        </div>
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!nameOk || saving} onClick={save}>
+            {saving ? 'Saving…' : 'Save command'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const HOOK_EVENTS = [
+  'PreToolUse',
+  'PostToolUse',
+  'UserPromptSubmit',
+  'Stop',
+  'SubagentStop',
+  'SessionStart',
+  'SessionEnd',
+  'PreCompact',
+  'Notification'
+]
+
+/** Hooks manager — shell-command hooks in `.claude/settings.json`. */
+function HooksPanel(): JSX.Element {
+  const [rules, setRules] = useState<HookRule[] | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    window.forge.hooks
+      .list()
+      .then(setRules)
+      .catch(() => setRules([]))
+  }, [])
+
+  function patch(id: string, p: Partial<HookRule>): void {
+    setRules((rs) => (rs ?? []).map((r) => (r.id === id ? { ...r, ...p } : r)))
+    setDirty(true)
+    setSaved(false)
+  }
+  function addRule(): void {
+    setRules((rs) => [
+      ...(rs ?? []),
+      { id: crypto.randomUUID(), event: 'PreToolUse', matcher: '', command: '' }
+    ])
+    setDirty(true)
+    setSaved(false)
+  }
+  function removeRule(id: string): void {
+    setRules((rs) => (rs ?? []).filter((r) => r.id !== id))
+    setDirty(true)
+    setSaved(false)
+  }
+  async function save(): Promise<void> {
+    if (!rules) return
+    setSaving(true)
+    try {
+      const result = await window.forge.hooks.save(rules.filter((r) => r.command.trim()))
+      setRules(result)
+      setDirty(false)
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toolEvent = (ev: string): boolean => ev === 'PreToolUse' || ev === 'PostToolUse'
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">HOOKS</div>
+          <div className="skills-sub">
+            Shell commands in <code>.claude/settings.json</code> · fire on engine events ·{' '}
+            <span className="hook-warn">they run real commands locally</span>
+          </div>
+        </div>
+        <div className="hooks-head-actions">
+          <button className="skill-act" onClick={addRule}>
+            + Add hook
+          </button>
+          <button className="primary skills-new" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Saving…' : saved && !dirty ? 'Saved ✓' : 'Save hooks'}
+          </button>
+        </div>
+      </div>
+
+      {rules === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : rules.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">🪝</div>
+          <div className="skills-empty-title">No hooks yet</div>
+          <div className="skills-empty-desc">
+            Add a hook to run a shell command when an event fires — e.g. a desktop notification on
+            <code>Stop</code>, or a guard on <code>PreToolUse</code>.
+          </div>
+        </div>
+      ) : (
+        <div className="hook-list">
+          {rules.map((r) => (
+            <div key={r.id} className="hook-row">
+              <div className="hook-grid">
+                <label className="hook-cell">
+                  <span className="hook-clabel">Event</span>
+                  <select
+                    className="skill-input hook-select"
+                    value={r.event}
+                    onChange={(e) => patch(r.id, { event: e.target.value })}
+                  >
+                    {HOOK_EVENTS.map((ev) => (
+                      <option key={ev} value={ev}>
+                        {ev}
+                      </option>
+                    ))}
+                    {!HOOK_EVENTS.includes(r.event) && <option value={r.event}>{r.event}</option>}
+                  </select>
+                </label>
+                <label className="hook-cell">
+                  <span className="hook-clabel">
+                    Matcher {toolEvent(r.event) ? '' : '(tool events only)'}
+                  </span>
+                  <input
+                    className="skill-input"
+                    value={r.matcher}
+                    placeholder={toolEvent(r.event) ? 'Bash · Edit|Write · * (blank = all)' : '—'}
+                    spellCheck={false}
+                    disabled={!toolEvent(r.event)}
+                    onChange={(e) => patch(r.id, { matcher: e.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="hook-cmd-row">
+                <label className="hook-cell hook-cmd-cell">
+                  <span className="hook-clabel">Command</span>
+                  <input
+                    className="skill-input hook-cmd"
+                    value={r.command}
+                    placeholder='e.g. notify-send "Claude finished"'
+                    spellCheck={false}
+                    onChange={(e) => patch(r.id, { command: e.target.value })}
+                  />
+                </label>
+                <button className="hook-del" title="Remove hook" onClick={() => removeRule(r.id)}>
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface McpDraft {
+  originalName?: string
+  name: string
+  transport: McpTransport
+  command: string
+  argsText: string
+  envText: string
+  url: string
+  headersText: string
+}
+
+function entryToDraft(e: McpServerEntry): McpDraft {
+  return {
+    originalName: e.name,
+    name: e.name,
+    transport: e.transport,
+    command: e.command ?? '',
+    argsText: (e.args ?? []).join('\n'),
+    envText: Object.entries(e.env ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n'),
+    url: e.url ?? '',
+    headersText: Object.entries(e.headers ?? {})
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n')
+  }
+}
+
+/** MCP server manager — add/edit/remove servers + live connection status. */
+function McpPanel({
+  status,
+  onChanged
+}: {
+  status: McpServer[]
+  onChanged?: () => void
+}): JSX.Element {
+  const [servers, setServers] = useState<McpServerEntry[] | null>(null)
+  const [editing, setEditing] = useState<McpDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function refresh(): void {
+    window.forge.mcp
+      .list()
+      .then(setServers)
+      .catch(() => setServers([]))
+  }
+  useEffect(refresh, [])
+
+  const statusByName = new Map(status.map((s) => [s.name, s.status]))
+
+  async function remove(name: string): Promise<void> {
+    if (!window.confirm(`Remove MCP server "${name}"?`)) return
+    setBusy(true)
+    try {
+      setServers(await window.forge.mcp.delete(name))
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">MCP SERVERS</div>
+          <div className="skills-sub">
+            Model Context Protocol servers Forge connects on each run · stdio / http / sse
+          </div>
+        </div>
+        <div className="hooks-head-actions">
+          <button className="skill-act" onClick={() => onChanged?.()} title="Re-probe connections">
+            Test connections
+          </button>
+          <button
+            className="primary skills-new"
+            onClick={() =>
+              setEditing({
+                name: '',
+                transport: 'stdio',
+                command: '',
+                argsText: '',
+                envText: '',
+                url: '',
+                headersText: ''
+              })
+            }
+          >
+            + Add server
+          </button>
+        </div>
+      </div>
+
+      {servers === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : servers.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">🔌</div>
+          <div className="skills-empty-title">No MCP servers</div>
+          <div className="skills-empty-desc">
+            Add a server to give the agent extra tools — a local stdio process or a remote http/sse
+            endpoint.
+          </div>
+        </div>
+      ) : (
+        <div className="skill-list">
+          {servers.map((s) => {
+            const st = statusByName.get(s.name)
+            return (
+              <div key={s.name} className="skill-row">
+                <span
+                  className={`mcp-dot ${st ? mcpStatusClass(st) : ''}`}
+                  title={st ?? 'not yet probed'}
+                />
+                <button className="skill-main" onClick={() => setEditing(entryToDraft(s))}>
+                  <div className="skill-name">
+                    {s.name}
+                    <span className="mcp-transport">{s.transport}</span>
+                    {st ? <span className="mcp-status-inline">{st}</span> : null}
+                  </div>
+                  <div className="skill-desc">
+                    {s.transport === 'stdio'
+                      ? [s.command, ...(s.args ?? [])].filter(Boolean).join(' ') || 'No command'
+                      : s.url || 'No URL'}
+                  </div>
+                </button>
+                <div className="skill-actions">
+                  <button className="skill-act" onClick={() => setEditing(entryToDraft(s))}>
+                    Edit
+                  </button>
+                  <button
+                    className="skill-act danger"
+                    disabled={busy}
+                    onClick={() => remove(s.name)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {editing && (
+        <McpEditor
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(list) => {
+            setServers(list)
+            setEditing(null)
+            onChanged?.()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function parseLines(text: string, sep: RegExp): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim()
+    if (!t) continue
+    const m = t.match(sep)
+    if (m) out[m[1].trim()] = m[2].trim()
+  }
+  return out
+}
+
+function McpEditor({
+  draft,
+  onClose,
+  onSaved
+}: {
+  draft: McpDraft
+  onClose: () => void
+  onSaved: (servers: McpServerEntry[]) => void
+}): JSX.Element {
+  const isNew = !draft.originalName
+  const [name, setName] = useState(draft.name)
+  const [transport, setTransport] = useState<McpTransport>(draft.transport)
+  const [command, setCommand] = useState(draft.command)
+  const [argsText, setArgsText] = useState(draft.argsText)
+  const [envText, setEnvText] = useState(draft.envText)
+  const [url, setUrl] = useState(draft.url)
+  const [headersText, setHeadersText] = useState(draft.headersText)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const nameOk = /^[A-Za-z0-9_-]{1,64}$/.test(name.trim())
+  const stdio = transport === 'stdio'
+  const canSave =
+    nameOk && (stdio ? command.trim().length > 0 : /^https?:\/\//i.test(url.trim()))
+
+  async function save(): Promise<void> {
+    if (!canSave) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await window.forge.mcp.save({
+        originalName: draft.originalName,
+        name: name.trim(),
+        transport,
+        command: command.trim(),
+        args: argsText.split(/\r?\n/).map((a) => a.trim()).filter(Boolean),
+        env: parseLines(envText, /^([^=]+)=(.*)$/),
+        url: url.trim(),
+        headers: parseLines(headersText, /^([^:]+):(.*)$/)
+      })
+      if (res.ok) onSaved(res.servers)
+      else setError(res.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal skill-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">{isNew ? 'ADD MCP SERVER' : `EDIT · ${draft.originalName}`}</div>
+
+        <div className="hook-grid">
+          <label className="skill-field" style={{ marginBottom: 0 }}>
+            <span className="skill-flabel">Name</span>
+            <input
+              className={`skill-input ${name && !nameOk ? 'bad' : ''}`}
+              value={name}
+              placeholder="my-server"
+              spellCheck={false}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus={isNew}
+            />
+          </label>
+          <label className="skill-field" style={{ marginBottom: 0 }}>
+            <span className="skill-flabel">Transport</span>
+            <select
+              className="skill-input hook-select"
+              value={transport}
+              onChange={(e) => setTransport(e.target.value as McpTransport)}
+            >
+              <option value="stdio">stdio (local process)</option>
+              <option value="http">http (remote)</option>
+              <option value="sse">sse (remote)</option>
+            </select>
+          </label>
+        </div>
+
+        {stdio ? (
+          <>
+            <label className="skill-field">
+              <span className="skill-flabel">
+                Command <span className="skill-hint">executable to spawn</span>
+              </span>
+              <input
+                className="skill-input"
+                value={command}
+                placeholder="npx"
+                spellCheck={false}
+                onChange={(e) => setCommand(e.target.value)}
+              />
+            </label>
+            <label className="skill-field">
+              <span className="skill-flabel">
+                Args <span className="skill-hint">one per line</span>
+              </span>
+              <textarea
+                className="skill-body"
+                style={{ minHeight: 80 }}
+                value={argsText}
+                rows={3}
+                spellCheck={false}
+                placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/path'}
+                onChange={(e) => setArgsText(e.target.value)}
+              />
+            </label>
+            <label className="skill-field">
+              <span className="skill-flabel">
+                Env <span className="skill-hint">KEY=value per line · optional</span>
+              </span>
+              <textarea
+                className="skill-body"
+                style={{ minHeight: 64 }}
+                value={envText}
+                rows={2}
+                spellCheck={false}
+                placeholder={'API_KEY=...'}
+                onChange={(e) => setEnvText(e.target.value)}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="skill-field">
+              <span className="skill-flabel">URL</span>
+              <input
+                className={`skill-input ${url && !/^https?:\/\//i.test(url) ? 'bad' : ''}`}
+                value={url}
+                placeholder="https://example.com/mcp"
+                spellCheck={false}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </label>
+            <label className="skill-field">
+              <span className="skill-flabel">
+                Headers <span className="skill-hint">Key: Value per line · optional</span>
+              </span>
+              <textarea
+                className="skill-body"
+                style={{ minHeight: 80 }}
+                value={headersText}
+                rows={3}
+                spellCheck={false}
+                placeholder={'Authorization: Bearer ...'}
+                onChange={(e) => setHeadersText(e.target.value)}
+              />
+            </label>
+          </>
+        )}
+
+        {error && <div className="skill-error">{error}</div>}
+        <div className="skill-note">
+          Stored in Forge config (not in <code>.claude/</code>) and connected via the SDK on each
+          run. Status appears after the next run or “Test connections”.
+        </div>
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!canSave || saving} onClick={save}>
+            {saving ? 'Saving…' : 'Save server'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface AgentDraft {
+  originalName?: string
+  name: string
+  description: string
+  tools: string
+  model: string
+  body: string
+}
+
+const AGENT_TEMPLATE = `You are a focused subagent. State your role and how you work.
+
+- Be precise and return only what the caller needs.
+`
+
+/** Reusable subagent manager — `.claude/agents/<name>.md`. */
+function AgentsPanel(): JSX.Element {
+  const [agents, setAgents] = useState<AgentMeta[] | null>(null)
+  const [editing, setEditing] = useState<AgentDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function refresh(): void {
+    window.forge.agents
+      .list()
+      .then(setAgents)
+      .catch(() => setAgents([]))
+  }
+  useEffect(refresh, [])
+
+  async function openEdit(name: string): Promise<void> {
+    const d = await window.forge.agents.read(name)
+    if (d)
+      setEditing({
+        originalName: d.name,
+        name: d.name,
+        description: d.description,
+        tools: d.tools ?? '',
+        model: d.model ?? '',
+        body: d.body
+      })
+  }
+  function openNew(): void {
+    setEditing({ name: '', description: '', tools: '', model: '', body: AGENT_TEMPLATE })
+  }
+  async function remove(a: AgentMeta): Promise<void> {
+    if (!window.confirm(`Delete agent "${a.name}"? This removes its file.`)) return
+    setBusy(true)
+    try {
+      setAgents(await window.forge.agents.delete(a.name))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">SUBAGENTS</div>
+          <div className="skills-sub">
+            Authored in <code>.claude/agents</code> · the model delegates to them via the Task tool
+          </div>
+        </div>
+        <button className="primary skills-new" onClick={openNew}>
+          + New agent
+        </button>
+      </div>
+
+      {agents === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : agents.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">🤖</div>
+          <div className="skills-empty-title">No subagents yet</div>
+          <div className="skills-empty-desc">
+            Create a named agent with its own system prompt — reusable for delegated subtasks.
+          </div>
+        </div>
+      ) : (
+        <div className="skill-list">
+          {agents.map((a) => (
+            <div key={a.name} className="skill-row">
+              <button className="skill-main" onClick={() => openEdit(a.name)}>
+                <div className="skill-name">
+                  {a.name}
+                  {a.model ? <span className="mcp-transport">{a.model}</span> : null}
+                </div>
+                <div className="skill-desc">{a.description || 'No description'}</div>
+              </button>
+              <div className="skill-actions">
+                <button className="skill-act" onClick={() => openEdit(a.name)}>
+                  Edit
+                </button>
+                <button className="skill-act danger" disabled={busy} onClick={() => remove(a)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <AgentEditor
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(list) => {
+            setAgents(list)
+            setEditing(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function AgentEditor({
+  draft,
+  onClose,
+  onSaved
+}: {
+  draft: AgentDraft
+  onClose: () => void
+  onSaved: (agents: AgentMeta[]) => void
+}): JSX.Element {
+  const isNew = !draft.originalName
+  const [name, setName] = useState(draft.name)
+  const [description, setDescription] = useState(draft.description)
+  const [tools, setTools] = useState(draft.tools)
+  const [model, setModel] = useState(draft.model)
+  const [body, setBody] = useState(draft.body)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const nameOk = SKILL_NAME_RE.test(name.trim())
+
+  async function save(): Promise<void> {
+    if (!nameOk) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await window.forge.agents.write({
+        name: name.trim(),
+        description,
+        tools,
+        model,
+        body,
+        originalName: draft.originalName
+      })
+      if (res.ok) onSaved(res.agents)
+      else setError(res.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal skill-editor" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">{isNew ? 'NEW SUBAGENT' : `EDIT · ${draft.originalName}`}</div>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Name <span className="skill-hint">lowercase-hyphen id · the file name</span>
+          </span>
+          <input
+            className={`skill-input ${name && !nameOk ? 'bad' : ''}`}
+            value={name}
+            placeholder="test-writer"
+            spellCheck={false}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus={isNew}
+          />
+        </label>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            Description <span className="skill-hint">tells the model when to delegate to it</span>
+          </span>
+          <input
+            className="skill-input"
+            value={description}
+            placeholder="Writes thorough unit tests for a given module."
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+
+        <div className="hook-grid">
+          <label className="skill-field" style={{ marginBottom: 0 }}>
+            <span className="skill-flabel">
+              Tools <span className="skill-hint">optional · comma-sep</span>
+            </span>
+            <input
+              className="skill-input"
+              value={tools}
+              placeholder="Read, Grep, Bash"
+              spellCheck={false}
+              onChange={(e) => setTools(e.target.value)}
+            />
+          </label>
+          <label className="skill-field" style={{ marginBottom: 0 }}>
+            <span className="skill-flabel">
+              Model <span className="skill-hint">optional</span>
+            </span>
+            <input
+              className="skill-input"
+              value={model}
+              placeholder="sonnet · opus · inherit"
+              spellCheck={false}
+              onChange={(e) => setModel(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="skill-field">
+          <span className="skill-flabel">
+            System prompt <span className="skill-hint">the agent's instructions</span>
+          </span>
+          <textarea
+            className="skill-body"
+            value={body}
+            rows={9}
+            spellCheck={false}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </label>
+
+        {error && <div className="skill-error">{error}</div>}
+        <div className="skill-note">
+          Saved to <code>.claude/agents/{name.trim() || 'name'}.md</code>. Discovered by the engine
+          and usable via the Task tool.
+        </div>
+
+        <div className="modal-actions">
+          <button className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!nameOk || saving} onClick={save}>
+            {saving ? 'Saving…' : 'Save agent'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Local plugin bundles passed to the SDK `plugins` option. */
+function PluginsPanel({ onChanged }: { onChanged?: () => void }): JSX.Element {
+  const [plugins, setPlugins] = useState<PluginEntry[] | null>(null)
+  const [path, setPath] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function refresh(): void {
+    window.forge.plugins
+      .list()
+      .then(setPlugins)
+      .catch(() => setPlugins([]))
+  }
+  useEffect(refresh, [])
+
+  async function add(): Promise<void> {
+    const p = path.trim()
+    if (!p) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await window.forge.plugins.add(p)
+      if (res.ok) {
+        setPlugins(res.plugins)
+        setPath('')
+        onChanged?.()
+      } else setError(res.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function toggle(p: PluginEntry): Promise<void> {
+    setBusy(true)
+    try {
+      setPlugins(await window.forge.plugins.toggle(p.path, !p.enabled))
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function remove(p: PluginEntry): Promise<void> {
+    if (!window.confirm(`Unregister plugin?\n${p.path}`)) return
+    setBusy(true)
+    try {
+      setPlugins(await window.forge.plugins.remove(p.path))
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="skills-panel">
+      <div className="skills-head">
+        <div>
+          <div className="skills-title">PLUGINS</div>
+          <div className="skills-sub">
+            Local plugin bundles (a dir with <code>.claude-plugin/plugin.json</code>) — skills,
+            commands, hooks &amp; agents in one package
+          </div>
+        </div>
+      </div>
+
+      <div className="plugin-add">
+        <input
+          className={`skill-input ${error ? 'bad' : ''}`}
+          value={path}
+          placeholder="C:\path\to\plugin-dir"
+          spellCheck={false}
+          onChange={(e) => {
+            setPath(e.target.value)
+            setError(null)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add()
+          }}
+        />
+        <button className="primary skills-new" disabled={!path.trim() || busy} onClick={add}>
+          + Add
+        </button>
+      </div>
+      {error && <div className="skill-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      {plugins === null ? (
+        <div className="skills-empty">loading…</div>
+      ) : plugins.length === 0 ? (
+        <div className="skills-empty">
+          <div className="skills-empty-icon">📦</div>
+          <div className="skills-empty-title">No plugins registered</div>
+          <div className="skills-empty-desc">
+            Point Forge at a local plugin directory to load its bundled extensions on each run.
+          </div>
+        </div>
+      ) : (
+        <div className="skill-list">
+          {plugins.map((p) => (
+            <div key={p.path} className={`skill-row ${p.enabled ? '' : 'off'}`}>
+              <button
+                className={`skill-switch ${p.enabled ? 'on' : ''}`}
+                title={p.enabled ? 'Enabled' : 'Disabled'}
+                disabled={busy}
+                onClick={() => toggle(p)}
+              >
+                <span className="skill-knob" />
+              </button>
+              <div className="skill-main" style={{ cursor: 'default' }}>
+                <div className="skill-name">
+                  {p.manifestName || p.path.replace(/^.*[\\/]/, '')}
+                  {!p.exists ? (
+                    <span className="mcp-status-inline" style={{ color: 'var(--danger)' }}>
+                      missing
+                    </span>
+                  ) : p.error ? (
+                    <span className="mcp-status-inline">{p.error}</span>
+                  ) : (
+                    <span className="mcp-status-inline">ok</span>
+                  )}
+                </div>
+                <div className="skill-desc">{p.path}</div>
+              </div>
+              <div className="skill-actions">
+                <button className="skill-act danger" disabled={busy} onClick={() => remove(p)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
@@ -672,6 +2101,8 @@ function toolIcon(name: string): string {
       return '⌕'
     case 'Task':
       return '◆'
+    case 'Skill':
+      return '🧩'
     case 'WebFetch':
     case 'WebSearch':
       return '∮'
@@ -682,7 +2113,20 @@ function toolIcon(name: string): string {
 
 function toolArgObj(input: unknown): string {
   const o = (input ?? {}) as Record<string, unknown>
-  return String(o.command ?? o.file_path ?? o.path ?? o.pattern ?? o.url ?? o.description ?? '')
+  return String(
+    o.skill ??
+      o.command ??
+      o.file_path ??
+      o.path ??
+      o.pattern ??
+      o.url ??
+      o.description ??
+      o.subject ??
+      o.status ??
+      o.query ??
+      o.name ??
+      ''
+  )
 }
 
 function toolArg(inputRaw: string): string {
@@ -691,6 +2135,60 @@ function toolArg(inputRaw: string): string {
   } catch {
     return ''
   }
+}
+
+interface Todo {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm?: string
+}
+
+/** Tolerant parse of a TodoWrite tool input (may be partial mid-stream). */
+function parseTodos(input: unknown): Todo[] | null {
+  try {
+    const o = typeof input === 'string' ? JSON.parse(input) : input
+    const todos = (o as { todos?: unknown })?.todos
+    if (Array.isArray(todos)) {
+      return todos
+        .filter((t): t is Todo => !!t && typeof (t as Todo).content === 'string')
+        .map((t) => ({
+          content: t.content,
+          status: t.status === 'completed' || t.status === 'in_progress' ? t.status : 'pending',
+          activeForm: typeof t.activeForm === 'string' ? t.activeForm : undefined
+        }))
+    }
+  } catch {
+    /* partial JSON while streaming */
+  }
+  return null
+}
+
+/** Render a TodoWrite list as a live checklist (shared by live + history views). */
+function TodoList({ todos }: { todos: Todo[] }): JSX.Element {
+  const done = todos.filter((t) => t.status === 'completed').length
+  return (
+    <div className="todo-card">
+      <div className="todo-head">
+        <span className="tool-icon">☑</span>
+        <span className="tool-name">TASKS</span>
+        <span className="todo-count">
+          {done}/{todos.length}
+        </span>
+      </div>
+      <ul className="todo-list">
+        {todos.map((t, i) => (
+          <li key={i} className={`todo-item ${t.status}`}>
+            <span className="todo-check">
+              {t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '◐' : '☐'}
+            </span>
+            <span className="todo-text">
+              {t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 /** Render a restored past-conversation transcript (read-only). */
@@ -721,6 +2219,10 @@ function HistoryView({ items }: { items: TranscriptItem[] }): JSX.Element | null
             </div>
           )
         }
+        if (it.name === 'TodoWrite') {
+          const todos = parseTodos(it.input)
+          if (todos && todos.length) return <TodoList key={i} todos={todos} />
+        }
         const arg = toolArgObj(it.input)
         const badge = it.status === 'error' ? 'ERR' : 'OK'
         const result =
@@ -738,6 +2240,45 @@ function HistoryView({ items }: { items: TranscriptItem[] }): JSX.Element | null
         )
       })}
       <div className="history-divider">— resumed · continue below —</div>
+    </div>
+  )
+}
+
+/** Pinned, collapsible task progress bar (shown above the composer). */
+function TodoBar({ todos }: { todos: Todo[] }): JSX.Element {
+  const [open, setOpen] = useState(true)
+  const done = todos.filter((t) => t.status === 'completed').length
+  const current = todos.find((t) => t.status === 'in_progress')
+  const pct = todos.length ? Math.round((done / todos.length) * 100) : 0
+  return (
+    <div className="todo-bar">
+      <button className="todo-bar-head" onClick={() => setOpen((o) => !o)}>
+        <span className="todo-bar-caret">{open ? '▾' : '▸'}</span>
+        <span className="todo-bar-title">TASKS</span>
+        <span className="todo-bar-prog">
+          {done}/{todos.length}
+        </span>
+        {!open && current && (
+          <span className="todo-bar-current">{current.activeForm || current.content}</span>
+        )}
+        <span className="todo-bar-track">
+          <span className="todo-bar-fill" style={{ width: `${pct}%` }} />
+        </span>
+      </button>
+      {open && (
+        <ul className="todo-list">
+          {todos.map((t, i) => (
+            <li key={i} className={`todo-item ${t.status}`}>
+              <span className="todo-check">
+                {t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '◐' : '☐'}
+              </span>
+              <span className="todo-text">
+                {t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -761,6 +2302,20 @@ function BlockView({ block, streaming }: { block: Block; streaming: boolean }): 
           {block.text}
           {streaming && <span className="caret">▍</span>}
         </pre>
+      </div>
+    )
+  }
+  // TodoWrite renders as a checklist rather than a generic tool card.
+  if (block.name === 'TodoWrite') {
+    const todos = parseTodos(block.inputRaw)
+    if (todos && todos.length) return <TodoList todos={todos} />
+    return (
+      <div className="todo-card">
+        <div className="todo-head">
+          <span className="tool-icon">☑</span>
+          <span className="tool-name">TASKS</span>
+        </div>
+        <div className="muted small">updating…</div>
       </div>
     )
   }
@@ -788,6 +2343,89 @@ interface Turn {
   blocks: Block[]
   meta: RunMeta | null
   running: boolean
+}
+
+function normTaskStatus(s: string): Todo['status'] {
+  return s === 'completed' ? 'completed' : s === 'in_progress' ? 'in_progress' : 'pending'
+}
+
+/**
+ * Reconstruct the current task list from Task-tool activity across the live
+ * transcript. The SDK's models manage work via TaskCreate/TaskUpdate/TaskList
+ * (not TodoWrite), so we replay those calls:
+ *  - TaskCreate result "Task #<id> created successfully: <subject>" → add task
+ *  - TaskUpdate input { taskId, status, subject? }                 → mutate task
+ *  - TaskList result "#<id> [<status>] <subject>" (per line)       → snapshot sync
+ */
+function deriveTasks(turns: Turn[]): Todo[] {
+  type T = Todo & { id: string }
+  const map = new Map<string, T>()
+  const order: string[] = []
+  const upsert = (id: string, patch: Partial<T>): void => {
+    const cur = map.get(id)
+    if (!cur) {
+      order.push(id)
+      map.set(id, {
+        id,
+        content: patch.content ?? `Task ${id}`,
+        status: patch.status ?? 'pending',
+        activeForm: patch.activeForm
+      })
+    } else {
+      map.set(id, { ...cur, ...patch })
+    }
+  }
+  for (const turn of turns) {
+    for (const b of turn.blocks) {
+      if (b.kind !== 'tool') continue
+      if (b.name === 'TaskCreate') {
+        const m = /Task #(\d+) created successfully:\s*([\s\S]+)/.exec(b.result ?? '')
+        if (m) {
+          let activeForm: string | undefined
+          try {
+            activeForm = (JSON.parse(b.inputRaw) as { activeForm?: string }).activeForm
+          } catch {
+            /* still streaming */
+          }
+          upsert(m[1], { content: m[2].trim(), activeForm })
+        }
+      } else if (b.name === 'TaskUpdate') {
+        try {
+          const inp = JSON.parse(b.inputRaw) as {
+            taskId?: string | number
+            status?: string
+            subject?: string
+            activeForm?: string
+          }
+          if (inp.taskId != null) {
+            const id = String(inp.taskId)
+            if (inp.status === 'deleted') {
+              map.delete(id)
+              const i = order.indexOf(id)
+              if (i >= 0) order.splice(i, 1)
+            } else {
+              upsert(id, {
+                ...(inp.status ? { status: normTaskStatus(inp.status) } : {}),
+                ...(inp.subject ? { content: inp.subject } : {}),
+                ...(inp.activeForm ? { activeForm: inp.activeForm } : {})
+              })
+            }
+          }
+        } catch {
+          /* partial JSON mid-stream */
+        }
+      } else if (b.name === 'TaskList') {
+        for (const line of (b.result ?? '').split('\n')) {
+          const m = /^#(\d+)\s+\[([a-z_]+)\]\s+([\s\S]+)$/.exec(line.trim())
+          if (m) upsert(m[1], { content: m[3].trim(), status: normTaskStatus(m[2]) })
+        }
+      }
+    }
+  }
+  return order
+    .map((id) => map.get(id))
+    .filter((t): t is T => !!t)
+    .map(({ content, status, activeForm }) => ({ content, status, activeForm }))
 }
 
 /** Apply one streaming event to a turn's ordered block list. */
@@ -928,6 +2566,135 @@ function PermissionModal({
           </button>
           <button className="primary" autoFocus onClick={() => onResolve(true)}>
             Approve
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface DialogReq {
+  id: string
+  dialogKind: string
+  payload: Record<string, unknown>
+  toolUseID?: string
+}
+
+/** Answer to an AskUserQuestion prompt (matches the main-process QuestionResult). */
+type QResult =
+  | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+  | { behavior: 'deny'; message: string }
+
+interface DialogOption {
+  label: string
+  description?: string
+  preview?: string
+}
+interface DialogQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: DialogOption[]
+}
+
+/**
+ * Interactive UI for the AskUserQuestion tool (dialogKind
+ * 'permission_ask_user_question'). On submit we return the PermissionResult the
+ * CLI expects: { behavior:'allow', updatedInput:{ questions, answers, annotations } }
+ * where answers maps each question string to the chosen label(s).
+ */
+function QuestionModal({
+  req,
+  onSubmit,
+  onCancel
+}: {
+  req: DialogReq
+  onSubmit: (result: QResult) => void
+  onCancel: () => void
+}): JSX.Element {
+  const questions = (Array.isArray(req.payload.questions)
+    ? req.payload.questions
+    : []) as DialogQuestion[]
+  const [picks, setPicks] = useState<Record<string, string[]>>({})
+  const [others, setOthers] = useState<Record<string, string>>({})
+
+  function toggle(q: DialogQuestion, label: string): void {
+    setPicks((prev) => {
+      const cur = prev[q.question] ?? []
+      if (q.multiSelect) {
+        return {
+          ...prev,
+          [q.question]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
+        }
+      }
+      return { ...prev, [q.question]: cur.includes(label) ? [] : [label] }
+    })
+  }
+
+  const answered = questions.every(
+    (q) => (picks[q.question]?.length ?? 0) > 0 || (others[q.question] ?? '').trim().length > 0
+  )
+
+  function submit(): void {
+    const answers: Record<string, string> = {}
+    const annotations: Record<string, { preview?: string; notes?: string }> = {}
+    for (const q of questions) {
+      const chosen = [...(picks[q.question] ?? [])]
+      const other = (others[q.question] ?? '').trim()
+      if (other) chosen.push(other)
+      if (!chosen.length) continue
+      answers[q.question] = chosen.join(', ')
+      const ann: { preview?: string; notes?: string } = {}
+      if (!q.multiSelect && picks[q.question]?.length === 1) {
+        const opt = q.options.find((o) => o.label === picks[q.question][0])
+        if (opt?.preview) ann.preview = opt.preview
+      }
+      if (other) ann.notes = other
+      if (ann.preview || ann.notes) annotations[q.question] = ann
+    }
+    onSubmit({ behavior: 'allow', updatedInput: { questions, answers, annotations } })
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal question-modal">
+        <div className="modal-title">CLAUDE ASKS</div>
+        {questions.map((q, qi) => {
+          const chosen = picks[q.question] ?? []
+          return (
+            <div className="q-block" key={qi}>
+              <div className="q-head">
+                {q.header && <span className="q-header">{q.header}</span>}
+                {q.multiSelect && <span className="q-multi">multi-select</span>}
+              </div>
+              <div className="q-text">{q.question}</div>
+              <div className="q-options">
+                {q.options.map((o, oi) => (
+                  <button
+                    key={oi}
+                    className={`q-option${chosen.includes(o.label) ? ' selected' : ''}`}
+                    onClick={() => toggle(q, o.label)}
+                  >
+                    <span className="q-opt-label">{o.label}</span>
+                    {o.description && <span className="q-opt-desc">{o.description}</span>}
+                  </button>
+                ))}
+              </div>
+              <input
+                className="q-other"
+                placeholder="Other… (type a custom answer)"
+                value={others[q.question] ?? ''}
+                onChange={(e) => setOthers((p) => ({ ...p, [q.question]: e.target.value }))}
+              />
+            </div>
+          )
+        })}
+        <div className="modal-actions">
+          <button className="ghost" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="primary" disabled={!answered} onClick={submit}>
+            Submit
           </button>
         </div>
       </div>
@@ -1106,6 +2873,14 @@ function SquadView({
       if (ev.type === 'session') return
       if (ev.type === 'system') {
         if (ev.model) setAgents((p) => p.map((a) => (a.id === agentId ? { ...a, contextModel: ev.model! } : a)))
+        return
+      }
+      if (ev.type === 'dialog') {
+        // Squad is non-interactive (plan/read-only); deny so the run doesn't hang.
+        window.forge.agent.respondDialog(ev.id, {
+          behavior: 'deny',
+          message: 'Squad agents cannot answer interactive questions'
+        })
         return
       }
       if (ev.type === 'permission') {
@@ -1456,6 +3231,7 @@ function Composer({
   const [prompt, setPrompt] = useState('')
   const [turns, setTurns] = useState<Turn[]>([])
   const [perms, setPerms] = useState<PermReq[]>([])
+  const [dialogs, setDialogs] = useState<DialogReq[]>([])
   const [menuIndex, setMenuIndex] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -1499,6 +3275,21 @@ function Composer({
         }
         return
       }
+      if (ev.type === 'dialog') {
+        if (ev.dialogKind === 'permission_ask_user_question' && ev.runId === runIdRef.current) {
+          setDialogs((prev) => [
+            ...prev,
+            { id: ev.id, dialogKind: ev.dialogKind, payload: ev.payload, toolUseID: ev.toolUseID }
+          ])
+        } else {
+          // Unknown kind or background run — deny so the subprocess proceeds.
+          window.forge.agent.respondDialog(ev.id, {
+            behavior: 'deny',
+            message: 'Not answerable here'
+          })
+        }
+        return
+      }
       if (ev.type === 'result') {
         setTurns((prev) =>
           prev.map((t) =>
@@ -1513,6 +3304,7 @@ function Composer({
         )
         if (ev.runId === runIdRef.current) {
           setPerms([])
+          setDialogs([])
           taRef.current?.focus()
         }
         if (typeof ev.contextTokens === 'number') setContextTokens(ev.contextTokens)
@@ -1555,6 +3347,7 @@ function Composer({
   useEffect(() => {
     setTurns([])
     setPerms([])
+    setDialogs([])
     setAttachments([])
     setContextTokens(0)
     setContextModel('')
@@ -1571,6 +3364,27 @@ function Composer({
   }, [sessionKey])
 
   const running = turns.some((t) => t.running)
+
+  // Task progress for the pinned bar above the composer. Models track work via
+  // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
+  // fall back to TodoWrite for any agent that still uses it.
+  const taskTodos = deriveTasks(turns)
+  let latestTodos: Todo[] | null = taskTodos.length ? taskTodos : null
+  if (!latestTodos) {
+    outer: for (let i = turns.length - 1; i >= 0; i--) {
+      const blocks = turns[i].blocks
+      for (let j = blocks.length - 1; j >= 0; j--) {
+        const b = blocks[j]
+        if (b.kind === 'tool' && b.name === 'TodoWrite') {
+          const todos = parseTodos(b.inputRaw)
+          if (todos && todos.length) {
+            latestTodos = todos
+            break outer
+          }
+        }
+      }
+    }
+  }
 
   // Auto-compact when context crosses 80% (opt-in via the LIMITS toggle).
   useEffect(() => {
@@ -1914,6 +3728,7 @@ function Composer({
       )}
 
       <div className="composer-wrap">
+        {latestTodos && <TodoBar todos={latestTodos} />}
         {attachments.length > 0 && (
           <div className="attach-row">
             {attachments.map((a) => (
@@ -2000,6 +3815,23 @@ function Composer({
             const id = perms[0].id
             window.forge.agent.respondPermission(id, allow)
             setPerms((prev) => prev.slice(1))
+          }}
+        />
+      )}
+
+      {dialogs[0]?.dialogKind === 'permission_ask_user_question' && (
+        <QuestionModal
+          req={dialogs[0]}
+          onSubmit={(result) => {
+            window.forge.agent.respondDialog(dialogs[0].id, result)
+            setDialogs((prev) => prev.slice(1))
+          }}
+          onCancel={() => {
+            window.forge.agent.respondDialog(dialogs[0].id, {
+              behavior: 'deny',
+              message: 'User dismissed the question'
+            })
+            setDialogs((prev) => prev.slice(1))
           }}
         />
       )}

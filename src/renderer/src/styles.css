@@ -1912,3 +1912,689 @@ button {
   letter-spacing: 0.12em;
 }
 
+/* ---- TodoWrite checklist ---- */
+.todo-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--amber-dim);
+  border-radius: 8px;
+  padding: 11px 14px;
+}
+.todo-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.todo-head .tool-name {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+}
+.todo-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.todo-check {
+  flex: none;
+  width: 14px;
+  color: var(--muted);
+}
+.todo-item.completed .todo-check {
+  color: #4ccb6a;
+}
+.todo-item.in_progress .todo-check {
+  color: var(--amber);
+}
+.todo-item.completed .todo-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.todo-item.in_progress .todo-text {
+  color: var(--amber-bright);
+  font-weight: 600;
+}
+
+/* ---- pinned task bar (above the composer) ---- */
+.todo-bar {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--amber);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.todo-bar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.todo-bar-caret {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+.todo-bar-title {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--amber);
+}
+.todo-bar-prog {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.todo-bar-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--amber-bright);
+}
+.todo-bar-track {
+  flex: none;
+  margin-left: auto;
+  width: 90px;
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.todo-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+  transition: width 0.25s ease;
+}
+.todo-bar .todo-list {
+  padding: 4px 12px 10px;
+}
+
+/* ---- AskUserQuestion dialog ---- */
+.question-modal {
+  width: 560px;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.q-block {
+  margin-bottom: 18px;
+}
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.q-header {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: rgba(232, 147, 42, 0.12);
+  border: 1px solid var(--amber-dim);
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+.q-multi {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.q-text {
+  font-size: 14.5px;
+  color: var(--text);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+.q-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.q-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.q-option:hover {
+  border-color: var(--amber-dim);
+}
+.q-option.selected {
+  border-color: var(--amber);
+  background: rgba(232, 147, 42, 0.1);
+}
+.q-opt-label {
+  font-weight: 700;
+}
+.q-opt-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.q-other {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+.q-other:focus {
+  border-color: var(--amber);
+}
+
+/* ============================ EXTEND console ============================ */
+.extend-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+.extend-nav {
+  flex: none;
+  width: 184px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+  background: #100d0a;
+  overflow-y: auto;
+}
+.extend-nav-title {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  padding: 0 8px 8px;
+}
+.extend-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.extend-nav-item:hover {
+  background: rgba(232, 147, 42, 0.06);
+}
+.extend-nav-item.on {
+  background: rgba(232, 147, 42, 0.12);
+  border-color: var(--amber-dim);
+  color: var(--amber-bright);
+}
+.extend-nav-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+.extend-nav-label {
+  flex: 1;
+}
+.extend-soon {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.extend-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 26px;
+}
+.extend-stub {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+.extend-stub-icon {
+  font-size: 34px;
+  opacity: 0.55;
+}
+.extend-stub-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.extend-stub-desc {
+  font-size: 12px;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+/* ---- Skills panel ---- */
+.skills-panel {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.skills-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.skills-title {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+  font-weight: 700;
+}
+.skills-sub {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.skills-sub code,
+.skill-note code {
+  font-family: var(--mono);
+  color: var(--amber-bright);
+  background: rgba(232, 147, 42, 0.08);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 0.92em;
+}
+.skills-new {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 9px 16px;
+  white-space: nowrap;
+}
+.skills-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 56px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.skills-empty-icon {
+  font-size: 38px;
+  opacity: 0.5;
+}
+.skills-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.skills-empty-desc {
+  font-size: 12px;
+  max-width: 360px;
+  line-height: 1.5;
+}
+.skills-empty-desc code {
+  font-family: var(--mono);
+  color: var(--amber-bright);
+  font-size: 0.92em;
+  margin-left: 3px;
+}
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.12s, opacity 0.12s;
+}
+.skill-row:hover {
+  border-color: var(--amber-dim);
+}
+.skill-row.off {
+  opacity: 0.55;
+}
+.skill-switch {
+  flex: none;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.skill-switch.on {
+  background: rgba(232, 147, 42, 0.85);
+  border-color: var(--amber);
+}
+.skill-switch:disabled {
+  cursor: default;
+}
+.skill-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.14s, background 0.14s;
+}
+.skill-switch.on .skill-knob {
+  transform: translateX(16px);
+  background: #1c1813;
+}
+.skill-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.skill-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--amber-bright);
+}
+.skill-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.skill-actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+.skill-act {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.skill-act:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--amber-dim);
+}
+.skill-act.danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.skill-act:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- Skill editor modal ---- */
+.skill-editor {
+  width: 600px;
+}
+.skill-field {
+  display: block;
+  margin-bottom: 13px;
+}
+.skill-flabel {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.skill-hint {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.skill-input {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.skill-input:focus {
+  border-color: var(--amber);
+}
+.skill-input.bad {
+  border-color: var(--danger);
+}
+.skill-body {
+  width: 100%;
+  resize: vertical;
+  min-height: 200px;
+  padding: 11px 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  outline: none;
+  user-select: text;
+  transition: border-color 0.15s;
+}
+.skill-body:focus {
+  border-color: var(--amber);
+}
+.skill-error {
+  margin-top: 4px;
+  padding: 8px 11px;
+  font-size: 12px;
+  color: var(--danger);
+  background: rgba(212, 102, 58, 0.1);
+  border: 1px solid rgba(212, 102, 58, 0.4);
+  border-radius: 7px;
+}
+.skill-note {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.cmd-hint {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- Hooks ---- */
+.hooks-head-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.hooks-head-actions .skill-act {
+  padding: 9px 14px;
+}
+.hook-warn {
+  color: var(--danger);
+}
+.hook-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hook-row {
+  padding: 13px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.hook-row:hover {
+  border-color: var(--amber-dim);
+}
+.hook-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.hook-cell {
+  display: block;
+}
+.hook-clabel {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.hook-select {
+  cursor: pointer;
+}
+.hook-cmd {
+  font-size: 12.5px;
+}
+.skill-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hook-cmd-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.hook-cmd-cell {
+  flex: 1;
+  min-width: 0;
+}
+.hook-del {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.hook-del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ---- MCP panel ---- */
+.skill-row .mcp-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin: 0 1px;
+}
+.mcp-transport {
+  margin-left: 9px;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--amber);
+  border: 1px solid var(--amber-dim);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.mcp-status-inline {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- Plugins ---- */
+.plugin-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.plugin-add .skill-input {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-add .skills-new {
+  flex: none;
+}
+

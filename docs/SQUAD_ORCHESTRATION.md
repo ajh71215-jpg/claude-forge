@@ -1,229 +1,172 @@
-# Squad Orchestration — 상세 설계 & 구현 플랜
+# Squad Orchestration — 설계 (v2)
 
-> 메인 채팅에서 서브에이전트를 **하이브리드(토글) 방식**으로 조율하고, Squad 탭은
-> 세밀한 진행률 모니터로 전환하는 재설계. 2026년 하네스 엔지니어링 논문·활용사례와
-> Claude Agent SDK 공식 동작에 근거한다.
-
----
-
-## 0. 검증 결과 — 현재 Squad는 "오케스트레이션 없는 병렬 팬아웃"
-
-코드로 확인된 사실(평결: 기능은 동작하나 멀티에이전트가 아니라 *동시 멀티런*):
-
-- `runAll()` → 각 에이전트에 `runAgent()`를 도는 단순 루프 (`src/renderer/src/App.tsx:3007-3009`).
-- 각 `runAgent()`는 **완전히 독립된** `window.forge.agent.start(runId, task, opts)` 호출
-  (`App.tsx:2990`). N개의 별개 `query()` 세션이며 서로의 출력을 못 본다.
-- 종합/투표/심판 단계 없음. `onResult`는 비용 합산만.
-- 메인 러너 `runStreaming`은 SDK에 `options.agents`를 **전달하지 않는다**
-  (`src/main/agent.ts:537-569` — skills/mcp/plugins만 와이어링). 따라서 현재는 메인
-  채팅도 서브에이전트를 띄울 수 없다.
-- Squad는 비대화형이라 질문 이벤트를 자동 거부 (`App.tsx:2879-2884`).
-- 이벤트는 runId로 패널에 분배 (`App.tsx:2869-2871`).
-
-→ 사용자가 느낀 "한 질문에 3개 모델이 따로 답할 뿐"이 정확. 트리 구조(orchestrator-worker)로 가야 한다.
+> v1을 냉정하게 비판하고, 2026 최신 연구로 다시 설계한 버전. 목표는 "여러 모델 병렬"이
+> 아니라 **효율(비용/지연) · 능력 · 결과 품질을 동시에 최대화하는 결정론적 오케스트레이션
+> 런타임**이다. 핵심 전제: 멀티에이전트는 공짜 점심이 아니다 — eval로 단일 에이전트를
+> 이기지 못하면 만들지 않는다(§G).
 
 ---
 
-## 1. 연구 근거 (2026 중심) — 무엇을, 왜
+## A. v1 자기비판 (냉정하게)
 
-### 1.1 오케스트레이터-워커가 능력을 키운다 (단, 비싸다)
-- **Anthropic, 멀티에이전트 리서치 시스템**: Opus 오케스트레이터 + Sonnet 워커 →
-  단일 Opus 대비 **+90.2%**. 단 토큰 **~15배**. 토큰 사용량이 성능 분산의 **80%**를
-  설명(나머지는 도구호출·모델선택). 고가치 breadth-first 작업에만 경제성이 성립.
-  → *모델 티어링(Opus=리드, Sonnet/Haiku=워커) + 강한 예산 가드레일*이 필수.
-- **AOrchestra (arXiv 2602.03786)**: 서브에이전트 **자동 생성** 오케스트레이션,
-  GAIA/SWE-Bench/Terminal-Bench에서 최강 베이스라인 대비 **+16.28%**.
-  → *AgentDefinition 자동 제안* 기능의 근거(후순위).
+v1(`이전 버전`)의 결함들:
 
-### 1.2 컨텍스트 격리 = 효율의 핵심
-- **Dynamic Attentional Context Scoping / DACS (arXiv 2604.07911)**: N개 동시 에이전트가
-  오케스트레이터의 컨텍스트 창을 두고 경쟁해 의사결정 품질이 저하("context pollution").
-  에이전트별 격리 스티어링으로 **90.0–98.4%** vs 평면 컨텍스트 **21.0–60.0%**,
-  컨텍스트 효율 최대 **3.53×**.
-  → *워커의 중간 산출은 부모 컨텍스트에 누적시키지 말고 요약만 올려라.* (SDK 기본 동작과 일치)
-- **Context Engineering: From Prompts to Corporate Multi-Agent (arXiv 2603.09619)**:
-  "attenuation 원칙"(Tomasev 2026) — 서브에이전트엔 작업에 필요한 **권한의 좁은 조각만**
-  넘긴다. StrongDM 사례: 테스트 시나리오를 에이전트 시야에서 제거했더니 reward-hacking 해소.
-  → *워커별 `tools`/권한 최소화*는 안전이자 효율.
-
-### 1.3 검증(Verification)은 추론-시점 스케일링의 핵심 레버
-- **Multi-Agent Verification (arXiv 2502.20379)**: 다수 검증자로 test-time compute 스케일.
-- **Marco DeepResearch (arXiv 2603.28376)**: 무작정 라운드/롤아웃만 늘리면 초기 도구 오류·노이즈가
-  누적되어 신뢰도 하락 → **검증자-가이드(verifier-guided) test-time scaling**으로 명시적 검증 삽입.
-- **VerifiAgent (arXiv 2504.00406)**: 통합 검증 에이전트.
-- **Inference-Time Scaling of Verification (arXiv 2601.15808)**: 루브릭-가이드 자기진화 리서치.
-- **Multiagent Debate (ICML 2024, composable-models/llm_multiagent_debate)**: 3 에이전트·2 라운드 →
-  수학·사실성 향상, 환각 감소.
-- **Agentic Test-Time Scaling for WebAgents (arXiv 2602.12276)**: 순차 작업은 단계별 오류가
-  복리로 누적 → 한 번의 나쁜 결정이 복구 불가 궤적을 만든다(중간 검증의 필요).
-- ⚠️ **LLM-as-judge 편향**: 단일 심판은 게이밍 가능(설득조 헛소리에 높은 점수),
-  position bias(순서 바꾸면 판정 뒤집힘). 완화책: **순서 스왑 검사**, pointwise+pairwise 혼용,
-  복수 심판, 가능하면 **도구/테스트 결과로 그라운딩**(순수 self-critique는 약함).
-
-### 1.4 하네스는 측정 없이 개선 불가 (Forge 최대 공백)
-- **AHE: Agentic Harness Engineering (arXiv 2604.25850)**: 관찰가능성 3축 —
-  (1) component(편집 가능한 컴포넌트의 파일 단위 표현·되돌리기), (2) experience(수백만 토큰
-  궤적을 드릴다운 가능한 증거로 증류), (3) **decision(모든 편집에 예측을 달고 다음 라운드
-  결과로 검증)**. 10회 반복으로 Terminal-Bench 2 **69.7→77.0%**, 사람이 설계한 Codex-CLI(71.9%)
-  초과; frozen harness가 SWE-bench-verified로 **12% 적은 토큰**에 전이.
-  → Forge에 **eval 골든셋 + 회귀 측정**이 있어야 "오케스트레이션이 실제로 단일 에이전트를
-  이겼는지"를 증명할 수 있다.
-- 활용사례 현실 점검: Klarna·Cisco·Vizient 등 프로덕션 배포 사례 있으나, 16개사 실무자 조사
-  (Apostolou 2026)에서 **"Level 3: 멀티에이전트 오케스트레이션"에 도달한 곳은 1곳뿐**.
-  → 단계적·검증가능하게 가야 하며, 토글로 끌 수 있어야 한다.
+1. **Free-form 위임에 과의존.** "메인 `query()`에 `agents`를 넘기고 리드가 알아서 위임"은
+   2026 기준 안티패턴이다. 자유 위임은 무한 reflection 루프·환각 툴콜·토큰 폭주라는 신규
+   실패모드를 만든다. 산업/연구 표준은 **하이브리드(결정론적 골격 + 그 안에서 모델이 전술
+   결정)** 다. (Blueprint-First, arXiv 2508.02721)
+2. **"리드가 종합·선택한다"는 가정이 틀렸다.** 2026 벤치마크(arXiv 2602.18998)는
+   **generator–verifier gap**을 보인다: pass@K는 단조 증가하지만 **self-choice 정확도는 뒤처진다**
+   — 모델은 정답을 *생성*해도 자기 생성물 중 정답을 *고르지* 못한다. 따라서 리드가 워커 결과를
+   직접 고르게 하면 안 된다. **외부/도구기반/더 강한 검증자**가 선택해야 한다.
+3. **검증 스테이지가 프롬프트 의존.** "프로토콜을 오케스트레이터 시스템 프롬프트에 심는다"는
+   취약하고 검증 불가. 검증은 **결정론적 코드 게이트**로 만들어야 한다.
+4. **무작정 N 스케일.** 순차 스케일은 **context ceiling**에 막히고 병렬 스케일은 실익이 제한적
+   (arXiv 2602.18998). 효율 기법(early-stopping, cascade, confidence-weighted vote)이 전무했다.
+5. **Eval을 Phase 4로 미룸.** 측정 없이 "최고 결과"는 공허. AHE의 decision-observability를
+   **foundational(Phase 0)**로 끌어와야 한다.
+6. **비용 현실 안일.** 오케스트레이션은 ~15× 토큰(Anthropic). pre-run **비용 투영 + 하드 캡**이
+   1급 아키텍처 제약이어야 하는데 "경고 배지"로 끝냈다.
+7. **데이터 계약 부재.** UI·이벤트만 있고 오케스트레이션 상태(plan DAG·blackboard·verdict)라는
+   1급 자료구조가 없었다.
+8. **토폴로지 고정 프리셋.** task type별로 최적 토폴로지가 다른데 router가 없었다.
 
 ---
 
-## 2. 목표 아키텍처 — 하이브리드 토글 오케스트레이터-워커
+## B. 설계 원칙 (연구 매핑)
+
+- **하이브리드 결정론.** Forge가 골격(상태머신)을 소유하고, 모델은 그 경계 안에서 전술만
+  결정. 추적성은 코드에 있고 실행은 bounded. (Blueprint-First; 산업 hybrid orchestration)
+- **검증자-가이드 TTS + 외부 검증.** self-choice가 약하므로(§A.2) 검증은 생성자와 분리.
+  best-of-N은 **검증자가** 선택. 가능하면 **도구기반(테스트/타입체크)** = gap 없는 객관 검증.
+  (Multi-Agent Verification 2502.20379; Marco DeepResearch 2603.28376; VerifiAgent 2504.00406;
+  RLV 2505.04842)
+- **효율은 brute force가 아니라 타겟 컴퓨트.** ceiling을 존중해 무작정 N을 늘리지 않고:
+  - **Cascade**: 싼 모델 먼저, 자기검증 실패/저신뢰 시에만 상위로 승급 (AutoMix; routing survey 2603.04445; 2511.06190)
+  - **Early-Stopping Self-Consistency(ESC)**: 윈도가 합의하면 즉시 중단 → 최대 80% 샘플 절감
+  - **Confidence-weighted vote(CISC/ReASC)**: 균등투표 대신 신뢰가중 → 40~80% 절감
+- **컨텍스트 격리/attenuation.** 워커는 작업에 필요한 최소 슬라이스만. 오케스트레이터 컨텍스트
+  오염 방지. (DACS 2604.07911; Context Engineering 2603.09619)
+- **결정-관찰가능성 eval.** 변경마다 예측을 달고 결과로 검증 (AHE 2604.25850).
+- **강건성**: judge 편향 완화(순서 스왑·복수 judge·도구 그라운딩); reward-hacking 방지(생성자에게
+  테스트 오라클 비노출 — StrongDM 사례); 단계간 체크포인트로 오류 복리 차단(WebAgents 2602.12276);
+  bounded execution(최대 깊이/턴/예산)으로 runaway 차단.
+
+---
+
+## C. v2 아키텍처 — "Conductor" 런타임
 
 ```
-CHAT 탭 (메인 대화)                          SQUAD 탭 (모니터)
-┌─────────────────────────────┐            ┌────────────────────────────┐
-│ [🜂 Orchestrate ▢/▣]  토글   │            │ Run: <runId>               │
-│ 사용자 프롬프트 …            │            │  ├─ research-a  ▓▓▓░ running │
-│                              │  parent_   │  │   model=sonnet $0.02    │
-│ 메인=리드(Opus)              │  tool_use  │  ├─ research-b  ▓▓▓▓ done   │
-│  └ Agent 툴로 워커 위임 ─────┼──_id 묶음─▶│  └─ judge       ░░░░ queued │
-│  └ 최종 요약만 대화에 남김   │            │  (세밀 진행률·토큰·도구)   │
-└─────────────────────────────┘            └────────────────────────────┘
-        (auto 위임)  +  (force: "use X agent")     설정: AgentDefinition 편집
+                      ┌────────────── Blackboard (typed state) ──────────────┐
+사용자 작업 ─▶ Planner ─▶ Plan(DAG) ─▶ [사용자 승인/편집] ─▶ Conductor ─┐    │
+ (CHAT 토글)   (lead)    JSON(constrained)   (hybrid=force)   (결정론적)  │    │
+                                                                          ▼    │
+                                              Worker pool (격리·cascade) ──┐   │
+                                                                          ▼   │
+                                              Verifier(외부·모드선택·ESC) ─┤   │
+                                                                          ▼   │
+                                              Synthesizer(lead) ─▶ Final ─┘   │
+                      Budget Governor(투영·하드캡)  +  Eval harness ──────────┘
+                      Squad 탭 = Plan 편집기 + Blackboard 라이브 모니터
 ```
 
-핵심 원리(연구 매핑):
-- **하이브리드 = auto + force.** 기본은 리드가 `description` 보고 위임(네이티브). 사용자가
-  특정 워커를 강제하려면 "Use the X agent to …"를 프롬프트에 주입(공식 문서상 호출 보장).
-- **컨텍스트 격리**(DACS·SDK): 워커 중간 산출은 부모로 누적 안 됨, 최종 메시지만. 메인 대화 깨끗.
-- **모델 티어링**(Anthropic): 리드=Opus, 워커=Sonnet/Haiku 기본.
-- **권한 attenuation**(2603.09619): 워커별 `tools` 최소화가 기본.
-- **검증 스테이지**(§4): 선택적 수렴 단계(투표/디베이트/심판).
+컴포넌트:
+- **Planner(lead, Opus)** — 작업을 **구조화 plan**으로 출력(프로즈 아님, constrained JSON
+  툴콜): subtask 목록·의존(DAG)·subtask별 토폴로지·모델 티어·도구 범위·**성공 루브릭**·예산.
+- **하이브리드 제어 = 편집 가능한 plan** (진짜 "force" 메커니즘). auto면 승인 생략, 아니면
+  Squad 탭에서 사람이 plan을 보고 수정/승인 후 실행.
+- **Conductor(Forge main, 결정론적)** — plan DAG를 상태머신으로 실행. SDK 서브에이전트/`Workflow`
+  툴로 워커 spawn(격리 컨텍스트), 병렬/재시도/예산/캐시 관리.
+- **Worker pool** — cascade(Haiku→Sonnet→Opus, AutoMix식 자기검증 후 승급), 공유 cacheable prefix.
+- **Verifier(외부)** — 모드 선택: 도구기반(테스트/타입체크) / 루브릭 pointwise / pairwise(순서스왑) /
+  self-consistency(ESC) / debate. 생성자와 분리, 싼 모델 우선, 불일치 시 승급.
+- **Synthesizer(lead)** — 검증 통과 결과 + verdict·근거로 최종 산출.
+- **Blackboard** — typed 공유 상태(아래 §D). 단계 간 흐르는 단일 진실원, 오케스트레이터 컨텍스트
+  깨끗하게 유지.
+- **Budget Governor** — 실행 전 비용 투영(워커×토큰×모델), 하드 캡, 한계효용 소진 시 early-stop.
+- **Eval harness** — 골든셋 + 단일에이전트 베이스라인 비교(§G).
+
+**토폴로지 라우터(task type별):**
+- 코딩/롱호라이즌 → **plan–execute–verify–revise**, 단일 드라이버 + **도구기반 verifier** + 체크포인트
+- 사실/추론 수렴 → **self-consistency(ESC, CISC)** 또는 **debate**
+- breadth-first 리서치 → **fan-out + 외부 verifier 선택**
+- 모호/닫힌 답 → **cascade**(AutoMix 자기검증 후 승급)
 
 ---
 
-## 3. 컴포넌트별 변경 설계
+## D. 데이터 계약 (v1에서 빠졌던 핵심)
 
-### 3.1 `src/main/agent.ts`
-- `RunOptions` 확장:
-  ```ts
-  agents?: Record<string, AgentDefinition>   // 사용 가능한 워커 풀
-  orchestrate?: boolean                       // 토글 ON → agents/Agent 툴 활성
-  forceAgents?: string[]                      // hybrid: 강제 위임할 워커 이름
-  verify?: VerifyConfig                       // §4
-  ```
-- `runStreaming`에서 `opts.orchestrate`일 때:
-  - `options.agents = opts.agents`
-  - `options.allowedTools`에 `Agent`(필요 시 `Workflow`) 포함 → 자동승인.
-    (현재 bypass 모드면 canUseTool이 전부 allow하지만, ASK 모드 호환 위해 명시.)
-  - `forceAgents`가 있으면 프롬프트 앞에 위임 지시문 주입.
-- **서브에이전트 이벤트 표면화** (신규 `AgentEvent` 패밀리):
-  - `Agent` 툴 `tool_use` 감지 → `{type:'subagent-start', subId, name, prompt, parentToolUseId}`
-    (SDK 노트: 툴명이 버전에 따라 `Task`/`Agent` 둘 다 → 둘 다 매칭).
-  - 중첩 메시지의 `parent_tool_use_id`를 모든 이벤트에 실어 보냄(`parentToolUseId?` 필드 추가).
-  - `Agent` `tool_result` → `{type:'subagent-result', subId, agentId, summary, costUsd?}`
-    (`agentId`는 resume용으로 파싱).
-- 스트림 루프(`agent.ts:620~`)에서 `msg.parent_tool_use_id`를 읽어 태깅하도록 보강.
-
-### 3.2 `src/preload/index.ts`
-- 추가 IPC 불필요(이벤트는 기존 `agent:event` 채널로 흐름). 새 이벤트 타입만 통과시키면 됨.
-- `agent.start` opts 타입에 위 신규 필드만 노출.
-
-### 3.3 `src/renderer/src/App.tsx`
-- **CHAT(Composer 근처)**: `🜂 Orchestrate` 토글 + (hybrid) 워커 칩 선택기(강제 위임용).
-  토글 ON이면 `agent.start` opts에 `agents`(Squad 설정에서 빌드) + `orchestrate:true`
-  (+ 선택된 `forceAgents`) 포함.
-- **이벤트 라우팅**: 활성 run의 `subagent-*` 이벤트를 `parentToolUseId/agentId`로 묶어
-  `subagents: Map<subId, SubAgentRun>` 상태 유지 → Squad 모니터에 공급. 메인 대화에는
-  "🜂 delegated to research-a…" 같은 경량 카드만.
-- **SquadView 리팩터** → 둘로 분리:
-  - `SquadConfig`: **AgentDefinition 편집기**(name·**description**(자동 위임 핵심)·prompt·
-    model·**tools**·effort·permission·maxTurns). 기존 `SquadAgent` UI를 대부분 재활용.
-    저장은 기존 `forge-squads`(localStorage) 유지.
-  - `SquadMonitor`: 진행률 트리(상태·토큰·비용·현재 도구·턴). 독립 RUN 버튼은 제거하거나
-    "standalone test"로 격하.
-- **비용 가드레일**: 워커 수 × per-agent max$ 합계 + "~15× 토큰" 경고 배지.
-
-### 3.4 `src/renderer/src/styles.css`
-- 모니터 트리/진행바/서브에이전트 카드 스타일. (편집 후 중괄호 균형 점검 — CLAUDE.md 풋건)
+```ts
+type Plan = { goal: string; subtasks: Subtask[]; edges: [from,to][]; budgetUsd: number }
+type Subtask = {
+  id: string; instruction: string
+  topology: 'single'|'fanout'|'self_consistency'|'debate'|'cascade'
+  model: 'haiku'|'sonnet'|'opus'|'cascade'; tools: string[]
+  rubric: string; n?: number; maxTurns?: number
+}
+type Verdict = { subtaskId: string; pass: boolean; score: number
+                 confidence: number; rationale: string; evidence: string[] }
+type Artifact = { subtaskId: string; output: string; costUsd: number; verdict?: Verdict }
+```
+Conductor는 이 자료구조 위의 상태머신이고, Squad 모니터는 Blackboard를 그대로 렌더한다.
 
 ---
 
-## 4. 검증(Verification) 스테이지 — 사용자가 강조한 부분
+## E. 구현 변경점 (v1 대비 수정)
 
-Squad 설정에서 선택하는 **선택적 수렴 단계**. 연구 매핑 포함:
-
-| 모드 | 절차 | 근거 | 적합 |
-|---|---|---|---|
-| **A. Self-consistency 투표** | 동일 작업 N 워커 → 다수결/캘리브레이션 | TTS·self-consistency | 닫힌/사실형 답 |
-| **B. Debate** | N 워커, 2 라운드 토론 후 합의 | ICML 2024 debate | 추론·사실성, 환각↓ |
-| **C. Judge / critique-revise** | 워커 산출 → judge 비평 → 워커 수정 | VerifiAgent·Marco | 개방형 산출 |
-
-구현: 가장 단순하게는 리드 오케스트레이터의 시스템 프롬프트에 수렴 프로토콜을 심고,
-모드 C는 전용 `judge` AgentDefinition 템플릿을 추가. **judge 편향 완화 필수**:
-1. pairwise 비교 시 **순서 스왑 검사**(뒤집히면 무효),
-2. pointwise+pairwise 혼용,
-3. 가능하면 **테스트 실행/컴파일 결과로 그라운딩**(순수 self-critique는 약함; Marco의
-   "무작정 스케일은 오류 누적" 경고 반영 — 검증을 *명시적*으로),
-4. 고비용/고위험 작업은 복수 judge.
+- **`src/main/conductor.ts` 신규** — plan 실행 상태머신. 여러 `query()`/서브에이전트 호출을
+  결정론적으로 조율(대형 DAG는 `Workflow` 툴). v1처럼 "그냥 `agents` 넘기고 끝"이 아니다.
+- **`src/main/agent.ts`** — Planner용 constrained JSON 출력(plan 스키마 툴), verdict/blackboard
+  이벤트, 워커 호출 시 격리 컨텍스트·cascade 훅, Budget Governor 연동.
+- **`src/main/verifier.ts` 신규** — 검증 모드 구현(도구기반/루브릭/pairwise+스왑/ESC/debate),
+  judge 편향 완화 내장.
+- **`App.tsx`** — Squad 탭 = **Plan 편집기(승인/수정)** + Blackboard 라이브 모니터. CHAT 토글이
+  Conductor 기동. v1의 "독립 RUN" 제거.
+- **`scripts/eval.mjs` 신규** — 골든셋 + 베이스라인 비교(§G), decision-observability 로깅.
 
 ---
 
-## 5. 효율·능력 가드레일 (설계에 내장)
+## F. 단계별 플랜 (재배치 — 인프라·측정 우선)
 
-- **모델 티어링**: 리드=Opus, 워커 기본=Sonnet, 단순 워커=Haiku.
-- **예산**: per-agent max$/run(기존 제약) 유지 + 합계 투영 + 워커 수 상한(현 6).
-- **컨텍스트 위생**(DACS): 워커 요약만 부모로; 모니터는 별도 탭이라 메인 컨텍스트 오염 없음.
-- **권한 attenuation**: 워커 `tools` 최소 집합 기본(read-only 분석 워커 등).
-- **수렴≠병렬 충돌**(기존 Forge 제약): 같은 파일을 고치는 수렴 작업은 병렬 금지, breadth-first만 병렬.
-
----
-
-## 6. 단계별 플랜
-
-- **Phase 1 — PoC(파이프라인 검증)**: 토글 뒤에서 메인 run에 `agents` + `Agent` 툴 전달,
-  `subagent-start/result` 이벤트 표면화, Squad에 최소 진행 트리. → 위임→격리→요약 전 구간 동작 확인.
-- **Phase 2 — 하이브리드 UI**: force-dispatch 칩 + AgentDefinition 편집기(description/tools/model)
-  로 SquadConfig 리팩터, 비용 투영·예산 캡.
-- **Phase 3 — 검증 스테이지**: 투표 → 디베이트 → judge(편향 완화 포함) 순으로 추가.
-- **Phase 4 — 스케일 & eval**: 대규모 팬아웃은 `Workflow` 툴(TS SDK v0.3.149+), 서브에이전트
-  resume, 그리고 **eval 골든셋**(AHE의 decision-observability 식: 변경마다 예측을 달고 결과로 검증)
-  으로 "오케스트레이션이 단일 에이전트를 이겼는지" 회귀 측정.
+- **Phase 0 (foundational)**: Eval harness + Budget Governor + Blackboard 자료구조. **기능보다 측정/
+  안전장치 먼저.**
+- **Phase 1**: **단일 토폴로지 end-to-end — 코딩용 plan–execute–verify–revise.** 단일 드라이버 +
+  **도구기반 verifier**(테스트/타입체크) + 체크포인트. 이걸 1순위로 고르는 이유: 도구기반 검증은
+  generator–verifier gap이 없는 **객관 검증**이라 가장 신뢰도 높고 Forge(코딩 도구)에 직결.
+  → 골든셋에서 단일 에이전트 대비 측정.
+- **Phase 2**: self-consistency + **ESC/CISC**(닫힌/사실형) + **cascade 라우팅(AutoMix)**.
+- **Phase 3**: fan-out 리서치 + **외부 verifier 선택**; debate.
+- **Phase 4**: planner가 전문가 자동 생성(AOrchestra 2602.03786); 대형 DAG `Workflow`; 서브에이전트 resume.
 
 ---
 
-## 7. 리스크 & 결정사항
+## G. 냉정한 전제 (kill criteria)
 
-- **SDK 버전**: `Workflow` 툴 = TS SDK v0.3.149+; 중첩 서브에이전트 = Claude Code v2.1.172+;
-  툴명 `Task`→`Agent` 전환(v2.1.63) → 양쪽 매칭.
-- **Windows 긴 프롬프트**: 서브에이전트 프롬프트 8191자 제한 → 긴 건 `.claude/agents/` 파일로.
-- **프로덕션 난이도**: 16개사 중 1곳만 Level 3 도달 → 토글 OFF로 항상 단일 채팅 복귀 가능해야.
-- **judge 게이밍/편향**: §4 완화책 미적용 시 검증이 오히려 품질을 떨어뜨릴 수 있음.
-- **비용 15×**: 기본을 보수적으로(워커=Sonnet/Haiku, 캡 ON).
+- **Phase 1이 골든셋에서 단일 에이전트를 "수용 가능한 비용 배수 안에서" 이기지 못하면 중단한다.**
+  context ceiling(2602.18998)과 "16개사 중 1곳만 Level 3"(Apostolou 2026) 현실상 멀티에이전트는
+  공짜가 아니다. **eval이 게이트**다 — 이기는 증거가 없으면 이 복잡도를 출하하지 않는다.
+- 비용은 보수적으로: 기본 워커 = Sonnet/Haiku, cascade·ESC 기본 ON, 실행 전 비용 투영 필수.
+- 토글 OFF면 언제나 단일 채팅으로 복귀 가능해야 한다.
 
 ---
 
-## 8. 참고문헌 (2026 중심)
+## H. 참고문헌
 
-논문/1차 출처
-- Claude Agent SDK — Subagents(공식): https://code.claude.com/docs/en/agent-sdk/subagents
-- Anthropic, 멀티에이전트 리서치 시스템(orchestrator-worker, +90.2%, ~15×):
-  https://www.anthropic.com/engineering/built-multi-agent-research-system
-- AHE — Agentic Harness Engineering (arXiv 2604.25850): https://arxiv.org/abs/2604.25850
-- AOrchestra — Automating Sub-Agent Creation (arXiv 2602.03786): https://arxiv.org/abs/2602.03786
-- Dynamic Attentional Context Scoping / DACS (arXiv 2604.07911): https://arxiv.org/abs/2604.07911
-- Context Engineering: From Prompts to Corporate Multi-Agent (arXiv 2603.09619): https://arxiv.org/pdf/2603.09619
-- Multi-Agent Verification (arXiv 2502.20379): https://arxiv.org/pdf/2502.20379
-- Marco DeepResearch — Verifier-Guided TTS (arXiv 2603.28376): https://arxiv.org/pdf/2603.28376
-- VerifiAgent (arXiv 2504.00406): https://arxiv.org/pdf/2504.00406
-- Inference-Time Scaling of Verification (arXiv 2601.15808): https://arxiv.org/html/2601.15808v2
-- Agentic Test-Time Scaling for WebAgents (arXiv 2602.12276): https://arxiv.org/pdf/2602.12276
-- Multiagent Debate (ICML 2024): https://composable-models.github.io/llm_debate/ ·
-  repo https://github.com/composable-models/llm_multiagent_debate
+핵심 전환 근거(신규)
+- Benchmark Test-Time Scaling of General LLM Agents — generator–verifier gap·context ceiling
+  (arXiv 2602.18998): https://arxiv.org/abs/2602.18998
+- Blueprint First, Model Second — 결정론적 LLM 워크플로 (arXiv 2508.02721): https://arxiv.org/pdf/2508.02721
+- Dynamic Model Routing & Cascading 서베이 (arXiv 2603.04445): https://arxiv.org/abs/2603.04445
+- Confidence-Guided Stepwise Model Routing (arXiv 2511.06190): https://arxiv.org/pdf/2511.06190
+- RLV: reasoner+verifier 통합, 8–32× 효율 (arXiv 2505.04842): https://arxiv.org/html/2505.04842v2
+- AutoMix(자기검증 후 승급), ESC(early-stopping self-consistency), CISC/ReASC(신뢰가중 투표) — 위 서베이/topics 참조
 
-큐레이션/허브
-- VoltAgent/awesome-ai-agent-papers (2026): https://github.com/VoltAgent/awesome-ai-agent-papers
-- LLM-Harness Survey (ETCLOVG): https://picrew.github.io/LLM-Harness/
-- awesome-harness-engineering: https://github.com/ai-boost/awesome-harness-engineering
-- self-correction-llm-papers: https://github.com/teacherpeterpan/self-correction-llm-papers
-- Awesome-LLM-Self-Consistency: https://github.com/SuperBruceJia/Awesome-LLM-Self-Consistency
+검증·오케스트레이션·효율(기존)
+- Multi-Agent Verification (arXiv 2502.20379) · Marco DeepResearch (2603.28376) · VerifiAgent (2504.00406)
+- Anthropic 멀티에이전트 리서치(+90.2%, ~15×): https://www.anthropic.com/engineering/built-multi-agent-research-system
+- AOrchestra (2602.03786) · DACS (2604.07911) · Context Engineering (2603.09619) · AHE (2604.25850)
+- Multiagent Debate (ICML 2024): https://github.com/composable-models/llm_multiagent_debate
+- Claude Agent SDK Subagents/Workflow(공식): https://code.claude.com/docs/en/agent-sdk/subagents
 
-> 비고: AHE의 Terminal-Bench 2 수치(예: GPT-5.4 69.7→77.0, NexAU-AHE 84.7%)는 위 arXiv 논문
-> 본문 출처. 일부 콘텐츠팜성 2차 글은 배제했다.
+> v1 대비 요지: "리드가 자유 위임·자기선택" → "결정론적 Conductor + 외부 검증 + 타겟 컴퓨트 +
+> eval 게이트". 토큰 패리티 관점은 `docs/TOKEN_PARITY.md` 참조.

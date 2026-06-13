@@ -3024,7 +3024,7 @@ function SquadView({
     const opts: import('../../main/agent').RunOptions = { permission: a.permission }
     const eff = effortOption(a.effort)
     if (eff) opts.effort = eff
-    if (a.model) opts.model = a.model
+    if (a.model && a.model !== 'default') opts.model = a.model
     if (a.persona.trim()) {
       opts.systemPrompt = { type: 'preset', preset: 'claude_code', append: a.persona.trim() }
     }
@@ -3486,7 +3486,7 @@ function Composer({
     }
     const opts: import('../../main/agent').RunOptions = { permission }
     if (effort) opts.effort = effort
-    if (model) opts.model = model
+    if (model && model !== 'default') opts.model = model
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))

@@ -96,6 +96,9 @@ export async function writeAgent(input: AgentInput): Promise<AgentWriteResult> {
   }
   const root = agentsRoot()
   const orig = input.originalName?.trim()
+  if (orig && !isValidSlug(orig)) {
+    return { ok: false, error: 'Invalid original name.' }
+  }
   try {
     await fs.mkdir(root, { recursive: true })
     if (orig && orig !== name) {

@@ -147,6 +147,9 @@ export async function writeSkill(input: SkillInput): Promise<SkillWriteResult> {
   const root = skillsRoot()
   const dir = join(root, name)
   const orig = input.originalName?.trim()
+  if (orig && !isValidSlug(orig)) {
+    return { ok: false, error: 'Invalid original name.' }
+  }
   try {
     await fs.mkdir(root, { recursive: true })
 

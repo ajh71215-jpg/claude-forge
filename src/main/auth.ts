@@ -138,10 +138,15 @@ export async function resolveAuthEnv(): Promise<Record<string, string | undefine
   if (mode === 'api-key') {
     const k = await readSecret()
     if (k) env.ANTHROPIC_API_KEY = k
+    // A stray ANTHROPIC_AUTH_TOKEN (#2) in the inherited env outranks the API
+    // key (#3), so strip it; drop the OAuth token too for good measure.
+    env.ANTHROPIC_AUTH_TOKEN = undefined
+    env.CLAUDE_CODE_OAUTH_TOKEN = undefined
   } else if (mode === 'oauth-token') {
     const t = await readSecret()
     if (t) env.CLAUDE_CODE_OAUTH_TOKEN = t
-    env.ANTHROPIC_API_KEY = undefined // don't let an API key outrank the token
+    env.ANTHROPIC_API_KEY = undefined // #3 don't let an API key outrank the token
+    env.ANTHROPIC_AUTH_TOKEN = undefined // #2 outranks the #5 OAuth token — strip it
   } else if (mode === 'subscription') {
     // Use the existing /login credentials. Strip anything that outranks #6.
     env.ANTHROPIC_API_KEY = undefined

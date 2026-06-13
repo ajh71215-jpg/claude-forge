@@ -502,7 +502,7 @@ export async function getSessions(): Promise<SessionInfo[]> {
       // Hide internal/utility sessions (usage probes, empty capability queries).
       .filter((s) => {
         const fp = (s.firstPrompt ?? '').trim()
-        return fp && !fp.startsWith('/usage') && !fp.startsWith('/context')
+        return fp && !fp.startsWith('/usage') && !fp.startsWith('/context') && !fp.startsWith('/compact')
       })
       .map((s) => ({
         sessionId: s.sessionId,

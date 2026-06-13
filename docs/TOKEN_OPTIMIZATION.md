@@ -42,8 +42,10 @@
 - 함정: **prefix가 흔들리면 cache miss**. persona append·동적 systemPrompt·MCP 도구 순서 변동이
   prefix를 깬다(이전 문서 #5). "Don't Break the Cache"(arXiv 2601.06007)는 장기 에이전트에서
   캐시 보존이 비용/지연을 좌우함을 보인다.
-- **2026 변경(보고됨, 공식 확인 요)**: 캐시 TTL이 60분→5분으로 단축되어 유휴 후 첫 요청 비용이
-  올랐다는 보고. → 공식 문서(platform.claude.com/prompt-caching)로 검증할 것.
+- **사실 정정(1차 출처 확인)**: "TTL이 2026에 60분→5분으로 단축됐다"는 2차 블로그 주장은 **틀렸다**.
+  공식 문서상 **기본 TTL은 원래 5분**, **1시간은 유료 옵션**(write 2x). 가격 배수는 cache write
+  1.25x(5분)/2x(1h), **cache read 0.1x**. 2026-02-05 변경은 TTL이 아니라 **캐시 격리(workspace 단위)**다.
+  유휴 5분 경과 후 첫 요청이 cache write가 되는 건 *원래부터의 동작*이다.
 - **Forge 조치**: ⒜ systemPrompt·도구 정의·CLAUDE.md를 prefix에 **고정/안정화**, 동적 콘텐츠를
   prefix에 넣지 않기. ⒝ SDK가 cache_control을 자동 설정하는지 확인하고 깨지 않게. ⒞ **cache hit %를
   1급 지표로** 대시보드 상단에. ⒟ 전략적 경계: system은 캐시, 동적 tool result는 캐시 제외.

@@ -1,0 +1,13 @@
+# Packaging config — wired up in a later step. Present now so the build target
+# is decided (Windows portable/nsis .exe via electron-builder).
+appId: com.claudeforge.app
+productName: Claude Forge
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+win:
+  target:
+    - nsis

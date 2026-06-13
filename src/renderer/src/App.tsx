@@ -326,6 +326,23 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const effModel = costSaver ? 'sonnet' : model
   const effEffort: EffortLabel = costSaver ? 'LOW' : effort
 
+  // Effort levels the selected model accepts (reported by the SDK). AUTO is
+  // always valid (it sends no effort param). Models that report no levels — e.g.
+  // Haiku, which has no effort control — or custom ids not in the list disable
+  // the non-AUTO cells so an unsupported effort is never sent (it would error).
+  const modelEfforts = models.find((m) => m.value === model)?.supportedEffortLevels
+  function effortSupported(label: EffortLabel): boolean {
+    if (label === 'AUTO') return true
+    if (!modelEfforts) return true // no info (custom id) → don't constrain
+    return modelEfforts.includes(label.toLowerCase())
+  }
+  // Switching to a model that can't do the current effort (e.g. Haiku) snaps
+  // the selection back to AUTO so the run doesn't carry an unsupported level.
+  useEffect(() => {
+    if (!effortSupported(effort)) setEffort('AUTO')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, modelEfforts])
+
   async function clear(): Promise<void> {
     await window.forge.auth.clear()
     onClear()
@@ -386,18 +403,25 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         <div className={`selector ${costSaver ? 'dim' : ''}`}>
           <div className="selector-label">EFFORT</div>
           <div className="effort-grid">
-            {EFFORTS.map((e) => (
-              <button
-                key={e}
-                className={`effort-cell ${!costSaver && effort === e ? 'on' : ''}`}
-                onClick={() => chooseEffort(e)}
-              >
-                {e}
-              </button>
-            ))}
+            {EFFORTS.map((e) => {
+              const ok = effortSupported(e)
+              return (
+                <button
+                  key={e}
+                  className={`effort-cell ${!costSaver && effort === e ? 'on' : ''}`}
+                  disabled={!ok}
+                  title={ok ? undefined : `${model} has no separate effort control`}
+                  onClick={() => chooseEffort(e)}
+                >
+                  {e}
+                </button>
+              )
+            })}
           </div>
           {costSaver ? (
             <div className="selector-hint">overridden by cost-saver → low</div>
+          ) : modelEfforts && modelEfforts.length === 0 ? (
+            <div className="selector-hint">{model} runs at a fixed effort</div>
           ) : (
             (effort === 'XHIGH' || effort === 'MAX') && (
               <div className="effort-warn">⚠ high token use</div>
@@ -2702,10 +2726,29 @@ function QuestionModal({
   )
 }
 
-/** Rough context window by model id ([1m] variants = 1M, else 200k). */
+/**
+ * Context window for a model id or alias. Most current models ship a 1M window
+ * natively (Sonnet 4.5/4.6, Opus 4.5+, Fable/Mythos) — only Haiku and the older
+ * Opus 4.0/4.1 are 200k. The `[1m]` suffix (subscription 1M tier) is always 1M.
+ * Unknown ids default to 200k (the safe, conservative side for compaction).
+ */
 function ctxWindow(model: string): number {
-  if (model.includes('[1m]')) return 1_000_000
-  return model ? 200_000 : 1_000_000
+  if (!model) return 1_000_000
+  const m = model.toLowerCase()
+  if (m.includes('[1m]')) return 1_000_000
+  if (m.includes('haiku')) return 200_000
+  if (m.includes('fable') || m.includes('mythos')) return 1_000_000
+  if (m.includes('sonnet')) {
+    // Sonnet 4.5 / 4.6 (and the bare `sonnet` alias) are 1M; older Sonnets 200k.
+    return m === 'sonnet' || m.includes('sonnet-4-5') || m.includes('sonnet-4-6')
+      ? 1_000_000
+      : 200_000
+  }
+  if (m.includes('opus')) {
+    // Opus 4.5/4.6/4.7/4.8 (and bare `opus`) are 1M; Opus 4.0/4.1 are 200k.
+    return m.includes('opus-4-0') || m.includes('opus-4-1') ? 200_000 : 1_000_000
+  }
+  return 200_000
 }
 
 const CLIENT_COMMANDS: SlashCommand[] = [
@@ -2981,7 +3024,7 @@ function SquadView({
     const opts: import('../../main/agent').RunOptions = { permission: a.permission }
     const eff = effortOption(a.effort)
     if (eff) opts.effort = eff
-    if (a.model) opts.model = a.model
+    if (a.model && a.model !== 'default') opts.model = a.model
     if (a.persona.trim()) {
       opts.systemPrompt = { type: 'preset', preset: 'claude_code', append: a.persona.trim() }
     }
@@ -3345,6 +3388,10 @@ function Composer({
   // Reset the visible transcript when starting a new / resumed conversation;
   // restore the past transcript when resuming an existing session.
   useEffect(() => {
+    // Switching to another conversation orphans any run still streaming on this
+    // one — interrupt it so it doesn't keep spending tokens (and cost) in the
+    // background where its output can no longer be shown.
+    if (runIdRef.current) window.forge.agent.interrupt(runIdRef.current)
     setTurns([])
     setPerms([])
     setDialogs([])
@@ -3356,7 +3403,20 @@ function Composer({
     if (sid) {
       window.forge.agent
         .transcript(sid)
-        .then(setHistory)
+        .then((items) => {
+          setHistory(items)
+          // Seed the context gauge from the restored transcript (~4 chars/token)
+          // so a resumed conversation doesn't read 0% until the next turn; the
+          // next result event replaces this estimate with the exact token count.
+          const chars = items.reduce(
+            (n, it) =>
+              n +
+              (('text' in it && it.text) || '').length +
+              (('result' in it && it.result) || '').length,
+            0
+          )
+          if (chars > 0) setContextTokens(Math.round(chars / 4))
+        })
         .catch(() => setHistory([]))
     } else {
       setHistory([])
@@ -3426,7 +3486,7 @@ function Composer({
     }
     const opts: import('../../main/agent').RunOptions = { permission }
     if (effort) opts.effort = effort
-    if (model) opts.model = model
+    if (model && model !== 'default') opts.model = model
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))

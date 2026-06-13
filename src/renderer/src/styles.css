@@ -427,6 +427,14 @@ button {
   color: var(--amber-bright);
   font-weight: 700;
 }
+.effort-cell:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.effort-cell:disabled:hover {
+  border-color: var(--border);
+  color: var(--muted);
+}
 .selector-hint {
   margin-top: 10px;
   font-size: 11px;

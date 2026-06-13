@@ -502,7 +502,7 @@ export async function getSessions(): Promise<SessionInfo[]> {
       // Hide internal/utility sessions (usage probes, empty capability queries).
       .filter((s) => {
         const fp = (s.firstPrompt ?? '').trim()
-        return fp && !fp.startsWith('/usage') && !fp.startsWith('/context')
+        return fp && !fp.startsWith('/usage') && !fp.startsWith('/context') && !fp.startsWith('/compact')
       })
       .map((s) => ({
         sessionId: s.sessionId,
@@ -614,6 +614,11 @@ export async function runStreaming(
 
   let turn = 0
   let sessionSent = false
+  // Did the current assistant message stream content as partial deltas? Local
+  // slash commands (/context, /cost, …) reply with a complete assistant message
+  // and no stream_events, so we synthesize block events for those (see below).
+  let streamed = false
+  let synTurn = 0
   const bid = (index: number): string => `${turn}:${index}`
 
   try {
@@ -628,7 +633,9 @@ export async function runStreaming(
         const ev = msg.event
         if (ev?.type === 'message_start') {
           turn += 1
+          streamed = false
         } else if (ev?.type === 'content_block_start') {
+          streamed = true
           const cb = ev.content_block
           if (cb?.type === 'text') send({ type: 'block-start', blockId: bid(ev.index), kind: 'text' })
           else if (cb?.type === 'thinking')
@@ -651,6 +658,26 @@ export async function runStreaming(
             send({ type: 'tool-input', blockId: bid(ev.index), partialJson: d.partial_json })
         } else if (ev?.type === 'content_block_stop') {
           send({ type: 'block-stop', blockId: bid(ev.index) })
+        }
+      } else if (msg.type === 'assistant') {
+        // A complete assistant message. For normal turns its blocks already
+        // streamed via deltas (streamed === true) so we ignore it. Local slash
+        // commands and other non-streamed replies arrive only here — synthesize
+        // block events so they render instead of showing an empty turn.
+        if (!streamed) {
+          const content = msg.message?.content
+          if (Array.isArray(content)) {
+            content.forEach((b: any, i: number) => {
+              const blockId = `syn:${synTurn}:${i}`
+              const text = b?.type === 'text' ? b.text : b?.type === 'thinking' ? b.thinking : ''
+              if ((b?.type === 'text' || b?.type === 'thinking') && (text ?? '').length) {
+                send({ type: 'block-start', blockId, kind: b.type })
+                send({ type: 'block-delta', blockId, text })
+                send({ type: 'block-stop', blockId })
+              }
+            })
+            synTurn += 1
+          }
         }
       } else if (msg.type === 'user') {
         const content = msg.message?.content

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { claudeDir } from './projectSettings'
-import { isValidSlug, parseFrontmatter, serializeFrontmatter } from './frontmatter'
+import { isValidSlug, parseFrontmatter, serializeFrontmatter, fileExists } from './frontmatter'
 
 /**
  * Reusable subagents (roadmap #5). Each is a `.claude/agents/<name>.md` with
@@ -131,11 +131,3 @@ export async function deleteAgent(name: string): Promise<AgentMeta[]> {
   return listAgents()
 }
 
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p)
-    return true
-  } catch {
-    return false
-  }
-}

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { claudeDir } from './projectSettings'
-import { isValidSlug, parseFrontmatter, serializeFrontmatter } from './frontmatter'
+import { isValidSlug, parseFrontmatter, serializeFrontmatter, fileExists } from './frontmatter'
 
 /**
  * Custom slash commands (roadmap #3). Each is a `.claude/commands/<name>.md`
@@ -125,11 +125,3 @@ export async function deleteCommand(name: string): Promise<CommandMeta[]> {
   return listCommands()
 }
 
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p)
-    return true
-  } catch {
-    return false
-  }
-}

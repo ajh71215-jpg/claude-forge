@@ -1,6 +1,8 @@
+import { promises as fs } from 'fs'
+
 /**
  * Minimal YAML-frontmatter helpers shared by the file-backed extension editors
- * (commands, agents). Skills predates this and keeps its own copy.
+ * (skills, commands, agents).
  *
  * We only deal with flat `key: value` scalars — enough for the SKILL.md /
  * command / agent frontmatter the SDK reads. Quoting is JSON-style, which is a
@@ -45,4 +47,14 @@ export function serializeFrontmatter(fields: Array<[string, string]>, body: stri
   const front = `---\n${lines.join('\n')}\n---\n`
   const b = body.trim()
   return b ? `${front}\n${b}\n` : front
+}
+
+/** Async file-existence check (shared by commands, agents, skills). */
+export async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p)
+    return true
+  } catch {
+    return false
+  }
 }

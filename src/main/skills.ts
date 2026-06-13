@@ -1,6 +1,7 @@
-import { app } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
+import { claudeDir, workspaceRoot } from './projectSettings'
+import { parseFrontmatter, serializeFrontmatter, isValidSlug, fileExists } from './frontmatter'
 
 /**
  * Skills console (roadmap feature #1).
@@ -44,53 +45,18 @@ export type SkillWriteResult =
   | { ok: true; skills: SkillMeta[] }
   | { ok: false; error: string }
 
-// Mirrors agent.ts workspaceDir(); kept local to avoid an import cycle
-// (agent.ts imports resolveSkillsOption from here).
-function workspaceRoot(): string {
-  return join(app.getPath('userData'), 'workspace')
-}
 function skillsRoot(): string {
-  return join(workspaceRoot(), '.claude', 'skills')
+  return join(claudeDir(), 'skills')
 }
 function configPath(): string {
   return join(workspaceRoot(), 'forge-skills.json')
 }
 
-/** Skill/dir names: lowercase, digits and hyphens — matches the SDK skill id. */
-const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
-export function isValidSkillName(name: string): boolean {
-  return NAME_RE.test(name)
-}
-
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/.exec(raw)
-  if (!m) return { meta: {}, body: raw }
-  const meta: Record<string, string> = {}
-  for (const line of m[1].split(/\r?\n/)) {
-    const idx = line.indexOf(':')
-    if (idx === -1) continue
-    const key = line.slice(0, idx).trim()
-    let val = line.slice(idx + 1).trim()
-    if (
-      (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
-      val = val.slice(1, -1)
-    }
-    if (key) meta[key] = val
-  }
-  return { meta, body: m[2] }
-}
-
-/** Build SKILL.md content. Quote the description when YAML would misparse it. */
-function serialize(name: string, description: string, body: string): string {
-  const desc = description.trim()
-  // JSON.stringify yields a valid YAML double-quoted scalar for our cases.
-  const safeDesc = /[:#"'\n]|^\s|\s$/.test(desc) ? JSON.stringify(desc) : desc
-  const front = `---\nname: ${name}\ndescription: ${safeDesc}\n---\n`
-  const b = body.trim()
-  return b ? `${front}\n${b}\n` : front
-}
+/**
+ * Skill/dir names: lowercase, digits and hyphens — matches the SDK skill id.
+ * Re-exported as a named alias so callers that use isValidSkillName still work.
+ */
+export { isValidSlug as isValidSkillName }
 
 async function readDisabled(): Promise<string[]> {
   try {
@@ -207,7 +173,13 @@ export async function writeSkill(input: SkillInput): Promise<SkillWriteResult> {
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(
       join(dir, 'SKILL.md'),
-      serialize(name, input.description ?? '', input.body ?? ''),
+      serializeFrontmatter(
+        [
+          ['name', name],
+          ['description', input.description ?? '']
+        ],
+        input.body ?? ''
+      ),
       'utf8'
     )
     return { ok: true, skills: await listSkills() }

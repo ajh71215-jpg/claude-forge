@@ -1,4 +1,4 @@
-import { app, type WebContents } from 'electron'
+import { type WebContents } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { resolveAuthEnv } from './auth'
@@ -6,6 +6,7 @@ import { getPersona, personaToSystemPrompt } from './persona'
 import { resolveSkillsOption } from './skills'
 import { toSdkMcpServers } from './mcp'
 import { toSdkPlugins } from './plugins'
+import { workspaceRoot } from './projectSettings'
 
 export type { Persona, PersonaMode } from './persona'
 
@@ -171,10 +172,24 @@ export type QuestionResult =
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never
 type AgentEventBody = DistributiveOmit<AgentEvent, 'runId'>
 
+/** Minimal interface for an in-flight SDK query (only the methods Forge uses). */
+interface ActiveQuery {
+  interrupt(): Promise<void>
+  close?(): void
+}
+
 // Active queries (for STOP), pending ASK prompts, and pending question prompts.
-const active = new Map<string, any>()
+const active = new Map<string, ActiveQuery>()
 const pendingPerms = new Map<string, (r: PermissionResult) => void>()
 const pendingDialogs = new Map<string, (r: QuestionResult) => void>()
+
+/**
+ * An async generator that never yields — used to keep a query stream open for
+ * control-method probing (getCapabilities) without submitting any prompt.
+ */
+async function* idlePrompt(): AsyncGenerator<never> {
+  await new Promise<void>(() => {})
+}
 
 /** Build the subprocess env, applying auth overrides (undefined = delete). */
 async function buildEnv(): Promise<Record<string, string>> {
@@ -205,9 +220,12 @@ const SETTING_SOURCES = ['user', 'project'] as const
 
 let workspaceReady: Promise<string> | null = null
 
-/** Path to Forge's persistent project workspace (its `.claude/` lives here). */
+/**
+ * Path to Forge's persistent project workspace (its `.claude/` lives here).
+ * @deprecated Import workspaceRoot from './projectSettings' directly.
+ */
 export function workspaceDir(): string {
-  return join(app.getPath('userData'), 'workspace')
+  return workspaceRoot()
 }
 
 /**
@@ -217,7 +235,7 @@ export function workspaceDir(): string {
  */
 function ensureWorkspace(): Promise<string> {
   if (!workspaceReady) {
-    const dir = workspaceDir()
+    const dir = workspaceRoot()
     const claude = join(dir, '.claude')
     workspaceReady = Promise.all([
       fs.mkdir(join(claude, 'skills'), { recursive: true }),
@@ -312,15 +330,11 @@ export async function getCapabilities(): Promise<Capabilities> {
   const cwd = await ensureWorkspace()
   const mcpServers = await toSdkMcpServers()
   const plugins = await toSdkPlugins()
-  // Keep the input open so the query stays alive while we inspect it.
-  async function* idle(): AsyncGenerator<any> {
-    await new Promise<void>(() => {})
-  }
   // Same setting sources as a real run, so project `.claude/` commands and MCP
   // servers show up in supportedCommands()/mcpServerStatus(). The idle prompt
   // submits nothing, so no UserPromptSubmit/Stop hooks fire during this probe.
   const q: any = query({
-    prompt: idle(),
+    prompt: idlePrompt(),
     options: {
       env,
       cwd,
@@ -596,7 +610,7 @@ export async function runStreaming(
   }
 
   const q: any = query({ prompt: singlePrompt(prompt, opts.attachments), options } as any)
-  active.set(runId, q)
+  active.set(runId, q as ActiveQuery)
 
   let turn = 0
   let sessionSent = false

@@ -9,7 +9,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write src"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",
@@ -28,6 +30,11 @@
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",
-    "vite": "^6"
+    "vite": "^6",
+    "@typescript-eslint/eslint-plugin": "^7",
+    "@typescript-eslint/parser": "^7",
+    "eslint": "^8",
+    "eslint-plugin-react-hooks": "^4",
+    "prettier": "^3"
   }
 }

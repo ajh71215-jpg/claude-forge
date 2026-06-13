@@ -54,8 +54,9 @@ export PATH="$NODE_DIR:$LOCALBIN:$PATH"
 # ---------------------------------------------------------------------------
 log "1/5  PATH in ~/.bashrc"
 touch ~/.bashrc
-grep -q 'tools/node' ~/.bashrc || echo 'export PATH="/c/Users/CKIRUser/tools/node:$PATH"' >> ~/.bashrc
-grep -q '.local/bin'  ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+grep -q 'tools/node'   ~/.bashrc || echo 'export PATH="/c/Users/CKIRUser/tools/node:$PATH"' >> ~/.bashrc
+grep -q '.local/bin'   ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"'              >> ~/.bashrc
+grep -q '.local/gh'    ~/.bashrc || echo 'export PATH="$HOME/.local/gh/bin:$PATH"'           >> ~/.bashrc
 
 # ---------------------------------------------------------------------------
 log "2/5  Node check"

@@ -54,7 +54,7 @@ function configPath(): string {
 
 /**
  * Skill/dir names: lowercase, digits and hyphens — matches the SDK skill id.
- * Re-exported as a named alias so callers that use isValidSkillName still work.
+ * Exported so external callers that used the old isValidSkillName name still work.
  */
 export { isValidSlug as isValidSkillName }
 
@@ -117,7 +117,7 @@ export async function listSkills(): Promise<SkillMeta[]> {
 }
 
 export async function readSkill(name: string): Promise<SkillDetail | null> {
-  if (!isValidSkillName(name)) return null
+  if (!isValidSlug(name)) return null
   const file = join(skillsRoot(), name, 'SKILL.md')
   try {
     const raw = await fs.readFile(file, 'utf8')
@@ -138,7 +138,7 @@ export async function readSkill(name: string): Promise<SkillDetail | null> {
 
 export async function writeSkill(input: SkillInput): Promise<SkillWriteResult> {
   const name = (input.name || '').trim()
-  if (!isValidSkillName(name)) {
+  if (!isValidSlug(name)) {
     return {
       ok: false,
       error: 'Name must be lowercase letters, digits and hyphens (e.g. pdf-export).'
@@ -189,7 +189,7 @@ export async function writeSkill(input: SkillInput): Promise<SkillWriteResult> {
 }
 
 export async function deleteSkill(name: string): Promise<SkillMeta[]> {
-  if (isValidSkillName(name)) {
+  if (isValidSlug(name)) {
     await fs.rm(join(skillsRoot(), name), { recursive: true, force: true }).catch(() => {})
     const disabled = new Set(await readDisabled())
     if (disabled.delete(name)) await writeDisabled([...disabled])

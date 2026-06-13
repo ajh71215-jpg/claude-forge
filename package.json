@@ -6,12 +6,12 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "start": "electron-vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --ext .ts,.tsx",
-    "format": "prettier --write src"
+    "dev":      "node node_modules/electron-vite/bin/electron-vite.js dev",
+    "build":    "node node_modules/electron-vite/bin/electron-vite.js build",
+    "start":    "node node_modules/electron-vite/bin/electron-vite.js preview",
+    "typecheck":"node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "lint":     "node node_modules/eslint/bin/eslint.js src --ext .ts,.tsx",
+    "format":   "node node_modules/prettier/bin/prettier.cjs --write src"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "latest",

@@ -21,7 +21,14 @@ TOOLS="$USER_HOME/tools"
 NODE_DIR="$TOOLS/node"
 PWSH_DIR="$USER_HOME/Downloads/PowerShell-7.6.2-win-x64"
 LOCALBIN="$USER_HOME/.local/bin"
-TMP="${TEMP:-/c/Users/CKIRUser/AppData/Local/Temp}"
+# $TEMP/$TMP on Windows is a backslash path (C:\...) which tar refuses.
+# Convert to POSIX with cygpath (always present in Git Bash / MSYS2).
+# Fall back to /tmp if cygpath somehow isn't available.
+if command -v cygpath >/dev/null 2>&1; then
+  TMP="$(cygpath -u "${TEMP:-C:/Users/CKIRUser/AppData/Local/Temp}")"
+else
+  TMP="${TMPDIR:-/tmp}"
+fi
 
 # Pinned versions (stable, direct download URLs)
 NODE_VER="24.16.0"
@@ -87,6 +94,18 @@ fi
 log "5/5  claude-forge dependencies"
 if [ -d "$REPO" ] && [ -f "$REPO/package.json" ]; then
   cd "$REPO"
+
+  # Point npm's script-shell at bash so `npm run dev/build` works without cmd.exe.
+  # The project .npmrc also sets this, but set it user-level as belt-and-suspenders.
+  GITBASH="$(command -v bash 2>/dev/null)"
+  if [ -n "$GITBASH" ]; then
+    # npm config needs a Windows-style path on Windows; cygpath converts it.
+    WIN_BASH="$(cygpath -w "$GITBASH" 2>/dev/null || echo "$GITBASH")"
+    npm config set script-shell "$WIN_BASH" --location user 2>/dev/null \
+      && log "  npm script-shell → $WIN_BASH" \
+      || log "  (npm config set script-shell skipped)"
+  fi
+
   log "  npm install (--ignore-scripts; cmd.exe is blocked)…"
   npm install --ignore-scripts --no-audit --no-fund || log "  !! npm install reported errors"
 

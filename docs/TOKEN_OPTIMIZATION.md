@@ -1,132 +1,123 @@
-# Token / 비용 최적화 — 설계 (v2)
+# Token / 비용 최적화 — 설계 (v3, 검증 반영)
 
-> 이전 `TOKEN_PARITY.md`(Forge↔CLI 차이 검증)를 냉정하게 비판하고, 2026 최신 기법으로
-> **실제 최적화 플랜**으로 다시 짠 버전. 목표: 능력·품질을 유지하면서 비용(또는 구독
-> rate-limit 소비)을 최소화. 차이 진단(parity)은 "최적화 효과 측정"의 기반으로 흡수한다.
-
----
-
-## A. 이전 문서(parity) 자기비판
-
-1. **parity ≠ optimization.** "Forge가 CLI와 어디서 다른가"만 측정했다. 그런데 CLI 자체가
-   토큰-최적이 아니다 — CLI 매칭은 목표가 아니다. 최소화 *처방*이 없었다.
-2. **최적화 기법이 0개.** 2026 최대 레버인 **prompt caching(−60~90%)**, **동적 tool loading
-   (−최대 98.7%)**, **context compression(−50~70%)** 이 전부 빠졌다. 측정만 있고 행동이 없었다.
-3. **preset 누락을 "버그"로만 취급.** 실은 *능력↔토큰 트레이드오프*다. 의식적으로 결정할 사안.
-4. **tokens를 최적화했지 cost가 아니다.** 비용은 모델 + **cache read/write 분해**가 좌우한다
-   (cache write ≈ +25%, cache read ≈ −90%). 구독 모드에선 목표가 "달러"가 아니라 "rate-limit 소비"다.
-5. **$ 임팩트 우선순위 없음.** 델타를 나열만 하고 무엇이 가장 큰 돈인지 안 따졌다.
-6. **Squad v2의 15× 문제와 미연결.** 토큰 최적화가 가장 절실한 곳이 멀티에이전트인데 빠졌다.
-7. **Forge 기존 "최적화 tier 1–4"는 실체가 얇다.** 코드상 실제로는 cost-saver(Sonnet+LOW 강제,
-   `App.tsx:325-327`) + effort 조절 + 수동 `/compact` + usage 패널뿐. 등급화된 시스템이 아니다.
-   CLAUDE.md 문구는 과장이다.
+> 능력·품질을 유지하면서 비용(API) 또는 rate-limit 소비(구독)를 최소화하는 플랜. v3는 1차 출처
+> 검증과 자가비판을 본문에 통합했다. (차이 진단 parity는 "레버 효과 측정"의 기반으로 흡수)
+>
+> **인식 한계**: 저자(모델) 신뢰 지식 컷오프 2026-01. 2026 인용은 웹 검색 기반 — §0 등급으로 구분.
 
 ---
 
-## B. 최적화 목표 재정의
+## 0. 근거 검증 원장 (핵심 인용)
+
+| 주장 | 출처 | 등급 | 판정 |
+|---|---|---|---|
+| cache read **0.1x**, write 1.25x(5분)/2x(1h), 기본 TTL **5분** | 공식 문서 | **primary** | ✅ |
+| "TTL 60→5분 단축(2026)" | dev.to 등 2차 | secondary | ❌ **거짓**. 2026-02-05 변경은 TTL 아닌 **workspace 캐시 격리** |
+| MCP 코드실행 150k→2k, **−98.7%** | Anthropic 블로그 | **primary** | ✅ 단 *수백 개 도구* 시나리오 한정 |
+| 캐싱 "60~90% 절감" | 2차 블로그 | secondary | ◐ 메커니즘(read 0.1x)은 확실, **총 %는 워크로드 의존·API 한정** |
+| compression 50~70% / ESC·CISC·ReASC % | preprint·2차 | weak | ⚠️ 메커니즘만 채택, **개별 % 미검증** |
+| 멀티에이전트 ~15× 토큰 | Anthropic 블로그 | **primary** | ✅ (Squad 문서와 연동) |
+
+> 교훈: 비용 수치는 반드시 공식 문서로 교차검증. preprint·2차 %는 "방향"으로만.
+
+---
+
+## 1. 이전 프레임(parity)의 한계
+
+이전 버전은 "Forge가 CLI와 어디서 다른가"만 측정했다. 그러나 **CLI 자체가 토큰-최적이 아니다** —
+CLI 매칭은 목표가 아니고 최소화 *처방*이 빠졌으며, 2026 최대 레버(caching·동적 tool loading·
+compression)가 전부 누락됐다. 또 **tokens를 최적화했지 cost가 아니었다**(cost는 모델 + cache
+read/write 분해가 좌우). v3는 이를 비용-우선·임팩트-순으로 재구성한다.
+
+> Forge 현황 정직 고지: CLAUDE.md의 "최적화 tier 1–4"는 과장. 실제로는 cost-saver(Sonnet+LOW 강제,
+> `App.tsx:325-327`) + effort 조절 + 수동 `/compact` + usage 패널뿐. 등급화 시스템이 아니다.
+
+---
+
+## 2. 최적화 목표 재정의
 
 - **목표 = 비용(API) 또는 rate-limit 소비(구독) 최소화 × 능력/품질 유지.** tokens는 대리지표.
-- **측정축**: `total_cost_usd`, **cache hit %**, 입력 분해(fresh / cache-read / cache-write),
-  output·thinking, context tokens. (Forge는 이미 cache_read/creation을 계측 — `agent.ts:672-685`)
-- **모드 구분**: 구독(BYO subscription)은 달러가 아니라 5h/주간 한도 소비가 목표; API 키 모드는 달러.
-- **철칙**: 공격적 압축/감축은 정확도를 떨어뜨릴 수 있다 → 모든 레버는 **품질과 함께** 측정
-  (골든셋 ≥50 쿼리). eval이 게이트다.
+- **측정축**: `total_cost_usd`, **cache hit %**, 입력분해(fresh/cache-read/cache-write), output·thinking,
+  context tokens. (Forge는 이미 cache_read/creation 계측 — `src/main/agent.ts:672-685`)
+- **⚠️ 구독 vs API 구분(중요).** 캐싱·라우팅의 *달러* 절감은 **API 모드 기준**이다. **구독 모드는
+  토큰당 과금이 없어** 캐시 read 0.1x의 달러 이득이 그대로 적용되는지 **불확실**하다(공식 미확인).
+  구독에서 캐싱의 확실한 이득은 *지연 단축*이며, rate-limit 할인 여부는 검증 대상이다.
+- **품질 가드**: 압축/도구감축은 정확도 저하 위험 → 모든 레버는 **품질과 동시 측정**(골든셋 ≥50).
 
 ---
 
-## C. 레버 (임팩트 순) + Forge 적용
+## 3. 레버 (임팩트 순) + Forge 적용
 
-### 레버 1 — Prompt Caching (최대 −60~90%, 최고 레버)
-- 원리: 캐시 가능한 **prefix는 크고 안정적**으로(system prompt + 도구 스키마 + few-shot +
-  CLAUDE.md), **동적 꼬리만 변동**. 첫 호출은 cache write(풀+25%), 이후 TTL 내 cache read(≈10%).
-- 함정: **prefix가 흔들리면 cache miss**. persona append·동적 systemPrompt·MCP 도구 순서 변동이
-  prefix를 깬다(이전 문서 #5). "Don't Break the Cache"(arXiv 2601.06007)는 장기 에이전트에서
-  캐시 보존이 비용/지연을 좌우함을 보인다.
-- **사실 정정(1차 출처 확인)**: "TTL이 2026에 60분→5분으로 단축됐다"는 2차 블로그 주장은 **틀렸다**.
-  공식 문서상 **기본 TTL은 원래 5분**, **1시간은 유료 옵션**(write 2x). 가격 배수는 cache write
-  1.25x(5분)/2x(1h), **cache read 0.1x**. 2026-02-05 변경은 TTL이 아니라 **캐시 격리(workspace 단위)**다.
-  유휴 5분 경과 후 첫 요청이 cache write가 되는 건 *원래부터의 동작*이다.
-- **Forge 조치**: ⒜ systemPrompt·도구 정의·CLAUDE.md를 prefix에 **고정/안정화**, 동적 콘텐츠를
-  prefix에 넣지 않기. ⒝ SDK가 cache_control을 자동 설정하는지 확인하고 깨지 않게. ⒞ **cache hit %를
-  1급 지표로** 대시보드 상단에. ⒟ 전략적 경계: system은 캐시, 동적 tool result는 캐시 제외.
+### 레버 1 — Prompt Caching  (API: 최고 레버 / 구독: 이득 불확실)
+- 원리: cacheable **prefix를 크고 안정적**으로(system + 도구스키마 + few-shot + CLAUDE.md), 동적
+  꼬리만 변동. 가격(공식): write 1.25x(5분)/2x(1h), **read 0.1x**.
+- **사실 정정**: "TTL 60→5분 단축"은 거짓(§0). 기본 5분은 원래부터다. 유휴 5분 후 첫 요청이 write가
+  되는 것도 원래 동작. 1시간 TTL은 유료 옵션. 장기 에이전트의 캐시 보존 중요성: "Don't Break the
+  Cache"(arXiv 2601.06007).
+- **Forge 조치**: ⒜ systemPrompt·도구정의·CLAUDE.md를 prefix에 **고정**, 동적 콘텐츠 prefix 격리
+  (persona append/동적 systemPrompt가 prefix 안 깨게). ⒝ SDK가 cache_control 자동 설정하는지 확인.
+  ⒞ **cache hit %를 1급 지표로** 상단 노출. ⒟ system 캐시·동적 tool result 캐시 제외.
+  - **단 구독 모드**에선 위 이득이 *달러*가 아닐 수 있음 → 먼저 §5로 rate-limit 영향 측정.
 
-### 레버 2 — 동적 Tool Loading / "MCP tax" 제거 (최대 −98.7%)
-- 원리: 모든 MCP/skill/plugin 스키마를 **매 턴 컨텍스트에 싣는 것**이 가장 큰 *숨은* 세금.
-  Anthropic의 code-execution-with-MCP는 전체 프리로드 **~150k → 온디맨드 ~2k 토큰(−98.7%)**.
-  연구: Tool Gating·Lazy Schema(arXiv 2604.21816), Dynamic ReAct(2509.20386),
-  Tool Dependency Retrieval(2512.17052).
-- **Forge 조치**(이전 문서 #2와 직결): ⒜ EXTEND에서 **활성 도구를 task별로 좁히고 기본은 최소**.
-  ⒝ 각 MCP/skill 옆에 "컨텍스트 N토큰 점유" 표시 → 세금 가시화. ⒞ 장기적으로 lazy schema(이름만
-  싣고 호출 시 스키마 로드) 또는 code-execution-MCP 패턴.
+### 레버 2 — 동적 Tool Loading / "MCP tax" 제거
+- 사실: 모든 MCP/skill/plugin 스키마를 매 턴 싣는 게 큰 숨은 세금. Anthropic code-execution-MCP는
+  **150k→2k(−98.7%)** ✅ — **단 수백 개 도구** 상황. MCP 1~2개 쓰는 Forge엔 절감폭이 훨씬 작다(과대광고 금지).
+- **실현가능성 분리**:
+  - *즉시(Forge 단독 가능)*: EXTEND에서 **활성 도구를 task별로 스코핑 + 비활성 기본**, 각 서버 옆
+    "컨텍스트 N토큰 점유" 표시. (도움은 되나 98.7%와는 다른 차원)
+  - *SDK 종속*: lazy schema/code-execution-MCP 패턴은 SDK 지원이 있어야 함 → 가능 여부 확인 후 결정.
+  - (연구: Tool Gating 2604.21816, Dynamic ReAct 2509.20386 — preprint, 방향 근거)
 
-### 레버 3 — Context Compression / Compaction (−50~70%)
-- 원리: 임계 도달 시 오래된 컨텍스트를 요약/오프로드. **reversible** 압축이 핵심(필요 시 원본
-  복원). Headroom(압축+캐시 안정화+가역), Demand Paging(arXiv 2603.09023), ACON(2510.00615, 장기
-  에이전트용 컨텍스트 압축).
-- **Forge 조치**: 수동 `/compact`를 **자동 compaction 정책**(임계·노출)으로 승급; 전체 파일 덤프
-  대신 retrieval; 압축 산출을 가역적으로 보관.
+### 레버 3 — Context Compression / Compaction
+- 수동 `/compact`를 **자동·가역 compaction 정책**(임계 노출)으로 승급; 전체파일 덤프 대신 retrieval.
+  (ACON 2510.00615, Demand Paging 2603.09023 — preprint; % 미검증, 방법만 채택)
 
-### 레버 4 — Model Routing / Cascade (−40~70%)
-- 난이도/신뢰도로 Haiku→Sonnet→Opus 라우팅. (Squad v2의 cascade·AutoMix와 공유 — 중복 구현 금지)
-- **Forge 조치**: 현재 cost-saver(무조건 Sonnet+LOW)를 **난이도 기반 라우터**로 승급.
+### 레버 4 — Model Routing / Cascade
+- 난이도/신뢰도로 Haiku→Sonnet→Opus. **Squad v3와 단일 공유 모듈 `routing.ts`**(중복 구현 금지).
+  현재 cost-saver(무조건 Sonnet+LOW)를 난이도 라우터로 승급. (구독 모드 이득은 §2 단서 적용)
 
-### 레버 5 — Retrieval over full-file
-- 파일 통째로 넣지 말고 grep/span 검색; 서브에이전트 컨텍스트 격리(DACS)로 부모 오염 방지.
-
-### 레버 6 — Output / Thinking 절감
-- thinking 토큰은 **출력 가격**이라 effort가 비용을 직접 좌우. effort 튜닝 + 간결 출력 + stop 시퀀스.
+### 레버 5 / 6 — Retrieval over full-file / Output·Thinking 절감
+- grep·span 검색 + 서브에이전트 격리. effort 튜닝(thinking=출력가격) + 간결 출력 + stop 시퀀스.
 
 ---
 
-## D. Forge 구체 조치 (우선순위)
+## 4. Forge 구체 조치 (우선순위)
 
-- **P1 — caching 보존**: systemPrompt/도구 순서 안정화, 동적 콘텐츠 prefix 격리, cache hit %를
-  상단 지표로. (코드 작음, 효과 최대)
-- **P1 — MCP/tool 스코핑**: per-task 도구 토글 + 비활성 기본 + 점유 토큰 표시. (MCP tax 직격)
-- **P2 — 자동 compaction 정책** + 임계 노출 + 가역 요약.
-- **P2 — cost-saver → 난이도 라우터** 승급.
-- **P3 — retrieval-first 파일 접근**, 장기적으로 lazy tool schema.
+- **P1 — caching 보존**: prefix 안정화 + cache hit % 상단 지표. (코드 작음, **API 이득 최대**; 구독은 §5 선검증)
+- **P1 — MCP/tool 스코핑**: per-task 토글 + 비활성 기본 + 점유 토큰 표시. (즉시 가능, MCP tax 직격)
+- **P2 — 자동 compaction**(가역) + **cost-saver→난이도 라우터**(공유 모듈).
+- **P3 — retrieval-first**, 장기적으로 lazy tool schema(SDK 지원 시).
 
 ---
 
-## E. 측정·검증 (이전 parity 진단을 흡수)
+## 5. 측정·검증 (반증 가능)
 
-이전 문서의 parity 실험을 **"레버 효과 측정"** 프레임으로 재사용:
 - 각 레버 적용 전/후로 `total_cost_usd` · **cache hit %** · 입력분해 · **정확도(골든셋 ≥50)** 비교.
-  AHE decision-observability(변경마다 예측→결과 검증).
-- 계측 정비: Forge `result.usage`(`agent.ts:672-685`) ↔ CLI `claude -p --output-format json` /
-  `/cost` / `/context` / OTEL. 콜드/웜 분리 측정(캐시 효과 분리).
-- **품질 가드**: 압축/도구감축은 정확도 저하 위험 → 토큰 절감과 품질을 **항상 동시 측정**.
+  계측: Forge `result.usage`(`agent.ts:672-685`) ↔ CLI `claude -p --output-format json`/`/cost`/`/context`/OTEL.
+  콜드/웜 분리(캐시 효과 격리). (AHE decision-observability *방법*만 채택)
+- **구독 반증 조건**: "캐싱/라우팅이 구독 rate-limit 소비를 유의미하게 줄이지 못하면 → 구독 모드에선
+  레버 1·4를 *지연 개선* 용도로 강등." 이건 출하 전 반드시 측정한다.
+- **품질 반증 조건**: 압축/도구감축으로 골든셋 정확도가 유의미하게 떨어지면 해당 레버 롤백.
 
 ---
 
-## F. 단계별 플랜
+## 6. 단계별 플랜
 
-- **Phase 0**: 계측 정비(cost/cache/도구토큰 분해 대시보드) + 골든셋(≥50) 구축.
-- **Phase 1**: 레버 1(caching 보존) + 레버 2(MCP/tool 스코핑) — 최대 레버 둘. 전/후 측정.
-- **Phase 2**: 레버 3(자동 compaction) + 레버 4(라우팅; Squad cascade와 공유).
-- **Phase 3**: 레버 5(retrieval-first) + lazy schema.
+- **Phase 0**: 계측 정비(cost/cache/도구토큰 분해 대시보드) + 골든셋(≥50) + 구독 rate-limit 측정 기준.
+- **Phase 1**: 레버 1(caching 보존, API) + 레버 2(즉시-스코핑) — 측정·반증 검사.
+- **Phase 2**: 레버 3(자동 compaction) + 레버 4(공유 라우터).
+- **Phase 3**: 레버 5 + lazy schema(SDK 지원 시).
 
 ---
 
-## G. 참고문헌
+## 7. 참고문헌 (등급 표기)
 
-캐싱
-- Prompt caching(공식): https://platform.claude.com/docs/en/build-with-claude/prompt-caching
-- Don't Break the Cache (장기 에이전트, arXiv 2601.06007): https://arxiv.org/pdf/2601.06007
+- ✅ Prompt caching(공식, TTL·가격): https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+- ✅ Anthropic — Code execution with MCP(−98.7%, 시나리오 한정): https://www.anthropic.com/engineering/code-execution-with-mcp
+- ✅ Anthropic — Multi-agent(15× 토큰): https://www.anthropic.com/engineering/built-multi-agent-research-system
+- ◐ Don't Break the Cache(arXiv 2601.06007): https://arxiv.org/pdf/2601.06007
+- ⚠️ 방향만(preprint·미검증 %): Tool Gating 2604.21816 · Dynamic ReAct 2509.20386 · ACON 2510.00615 ·
+  Demand Paging 2603.09023 · Model Routing 서베이 2603.04445 · ESC/CISC/ReASC 수치
 
-동적 도구 / MCP tax
-- Tool Attention Is All You Need — Dynamic Tool Gating & Lazy Schema (arXiv 2604.21816): https://arxiv.org/abs/2604.21816
-- Dynamic ReAct (arXiv 2509.20386) · Tool Dependency Retrieval (arXiv 2512.17052)
-- Anthropic — code execution with MCP(150k→2k, −98.7%): anthropic.com 엔지니어링 블로그
-
-압축 / 메모리 계층
-- ACON — long-horizon 컨텍스트 압축 (arXiv 2510.00615): https://arxiv.org/pdf/2510.00615
-- Demand Paging for LLM Context Windows (arXiv 2603.09023): https://arxiv.org/pdf/2603.09023
-
-라우팅
-- Dynamic Model Routing & Cascading 서베이 (arXiv 2603.04445): https://arxiv.org/abs/2603.04445
-
-> 연관: 멀티에이전트(15×) 비용은 `docs/SQUAD_ORCHESTRATION.md`의 cascade·ESC·격리와 함께 봐야 한다.
-> 코드 근거: `src/main/agent.ts`(옵션 537-612, usage 672-685), `skills.ts`/`mcp.ts`/`plugins.ts`,
-> `src/renderer/src/App.tsx`(cost-saver·usage 패널).
+> 멀티에이전트(15×) 비용은 `docs/SQUAD_ORCHESTRATION.md`의 cascade·격리·kill-criteria와 함께 볼 것.
+> 라우터는 양 문서 공유 모듈(`routing.ts`).

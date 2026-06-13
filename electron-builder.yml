@@ -2,6 +2,10 @@
 # is decided (Windows portable/nsis .exe via electron-builder).
 appId: com.claudeforge.app
 productName: Claude Forge
+# The Claude Agent SDK ships a native claude.exe and spawns it by its on-disk
+# path. Inside an asar archive that path isn't executable ("exists but failed to
+# launch"), so disable asar — all files stay as real files the SDK can spawn.
+asar: false
 directories:
   output: dist
   buildResources: build

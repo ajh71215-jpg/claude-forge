@@ -46,6 +46,16 @@ Renderer verification is hard here: HMR is unreliable, and **zombie dev/electron
 3. Probe **computed styles** via a Node script (Node 24 has global `WebSocket`): `fetch http://127.0.0.1:9222/json` → connect `webSocketDebuggerUrl` → `Runtime.evaluate` running `getComputedStyle(el)`. This is authoritative; `document.title` box-measurement hacks proved unreliable.
 4. For occlusion-free screenshots use Win32 **`PrintWindow(hwnd, hdc, 2)`** (PW_RENDERFULLCONTENT) via `Add-Type` in pwsh — not `CopyFromScreen` (a foreground terminal overlaps it).
 
+## Packaging a distributable `.exe` (electron-builder)
+Config: `electron-builder.yml` (target **nsis** installer; `asar: false`). Build the renderer first (`electron-vite build` → `out/`), then run electron-builder via node (never `npm run` / `.bin` — cmd.exe blocked):
+```bash
+node node_modules/electron-builder/cli.js --win --dir   --publish never   # unpacked → dist/win-unpacked/Claude Forge.exe (fast, for testing)
+node node_modules/electron-builder/cli.js --win nsis --publish never       # installer → dist/Claude Forge Setup <ver>.exe
+```
+Two env-specific hurdles (both already handled — reapply after any `npm install`, like the Vite patch):
+1. **Collector patch** — electron-builder 26's node-module collector spawns `powershell.exe -EncodedCommand` to run `npm list`; here `powershell.exe`/`cmd.exe` are blocked → `spawn powershell.exe ENOENT`, build fails. Patched `node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js` (the `streamCollectorCommandToFile` win32 branch) to run npm directly via `node <node-dir>/node_modules/npm/bin/npm-cli.js` instead. **Lost on reinstall; reapply.**
+2. **`asar: false`** — the Agent SDK spawns its bundled `claude.exe` by on-disk path; inside an asar archive that path isn't executable (renderer shows *"claude.exe exists but failed to launch"*). With asar off, `claude.exe` is a real file at `resources/app/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe` and spawns fine. NSIS/winCodeSign/7z downloads from GitHub releases worked here (not AV-blocked). Verify a packaged build by launching `dist/win-unpacked/Claude Forge.exe --remote-debugging-port=9222` and driving a test prompt via CDP — confirm a real reply, not the launch error.
+
 ## Gotchas
 - **CSS unclosed-brace footgun**: a single stray `{` in `styles.css` makes modern Chromium's **CSS nesting** swallow ALL following rules as descendants — they silently stop matching (e.g. a dangling `.session-cost {` once broke the entire CHAT layout). After editing CSS, sanity-check brace balance: `grep -o '{' styles.css | wc -l` must equal `grep -o '}' ...`.
 - **Flexbox height**: in a flex column, prefer `flex: 1; min-height: 0` over `height: 100%` for fill children (percentage height resolution against flex items is fragile in Chromium).

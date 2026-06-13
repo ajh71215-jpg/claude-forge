@@ -1,0 +1,11 @@
+# Shell scripts MUST stay LF or they break on Windows checkout
+# (#!/usr/bin/env bash\r -> "bad interpreter"). Critical for bootstrap/install.sh.
+*.sh   text eol=lf
+*.mjs  text eol=lf
+
+# Binary assets — never line-ending convert
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.woff2 binary
+*.7z    binary

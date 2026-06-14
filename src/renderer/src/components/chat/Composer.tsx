@@ -519,7 +519,7 @@ export default function Composer({
       <div className="work-header">
         <div className="wh-left">
           <span className="wh-item">
-            <span className="brand-mark">⚒</span> {costSaver ? '⚡ cost-saver' : model ?? 'default'}
+            <span className="brand-mark">⚒</span> {costSaver ? 'cost-saver' : model ?? 'default'}
           </span>
           <span className="wh-sep">·</span>
           <span className="wh-item">{permission}</span>
@@ -620,6 +620,9 @@ export default function Composer({
           >
             ＋
           </button>
+          <span className="composer-prompt" aria-hidden="true">
+            ›
+          </span>
           <input
             ref={fileRef}
             type="file"
@@ -674,7 +677,6 @@ export default function Composer({
           )}
         </div>
       </div>
-      {running && <div className="forging">forging…</div>}
 
       {perms[0] && (
         <PermissionModal

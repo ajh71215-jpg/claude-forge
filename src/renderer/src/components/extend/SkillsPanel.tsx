@@ -2,6 +2,7 @@
 // from App.tsx — behavior-preserving. The SkillDraft type, SKILL_TEMPLATE and
 // the SkillEditor modal travel WITH the panel (file-private).
 import { useEffect, useState, type JSX } from 'react'
+import Icon from '../Icon'
 import type { SkillMeta } from '../../types'
 import { SKILL_NAME_RE } from './shared'
 
@@ -85,7 +86,9 @@ export default function SkillsPanel(): JSX.Element {
         <div className="skills-empty">loading…</div>
       ) : skills.length === 0 ? (
         <div className="skills-empty">
-          <div className="skills-empty-icon">🧩</div>
+          <div className="skills-empty-icon">
+            <Icon name="skills" />
+          </div>
           <div className="skills-empty-title">No skills yet</div>
           <div className="skills-empty-desc">
             Create one to give the agent a reusable, on-demand capability — discovered from

@@ -2,6 +2,7 @@
 // from App.tsx — behavior-preserving. McpDraft, entryToDraft, parseLines and the
 // McpEditor modal travel WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
+import Icon from '../Icon'
 import type { McpServer, McpServerEntry, McpTransport } from '../../types'
 import { mcpStatusClass } from '../../lib/format'
 
@@ -102,7 +103,9 @@ export default function McpPanel({
         <div className="skills-empty">loading…</div>
       ) : servers.length === 0 ? (
         <div className="skills-empty">
-          <div className="skills-empty-icon">🔌</div>
+          <div className="skills-empty-icon">
+            <Icon name="mcp" />
+          </div>
           <div className="skills-empty-title">No MCP servers</div>
           <div className="skills-empty-desc">
             Add a server to give the agent extra tools — a local stdio process or a remote http/sse

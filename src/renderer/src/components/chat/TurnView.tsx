@@ -40,7 +40,12 @@ const TurnView = memo(function TurnView({
       {turn.blocks.map((b, i) => (
         <BlockView key={b.id} block={b} streaming={turn.running && i === lastIdx} />
       ))}
-      {turn.running && turn.blocks.length === 0 && <div className="muted small">forging…</div>}
+      {turn.running && turn.blocks.length === 0 && (
+        <div className="forging">
+          <span className="forging-dot" />
+          forging…
+        </div>
+      )}
       {turn.meta?.error && (
         <div className="response response-error">
           <pre className="response-text">⚠ {turn.meta.error}</pre>

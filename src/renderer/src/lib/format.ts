@@ -50,12 +50,12 @@ export function toolIcon(name: string): string {
     case 'Task':
       return '◆'
     case 'Skill':
-      return '🧩'
+      return '❖'
     case 'WebFetch':
     case 'WebSearch':
       return '∮'
     default:
-      return '⛏'
+      return '◇'
   }
 }
 

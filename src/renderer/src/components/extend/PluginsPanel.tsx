@@ -1,6 +1,7 @@
 // Local plugin-bundle manager panel (docs/MAINTAINABILITY.md Phase 1). Extracted
 // verbatim from App.tsx — behavior-preserving.
 import { useEffect, useState, type JSX } from 'react'
+import Icon from '../Icon'
 import type { PluginEntry } from '../../types'
 
 /** Local plugin bundles passed to the SDK `plugins` option. */
@@ -90,7 +91,9 @@ export default function PluginsPanel({ onChanged }: { onChanged?: () => void }):
         <div className="skills-empty">loading…</div>
       ) : plugins.length === 0 ? (
         <div className="skills-empty">
-          <div className="skills-empty-icon">📦</div>
+          <div className="skills-empty-icon">
+            <Icon name="plugins" />
+          </div>
           <div className="skills-empty-title">No plugins registered</div>
           <div className="skills-empty-desc">
             Point Forge at a local plugin directory to load its bundled extensions on each run.

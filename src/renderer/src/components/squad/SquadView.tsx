@@ -84,13 +84,22 @@ export default function SquadView(): JSX.Element {
     })
   }, [])
 
-  function dryRun(): void {
+  function resetMonitor(): void {
     const fresh: Record<string, SubMon> = {}
     for (const s of plan.subtasks) fresh[s.id] = blankMon()
     setMon(fresh)
     setSummary(null)
     setRunning(true)
+  }
+
+  function dryRun(): void {
+    resetMonitor()
     window.forge.orchestrate.dryRun(crypto.randomUUID(), plan).catch(() => setRunning(false))
+  }
+
+  function runLive(): void {
+    resetMonitor()
+    window.forge.orchestrate.run(crypto.randomUUID(), plan).catch(() => setRunning(false))
   }
 
   function patchSub(id: string, patch: Partial<Subtask>): void {
@@ -134,7 +143,12 @@ export default function SquadView(): JSX.Element {
             <button className="primary orch-dry" onClick={dryRun} disabled={running}>
               {running ? '… running' : '▶ DRY RUN'}
             </button>
-            <button className="mini-btn" disabled title="Live run needs a Claude session (engine wired; model adapter pending)">
+            <button
+              className="mini-btn orch-live"
+              onClick={runLive}
+              disabled={running}
+              title="Live run: real read-only SDK calls routed by tier + haiku rubric judge"
+            >
               ▶ RUN (live)
             </button>
           </div>

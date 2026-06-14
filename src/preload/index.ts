@@ -117,6 +117,12 @@ const forge = {
       plan: Plan
     ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
       ipcRenderer.invoke('orchestrate:dry-run', runId, plan),
+    /** LIVE run: real read-only SDK calls + haiku rubric judge (needs a session). */
+    run: (
+      runId: string,
+      plan: Plan
+    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
+      ipcRenderer.invoke('orchestrate:run', runId, plan),
     validate: (plan: Plan): Promise<{ ok: boolean; errors: string[] }> =>
       ipcRenderer.invoke('orchestrate:validate', plan),
     /** Subscribe to orchestration events. Returns an unsubscribe function. */

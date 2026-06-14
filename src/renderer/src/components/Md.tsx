@@ -1,9 +1,15 @@
-import type { JSX } from 'react'
+import { memo, type JSX } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-/** Markdown renderer for assistant text and command output (tables, code, lists). */
-export default function Md({ children }: { children: string }): JSX.Element {
+/**
+ * Markdown renderer for assistant text and command output (tables, code, lists).
+ * Memoized: react-markdown has no incremental parse, so re-rendering with an
+ * unchanged string would re-parse the whole document. memo skips that — a
+ * completed block keeps the same text and is never re-parsed on later renders.
+ * See docs/PERFORMANCE.md (lever 1).
+ */
+function Md({ children }: { children: string }): JSX.Element {
   return (
     <div className="md">
       <ReactMarkdown
@@ -19,3 +25,5 @@ export default function Md({ children }: { children: string }): JSX.Element {
     </div>
   )
 }
+
+export default memo(Md)

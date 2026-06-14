@@ -10,6 +10,7 @@
     "build":    "node node_modules/electron-vite/bin/electron-vite.js build",
     "start":    "node node_modules/electron-vite/bin/electron-vite.js preview",
     "typecheck":"node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "selftest": "node node_modules/typescript/bin/tsc -p tsconfig.selftest.json && node scripts/orchestration-selftest.cjs",
     "lint":     "node node_modules/eslint/bin/eslint.js src --ext .ts,.tsx",
     "format":   "node node_modules/prettier/bin/prettier.cjs --write src"
   },

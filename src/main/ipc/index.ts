@@ -9,6 +9,7 @@ import { register as registerPersona } from './persona'
 import { register as registerExtend } from './extend'
 import { register as registerOrchestrate } from './orchestrate'
 import { register as registerWindow } from './window'
+import { register as registerPet } from './pet'
 
 /** Register every ipcMain.handle channel, grouped by domain. */
 export function registerAll(ipc: IpcMain): void {
@@ -18,4 +19,5 @@ export function registerAll(ipc: IpcMain): void {
   registerExtend(ipc)
   registerOrchestrate(ipc)
   registerWindow(ipc)
+  registerPet(ipc)
 }

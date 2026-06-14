@@ -171,6 +171,29 @@ export function ctxWindow(model: string): number {
   return 200_000
 }
 
+/**
+ * Per-model default for the LIMITS "max turns" cap. Bigger-context models can
+ * sustain longer agent loops before compaction bites, so they get a higher
+ * default; small-window models (200k) stay conservative to avoid runaway loops
+ * that blow the window before auto-compact (80%) can trigger.
+ *
+ *   1M window  → 40 turns   (sonnet-4.5/4.6, opus-4.5+, fable, [1m] tiers)
+ *   200k + haiku (cheap/fast, safe to iterate) → 30 turns
+ *   200k other → 20 turns   (legacy default, conservative)
+ */
+export function defaultMaxTurns(model: string): number {
+  const win = ctxWindow(model)
+  if (win >= 1_000_000) return 40
+  if (model.toLowerCase().includes('haiku')) return 30
+  return 20
+}
+
+/** Effective max turns for a model: user override if set, else per-model default. */
+export function resolveMaxTurns(byModel: Record<string, number>, model: string): number {
+  const v = byModel[model]
+  return typeof v === 'number' && v > 0 ? v : defaultMaxTurns(model)
+}
+
 export function permArg(input: Record<string, unknown>): string {
   const o = input as Record<string, unknown>
   return String(o.command ?? o.file_path ?? o.path ?? o.pattern ?? o.url ?? '')

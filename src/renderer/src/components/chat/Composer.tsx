@@ -14,7 +14,7 @@ import type {
   RunOptions
 } from '../../types'
 import { CLIENT_COMMANDS } from '../../lib/constants'
-import { ctxWindow } from '../../lib/format'
+import { ctxWindow, resolveMaxTurns } from '../../lib/format'
 // Shared model router (docs/TOKEN_OPTIMIZATION.md §3 lever 4 ∩ SQUAD §4): the
 // cost-saver classifies each prompt's difficulty and routes to the cheapest tier
 // that fits, instead of a flat "always Sonnet". Single owner — the conductor's
@@ -34,7 +34,7 @@ export default function Composer({
   effort,
   commands,
   models,
-  maxTurns,
+  maxTurnsByModel,
   maxBudget,
   autoCompact,
   costSaver,
@@ -52,7 +52,8 @@ export default function Composer({
   effort?: Effort
   commands: SlashCommand[]
   models: ModelInfo[]
-  maxTurns: number
+  /** Per-model max-turns overrides (model id → turns). Default applied per model. */
+  maxTurnsByModel: Record<string, number>
   maxBudget: number
   autoCompact: boolean
   /** Cost-saver mode: route each prompt to a tier by difficulty (lever 4). */
@@ -78,6 +79,7 @@ export default function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [compacting, setCompacting] = useState(false)
+  const [compactPct, setCompactPct] = useState(0)
   const [history, setHistory] = useState<TranscriptItem[]>([])
   const [attachments, setAttachments] = useState<
     { id: string; mediaType: string; base64: string; preview: string; name: string }[]
@@ -235,6 +237,14 @@ export default function Composer({
     }
   }
 
+  // Live /compact progress for the progress bar (main streams agent:compact-progress).
+  useEffect(() => {
+    const unsub = window.forge.agent.onCompactProgress((p) => {
+      setCompactPct(p.pct)
+    })
+    return unsub
+  }, [])
+
   // Auto-compact when context crosses 80% (opt-in via the LIMITS toggle).
   useEffect(() => {
     if (!autoCompact || compacting || running || !sessionIdRef.current || contextTokens <= 0) return
@@ -310,7 +320,10 @@ export default function Composer({
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))
     }
-    if (maxTurns > 0) opts.maxTurns = maxTurns
+    // Per-model turn cap: resolve against the model actually running (cost-saver
+    // may route to a different tier than the selected one).
+    const turnCap = resolveMaxTurns(maxTurnsByModel, runModel || model || 'default')
+    if (turnCap > 0) opts.maxTurns = turnCap
     if (maxBudget > 0) opts.maxBudgetUsd = maxBudget
     try {
       await window.forge.agent.start(id, text, opts)
@@ -330,6 +343,7 @@ export default function Composer({
     const sid = sessionIdRef.current
     if (!sid || compacting || running) return
     setCompacting(true)
+    setCompactPct(0)
     try {
       const r = await window.forge.agent.compact(sid)
       if (r.ok) {
@@ -341,6 +355,8 @@ export default function Composer({
       }
     } finally {
       setCompacting(false)
+      // Brief settle so the bar visibly reaches 100% before it disappears.
+      setTimeout(() => setCompactPct(0), 600)
     }
   }
 
@@ -569,15 +585,31 @@ export default function Composer({
               </div>
             </div>
           )}
-          {sessionId && (
-            <button
-              className="mini-btn"
-              onClick={compact}
-              disabled={compacting || running}
-              title="Summarize older context to free tokens"
+          {compacting || compactPct > 0 ? (
+            <div
+              className="compact-progress"
+              title={`Compacting context… ${compactPct}%`}
+              role="progressbar"
+              aria-valuenow={compactPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
             >
-              {compacting ? 'compacting…' : '⟲ compact'}
-            </button>
+              <span className="compact-progress-label">⟲ compacting… {compactPct}%</span>
+              <div className="compact-bar">
+                <div className="compact-fill" style={{ width: compactPct + '%' }} />
+              </div>
+            </div>
+          ) : (
+            sessionId && (
+              <button
+                className="mini-btn"
+                onClick={compact}
+                disabled={running}
+                title="Summarize older context to free tokens"
+              >
+                ⟲ compact
+              </button>
+            )
           )}
         </div>
       </div>

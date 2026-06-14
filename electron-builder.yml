@@ -12,6 +12,11 @@ directories:
 files:
   - out/**/*
   - package.json
+# Desktop-pet assets (Clawd theme + svgs) served at runtime via the pet://
+# protocol from process.resourcesPath/pet (see src/main/pet/paths.ts).
+extraResources:
+  - from: resources/pet
+    to: pet
 win:
   target:
     - nsis

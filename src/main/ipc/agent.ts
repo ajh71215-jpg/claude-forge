@@ -32,5 +32,5 @@ export function register(ipc: IpcMain): void {
   ipc.handle('agent:sessions', () => getSessions())
   ipc.handle('agent:usage', () => getUsage())
   ipc.handle('agent:transcript', (_e, sessionId: string) => getTranscript(sessionId))
-  ipc.handle('agent:compact', (_e, sessionId: string) => compactSession(sessionId))
+  ipc.handle('agent:compact', (e, sessionId: string) => compactSession(sessionId, e.sender))
 }

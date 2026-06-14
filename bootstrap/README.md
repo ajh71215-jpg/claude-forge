@@ -13,8 +13,10 @@ from scratch so you can get back to developing Claude Forge in one step.
    - download **Node.js** + **Git for Windows (PortableGit)** using `curl`/`tar`
      (both ship with Windows — no cmd/PowerShell needed),
    - then run **`install.sh`**, which installs **PowerShell 7** + **Claude Code**
-     and restores the **claude-forge** dependencies with all the local
-     workarounds (manual Electron binary, Vite patch, electron-builder patch).
+     (the official `claude.ai/install.sh` refuses to run on Git Bash, so the
+     native `win32` binary is fetched directly and checksum-verified) and
+     restores the **claude-forge** dependencies with all the local workarounds
+     (manual Electron binary, Vite patch, electron-builder patch).
 4. When it finishes, open **Git Bash** and:
    ```bash
    claude                       # log in to your Claude subscription
@@ -29,7 +31,7 @@ That's it — git bash, Node, PATH, Claude Code, and the app are all back.
 | Node.js 24.16.0 | `C:\Users\CKIRUser\tools\node` | nodejs.org |
 | Git for Windows | `C:\Users\CKIRUser\PortableGit` | git-for-windows (GitHub) |
 | PowerShell 7.6.2 | `C:\Users\CKIRUser\Downloads\PowerShell-7.6.2-win-x64` | GitHub |
-| Claude Code | `C:\Users\CKIRUser\.local\bin\claude.exe` | official installer |
+| Claude Code | `C:\Users\CKIRUser\.local\bin\claude.exe` | native `win32-x64` binary from the release CDN (checksum-verified) |
 | PATH | `~/.bashrc` (`tools/node`, `~/.local/bin`) | written by `install.sh` |
 | Forge deps | `claude-forge/node_modules` | `npm install --ignore-scripts` + patches |
 

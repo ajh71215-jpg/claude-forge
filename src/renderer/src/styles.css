@@ -1509,8 +1509,28 @@ button {
 .wh-sep {
   color: var(--amber-dim);
 }
+/* Cost-saver routing preview (docs/TOKEN_OPTIMIZATION.md §3 lever 4): shows the
+   tier the current draft prompt would route to. */
+.route-preview {
+  color: var(--amber);
+  font-weight: 600;
+}
 
 /* ---- markdown ---- */
+/* Plain-text mirror of .md shown only while a response is streaming (lever 1).
+   Mirrors .md's metrics so switching to rendered markdown on completion does
+   not jump or flicker. font-family: inherit resets the <pre> UA monospace so it
+   matches the markdown body font. */
+.response-text-stream {
+  margin: 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
 .md {
   font-size: 13.5px;
   line-height: 1.65;
@@ -2604,5 +2624,210 @@ button {
 }
 .plugin-add .skills-new {
   flex: none;
+}
+
+/* ---- squad orchestrate (hybrid) ---- */
+.squad-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.squad-mode-btn {
+  background: var(--bg-card);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.squad-mode-btn.on {
+  color: var(--bg);
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.squad-mode-hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.orch {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.orch-head {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.orch-goal {
+  flex: 1;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  resize: vertical;
+}
+.orch-head-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+}
+.orch-delegate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.orch-delegate.on {
+  color: var(--amber-bright);
+}
+.orch-dry {
+  white-space: nowrap;
+}
+.orch-body {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.orch-plan,
+.orch-monitor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.orch-section {
+  color: var(--amber);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.orch-summary {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.orch-subtask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.orch-sub-id {
+  color: var(--amber-dim);
+  font-size: 11px;
+  width: 42px;
+  flex: none;
+}
+.orch-sub-instr {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.orch-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+.orch-card.running,
+.orch-card.verifying {
+  border-left-color: var(--amber);
+}
+.orch-card.done {
+  border-left-color: #5fa85f;
+}
+.orch-card.failed,
+.orch-card.stopped {
+  border-left-color: var(--danger);
+}
+.orch-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.orch-dot.running,
+.orch-dot.verifying {
+  background: var(--amber);
+  animation: orch-pulse 1s ease-in-out infinite;
+}
+.orch-dot.done {
+  background: #5fa85f;
+}
+.orch-dot.failed,
+.orch-dot.stopped {
+  background: var(--danger);
+}
+@keyframes orch-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.orch-card-id {
+  color: var(--text);
+  font-weight: 600;
+}
+.orch-card-topo {
+  color: var(--muted);
+  font-size: 11px;
+}
+.orch-card-tiers {
+  display: flex;
+  gap: 3px;
+}
+.orch-tier {
+  background: var(--bg-raised);
+  color: var(--amber-bright);
+  border: 1px solid var(--amber-dim);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+.orch-card-status {
+  color: var(--muted);
+  margin-left: auto;
+}
+.orch-card-samples {
+  color: var(--muted);
+  font-size: 11px;
+}
+.orch-verdict.pass {
+  color: #6fc46f;
+}
+.orch-verdict.fail {
+  color: var(--danger);
 }
 

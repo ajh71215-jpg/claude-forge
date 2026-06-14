@@ -59,8 +59,12 @@ node node_modules/electron-vite/bin/electron-vite.js build    # build → out/
 node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit   # typecheck
 ```
 
-## Shell
-**Bash-first.** The PowerShell tool is unreliable here — call **pwsh 7** directly when needed: `/c/Users/CKIRUser/Downloads/PowerShell-7.6.2-win-x64/pwsh -NoProfile -Command "..."`. Use pwsh to manage processes (`Get-Process electron,node | Stop-Process -Force`) since `tasklist`/`wmic` don't reliably see the manually-placed `electron.exe`.
+## Shell — tool routing priority (STRICT)
+Run **every** command through this fallback chain, in order. Do not skip to a lower tier unless the one above genuinely can't do the job.
+
+1. **Git Bash (PRIMARY)** — `C:\Users\CKIRUser\PortableGit\bin\bash.exe`. This is the only reliable shell here; `.npmrc` already points `script-shell` at it. **Launch Claude Code itself from a Git Bash terminal** so the harness exposes a working Bash tool (the default PowerShell tool below is dead). The Bash tool does **not** source `~/.bashrc` — prefix commands with `export PATH="/c/Users/CKIRUser/tools/node:$PATH"` (see the env-workarounds section).
+2. **PowerShell 7 / pwsh (FALLBACK)** — `C:\Users\CKIRUser\Downloads\PowerShell-7.6.2-win-x64\pwsh.exe`, i.e. `/c/Users/CKIRUser/Downloads/PowerShell-7.6.2-win-x64/pwsh -NoProfile -Command "..."`. Use **only** for things Git Bash can't do: process management (`Get-Process electron,node | Stop-Process -Force` — `tasklist`/`wmic` don't reliably see the manually-placed `electron.exe`) and Win32/`Add-Type` screenshots.
+3. **❌ NEVER PowerShell 5.1 (`powershell.exe`) or `cmd.exe`** — both are **blocked** on this machine and fail with `EPERM −4048 (uv_spawn)`. The harness's built-in "PowerShell" tool maps to 5.1, so it is unusable; never route a command through it.
 
 ## Verifying UI changes (do this — screenshots/measurements alone mislead)
 Renderer verification is hard here: HMR is unreliable, and **zombie dev/electron instances from prior sessions cause stale-render confusion**. Procedure:

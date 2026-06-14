@@ -5,3 +5,9 @@ dist
 .DS_Store
 *.tsbuildinfo
 dist-build/
+
+# headless selftest build output
+out-selftest/
+
+# per-machine Claude Code local settings (absolute paths, not shared)
+.claude/settings.local.json

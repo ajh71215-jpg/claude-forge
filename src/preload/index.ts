@@ -31,6 +31,8 @@ import type {
   AgentWriteResult
 } from '../main/agents'
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
+import type { Plan } from '../main/orchestration'
+import type { OrchestrateEvent } from '../main/ipc/orchestrate'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -107,6 +109,22 @@ const forge = {
     toggle: (path: string, enabled: boolean): Promise<PluginEntry[]> =>
       ipcRenderer.invoke('plugins:toggle', path, enabled),
     remove: (path: string): Promise<PluginEntry[]> => ipcRenderer.invoke('plugins:remove', path)
+  },
+  orchestrate: {
+    /** Dry-run the orchestration engine (real conductor, simulated runners). */
+    dryRun: (
+      runId: string,
+      plan: Plan
+    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
+      ipcRenderer.invoke('orchestrate:dry-run', runId, plan),
+    validate: (plan: Plan): Promise<{ ok: boolean; errors: string[] }> =>
+      ipcRenderer.invoke('orchestrate:validate', plan),
+    /** Subscribe to orchestration events. Returns an unsubscribe function. */
+    onEvent: (cb: (ev: OrchestrateEvent) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, payload: OrchestrateEvent): void => cb(payload)
+      ipcRenderer.on('orchestrate:event', listener)
+      return () => ipcRenderer.removeListener('orchestrate:event', listener)
+    }
   },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),

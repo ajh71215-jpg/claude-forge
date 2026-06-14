@@ -157,3 +157,138 @@ Conductor는 이 위의 상태머신, Squad 모니터는 Blackboard를 렌더한
 - ⚠️ 미검증(동기만): DACS 2604.07911 · AHE 2604.25850 · AOrchestra 2602.03786 · ESC/CISC 수치
 
 > 토큰/비용(15× 포함)은 `docs/TOKEN_OPTIMIZATION.md`와 함께 볼 것. 라우터는 양 문서 공유 모듈.
+
+---
+
+## 10. 실행 결과 — 검증된 메커니즘 코어 구현 (2026-06-14)
+
+**결과 요약: Phase 1의 결정론 오케스트레이션 코어를 *순수·주입형* 모듈로 구현하고 헤드리스로 실증.**
+"검증된 *메커니즘*은 채택, *수치*만 실측 보류"(본문 §0 원칙)에 따라, 모델 호출을 의존성 주입으로
+분리해 **컨덕터 제어흐름·라우팅·검증 로직을 라이브 세션 없이 실제 실행·검증**했다.
+`npm run selftest` **39/39 통과** · typecheck ✅ · build ✅ · lint 신규 0.
+
+### 구현한 모듈 (모두 electron/SDK 의존 0 → 헤드리스 테스트 가능)
+- **`src/main/orchestration.ts`** — §5 데이터 계약(`Plan`/`Subtask`/`Verdict`/`Artifact` + `Topology`/
+  `ModelTier` enum) + DAG 헬퍼(`deriveDeps`, `topoSort` Kahn + 사이클 감지). *근거: blueprint-first
+  결정론 2508.02721.*
+- **`src/main/conductor.ts`** — **plan 검증 게이트**(`validatePlan`: 유니크 id·유효 edge·비순환·enum·
+  **빈 rubric 거부(검증불가)**·예산>0) + **결정론 실행기**(`executePlan`: 토폴로지 순서 → 실행 →
+  외부검증 → 실패 시 **cascade 승급 재시도**(maxRevisions) → **체크포인트** → **예산 하드캡 선차단**) +
+  `projectPlanCost`. *근거: 외부검증 우선(verification-gap 가드), bounded execution, §8 구독 가드.*
+- **`src/main/verifier.ts`** — `aggregateVotes`(다수결/신뢰가중, **동점=fail**) · `shouldEarlyStop`
+  (self-consistency) · `pairwiseWithSwap`(**순서스왑 편향상쇄**) · `debateConverged`. *근거: **ICML 2024
+  Du et al. debate(동료평가, 최강근거)** + judge 편향 완화.*
+- **`src/main/routing.ts`** — **양 문서 공유 라우터**(§6 단일 소유권). `classifyDifficulty`(휴리스틱) +
+  `route`(난이도→tier+effort, **explicit plan tier 우선**) + `escalate`(haiku→sonnet→opus 캡) +
+  `resolveModelId`(라이브 모델목록 매칭, **id 하드코딩 회피**). *근거: 난이도 라우팅 + 실패시 cascade(타겟
+  컴퓨트). TOKEN 레버4와 동일 모듈.*
+
+### SDK 네이티브 위임 배선 (행동 보존)
+- `agent/types.ts` `RunOptions.agents?`(SDK `AgentDefinition` 부분집합) 추가 + `runStreaming`에서
+  `options.agents` **가산 전달**(없으면 위임 없음 = 현행 동일). `Agent` SDK 옵션 기반 orchestrator-worker가
+  이제 가능. *주의: §6의 `allowedTools` 강제는 **의도적 미적용** — allowedTools 설정 시 여타 도구 접근이
+  끊겨 회귀 위험. 위임은 bypassPermissions + agents 정의로 충분.*
+
+### 헤드리스 검증 (반증 가능 — 실측 없이 가능한 부분)
+- `scripts/orchestration-selftest.cjs` + `tsconfig.selftest.json`(순수 코어만 CommonJS 컴파일) →
+  `npm run selftest`. **39 체크**: 라우팅(난이도·cascade·escalate·resolve) · 검증(투표·동점fail·
+  early-stop·debate·order-swap) · DAG(순서·사이클) · 게이트(7개 거부 케이스) · 실행(happy-path 순서·
+  revise 승급·예산캡·invalid 단락). 빌드 산출물 `out-selftest/`는 `.gitignore` 처리.
+
+### 미수행 — 라이브 환경 필요 (정직한 한계, 본문 §8 게이트 그대로)
+- **Planner(lead) constrained-JSON 출력 · 실제 subtask 실행/검증 모델 호출**: 주입 인터페이스(`runSubtask`/
+  `verify`)는 정의됐으나, 실제 SDK 호출 어댑터 + 골든셋(≥50) eval은 **구독/API 세션 필요**.
+- **§8 Kill 게이트(동일토큰 단일 best-of-N 대비 우위)** 미측정 — 이게 통과해야 Phase 2~4 진행.
+- **렌더러 UI**(CHAT Orchestrate 토글 · Squad 탭 Plan 편집기 + Blackboard 모니터) 미착수 — 라이브 검증 권장.
+
+> 요약: **메커니즘(결정론 컨덕터·cascade·debate·order-swap·게이트·예산거버너)은 코드로 채택 + 실증 완료.**
+> 남은 것은 (a) 모델 호출 어댑터 배선과 (b) 골든셋 실측 게이트 — 둘 다 라이브 세션 의존.
+
+---
+
+## 11. 실행 결과 2 — 도구기반 Verifier · 토폴로지 실행기 · eval 코어 (2026-06-14)
+
+**결과 요약: 라이브 세션이 불필요한 검증 메커니즘 3종을 추가 구현·실증.** `npm run selftest` **59/59**
+(8모듈) · typecheck ✅ · build ✅ · lint 신규 0 · `node scripts/eval.mjs` 골든셋 53개 검증 통과.
+세 모듈 모두 *모델 호출은 주입*이거나 *툴체인 호출*이라 헤드리스로 실제 동작 검증됨.
+
+### ① 도구기반 Verifier — `src/main/toolVerifier.ts`
+- **플랜 §3이 1순위로 꼽은 검증자**(LLM judge 아닌 **객관 도구 오라클**) → **모델 불필요.**
+  `runChecks`(주입 러너로 typecheck/test/build 실행) + `checksToVerdict`(전부 통과해야 pass,
+  confidence=1) + 프로덕션 `execCommandRunner`(child_process, 지연 import). selftest 6체크.
+- *의의*: verification-gap·reward-hacking이 구조적으로 없는 유일한 검증 경로. 코딩(Forge)에 직결.
+
+### ② 토폴로지 실행기 — `src/main/topology.ts`
+- §4 토폴로지 라우터를 **주입형 러너 위 순수 오케스트레이션**으로 구현. `executeTopology`가
+  subtask.topology로 분기: **fanout**(verifier-선택 best-of-N) · **self_consistency**(early-stop) ·
+  **debate**(ICML 2024, 수렴까지 라운드) · **cascade**(실패 시 tier 승급) · single. 전 샘플을 반환 →
+  Squad 탭 모니터가 샘플별 작업을 렌더할 데이터. selftest 8체크(early-stop·best-of-N·escalation 실증).
+
+### ③ eval 코어 + 골든셋 — `src/main/eval.ts` · `eval/golden-set.json`(53) · `scripts/eval.mjs`
+- **골든셋 53개**(코딩 과제+rubric, 카테고리 15종·난이도 3단계) **작성** — 순수 데이터. `validateGoldenSet`로
+  실증(unique id·rubric·≥50). `scoreRun`/`summarize`/`baselineDelta`/**`gateVerdict`**(§8 kill-criteria:
+  *동일 컴퓨트에서 품질 우위*여야 pass — 토큰 더 써서 이기면 실패) 전부 순수·테스트됨. selftest 6체크.
+- `scripts/eval.mjs`는 **세션 없이 지금 실행 가능**(골든셋 로드·검증·분포 출력). 실제 run 루프(모델 호출 +
+  동일토큰 baseline 비교)만 라이브 TODO — *채점·게이트 로직은 이미 구현·검증*이라 어댑터만 남음.
+
+> 정리: SQUAD §8 Kill 게이트의 **채점·판정 메커니즘은 완성**(eval.ts), **데이터(골든셋)도 완성**.
+> 라이브에 남은 건 "각 과제를 실제로 돌려 점수를 채우는" 모델 호출뿐. selftest로 메커니즘 상시 재확인.
+
+---
+
+## 12. 실행 결과 3 — Squad 탭 전환(하이브리드 모니터) + 런타임 CDP 검증 (2026-06-14)
+
+**결과 요약: Squad 탭을 "병렬 답변" → "서브에이전트 작업률 모니터(하이브리드)"로 전환하고, dev 앱을
+CDP로 띄워 *런타임 동작*까지 검증 완료.** 사용자가 원한 가시적 변화가 실제로 동작함을 라이브로 확인.
+
+### 구현 (행동 보존 — MANUAL 모드는 기존 그대로)
+- **`SquadView`에 모드 토글**: `⚔ MANUAL SQUAD`(기존 병렬 팬아웃, 무변경) ↔ `⚙ ORCHESTRATE`(신규).
+- **`OrchestrateView`(신규, 동일 파일)**: ⒜ goal + **`AI delegates` 토글(하이브리드: AI 위임/수동 지정)**,
+  ⒝ **Plan 편집기**(subtask별 instruction·topology·tier 편집·추가·삭제), ⒞ **Blackboard 모니터**
+  (subtask별 상태 dot·tier 배지·샘플 수·verdict ✓/✗·점수, 전체 done·spent 요약).
+- **IPC 파이프라인(신규)**: `ipc/orchestrate.ts`의 `orchestrate:dry-run` → **실제 `conductor.executePlan`
+  + `topology.executeTopology`를 *시뮬레이션 러너*(모델 없음)로 실행**하고 `ConductorEvent`를 스트리밍.
+  preload `window.forge.orchestrate.{dryRun,validate,onEvent}` 노출. *모델 호출만 빼면 진짜 엔진 경로.*
+
+### 런타임 검증 (dev + CDP — 사용자 요청)
+- `FORGE_CDP=9222 electron-vite dev`로 dev 앱 기동(`index.ts`의 CDP 스위치) → CDP 도달 확인. 앱은
+  `auth.json` 존재로 **게이트 통과**(MainShell 렌더). 드라이버: `scripts/cdp.mjs`(eval)·`scripts/cdp-shot.mjs`(스크린샷).
+- **검증 결과(라이브 DOM)**: ORCHESTRATE 전환 → 패널 렌더(goal·3 subtask·모니터) → **DRY RUN** 클릭 →
+  Blackboard가 실시간 갱신·완료:
+  - `scan`(single·sonnet): 1× → ✓ 1.00 · done
+  - `fix`(cascade): **haiku → sonnet → opus 승급(escalation) 표시** · 3× → ✓ 1.00 · done
+  - `test`(fanout·opus): 2×(best-of-N) → ✓ 1.00 · done · 요약 `$0.03 · complete`
+  - 스크린샷으로 시각 확인(`BLACKBOARD MONITOR · 3/3 DONE`). **MANUAL 모드 회귀 없음**(RUN ALL + 3 패널 유지).
+- 정적 게이트: typecheck ✅ · build ✅ · `npm run selftest` 59/59 ✅ · lint 신규 0(기존 에러 3개 중 preload는 위치만 이동).
+
+### 미수행 — 라이브 모델 세션 필요 (여전한 경계)
+- **RUN (live)** 버튼은 의도적 disabled — 시뮬레이션 러너를 **실제 SDK 호출(runStreaming 어댑터)**로 교체하면
+  활성화. 엔진·UI·IPC·이벤트는 검증됨 → 남은 건 어댑터 1개 + §8 골든셋 *수치* 측정.
+
+> 정리: **"엔진 → 화면 → 런타임"** 3단이 모두 연결·검증됨. Squad 탭은 이제 하이브리드 작업률 모니터다.
+> 유일한 라이브 잔여 = 시뮬레이션 러너 ↔ 실제 모델 호출 스왑.
+
+---
+
+## 13. 실행 결과 4 — 레거시 병렬(MANUAL squad) 완전 삭제 (2026-06-14)
+
+**결과 요약: 기존 "병렬 팬아웃(N개 독립 답변)" 모드를 코드에서 완전 제거. Squad 탭은 오케스트레이션
+전용.** 사용자 요청("기존 병렬은 아예 삭제"). 런타임 CDP로 삭제 확인 완료.
+
+### 삭제한 것
+- `SquadView`의 **MANUAL 모드 전부**: `makeAgent`·`squadPreset`(race/review/research 프리셋)·수동 상태
+  (agents/broadcast/configOpen/perms/runMap)·수동 이벤트 구독·`runAgent`/`runAll`/`stopAll` 등 핸들러·
+  squad-bar/controls/config/grid JSX·`MANUAL↔ORCHESTRATE` 모드 토글.
+- `types.ts`의 **`SquadAgent` 인터페이스**(이제 미사용 → 제거).
+- `App.tsx`의 `<SquadView models/defaults/maxTurns/maxBudget/onResult>` → **`<SquadView />`** (무프롭).
+- 결과: `SquadView`가 max-lines 래칫 아래로 축소(lint 경고 24→23).
+
+### 검증
+- typecheck ✅ · build ✅ · `npm run selftest` 59/59 ✅ · lint 신규 0(에러 3은 기존).
+- **런타임(dev+CDP)**: Squad 탭 진입 시 **토글 없이 오케스트레이션 뷰 직행** 확인 —
+  `squad-mode-btn` 0개 · `agent-panel` 0개 · `RUN ALL` 없음 · `.orch` + 3 subtask + DRY RUN 존재 ·
+  DRY RUN 재실행 `3/3 done · $0.03 · complete`(cascade 승급 정상). 스크린샷 확인.
+
+### 잔여 (선택적 정리)
+- 수동 squad용 **죽은 CSS**(`squad-bar`/`squad-config`/`agent-row`/`agent-panel`/`squad-mode-*` 등)는
+  남겨둠 — 매칭 요소가 없어 무해하고, CSS nesting brace 함정(CLAUDE.md) 리스크 회피. 필요 시 별도 정리.

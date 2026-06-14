@@ -151,4 +151,37 @@
 
 > 이 플랜은 `docs/MAINTAINABILITY.md`와 함께 본다 — 분해 후 `components/chat/*`·`useAgentEvents` hook에
 > 레버들을 얹으면 자연스럽다. 단, **성능 레버는 분해와 독립적으로도 먼저 적용 가능**(분해를 기다릴 필요 없음).
+
+---
+
+## 8. 실행 결과 — 작업 완료 기록 (2026-06-14)
+
+**결과: 스트리밍 핵심 레버(1·2·3·4) 적용 완료.** 정적 게이트 통과(typecheck ✅ · 프로덕션 빌드 ✅ ·
+renderer lint 0). 당시 `App.tsx` 단일 파일에 적용했고, 이후 `docs/MAINTAINABILITY.md` 분해로 모든
+레버가 `components/chat/*`(`BlockView`·`TurnView`)와 `useAgentEvents` 훅으로 자연 이동함(§152-153 예측대로).
+
+### 적용한 레버
+- **레버 1 (O(n²) 마크다운 제거) ✅.** 스트리밍 중엔 plain `<pre className="response-text-stream">`로
+  렌더(O(n) append), 완료 시 `<Md>`로 1회만 파싱. `Md`는 `memo`로 래핑. → 지금은 `components/chat/
+  BlockView.tsx`.
+- **레버 2 (rAF 코얼레싱) ✅.** block 이벤트를 버퍼에 모아 애니메이션 프레임당 1회 flush(`result`
+  이벤트는 flush 먼저 → turn 완료 표시). 버퍼 flush 순서 보존(§6 준수). → 지금은 `useAgentEvents.ts`.
+- **레버 3 (메모이제이션) ✅.** `BlockView`·`TurnView` `memo` + 안정 콜백(retry는 `sendRef` 경유로
+  최신 send 호출하되 identity 유지 → memo 안 깨짐). 순효과: 스트리밍 flush가 활성 turn의 활성 블록만
+  재렌더(plain text).
+- **레버 4 (autoscroll 리플로우 제거) ✅.** near-bottom(120px) 가드 + rAF로 프레임당 scrollTop 1회.
+  사용자가 위로 스크롤해 읽는 중이면 끌어내리지 않음. → 지금은 `components/chat/Composer.tsx`.
+- **레버 5 영역 부분집합 ✅.** 슬래시 매칭을 `useMemo`로(스트리밍 flush마다 재계산 안 함).
+
+### 의도적으로 보류 (Kill criteria/§1 정신)
+- **레버 5 전체(textarea 리프 격리) 보류.** Phase 2 memo가 이미 트랜스크립트를 입력 재렌더로부터 격리해
+  한계효용 작음. (분해로 Composer는 별 모듈이 됐지만 textarea는 여전히 controlled in-Composer.)
+- **`useDeferredValue` 회피.** 슬래시 메뉴 키보드 네비게이션 동작 보존 위해 의도적 제외.
+- **레버 6(가상화) 미착수.** 조건부·최후 수단 — Phase 1~3로 체감 대부분 해소 가정, 긴 세션 실측 렉
+  확인 전엔 손대지 않음.
+
+### 미수행 — 측정 (정직한 한계)
+- **Phase 0 CDP 베이스라인 + 전/후 수치(§5) 미채집.** 라이브 앱 + 구독 세션 필요 → 사용자 우선순위 낮춤.
+  즉 레버들은 **코드 근거(§0 병목)와 정적 게이트**로만 검증됨; 프레임타임·input-to-paint의 정량 전/후
+  비교는 아직 없음. 재개 시 첫 할 일: prod 빌드 + `--remote-debugging-port=9222`로 골든 입력 실측.
 </content>

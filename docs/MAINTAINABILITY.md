@@ -205,5 +205,96 @@ warning 등급으로 두어 빌드는 막지 않되 가시화.
 - 잠금 env 검증 절차·CSS nesting/brace 함정·HMR 불신: `CLAUDE.md` (Verifying UI changes / Gotchas).
 
 > 토큰/Squad 문서와 달리 이 플랜은 **외부 연구가 아닌 코드베이스 사실에 근거**한다. 회귀 검증이 곧 근거다.
-</content>
-</invoke>
+
+---
+
+## 8. 실행 결과 — 작업 완료 기록 (2026-06-14)
+
+**결과 요약: 렌더러 모놀리스 분해 완료. `App.tsx` 3927 → 538줄 (−86%).** 전 단계 행동 보존,
+각 슬라이스마다 정적 게이트 통과(typecheck ✅ · 프로덕션 빌드 ✅ · renderer lint 0 경고). git 없는
+환경이라 슬라이스별 revert 불가 → 작은 단위 + 즉시 검증으로 가드(§4 정적 부분).
+
+### 완료한 Phase
+- **Phase 0 — 안전망 ✅.** `src/renderer/src/types.ts`(공유 타입: AuthMode/AuthStatus + main 타입
+  re-export + Block/Todo/Turn/PermReq/DialogReq/QResult/SquadAgent 등) + `lib/constants.ts`
+  (EFFORTS/PERMS/CLIENT_COMMANDS/effortOption) + `lib/format.ts`(methodLabel/mcpStatusClass/
+  fmtTokens/usageShortLabel/toolIcon/toolArg(Obj)/ctxWindow/permArg) + `lib/blocks.ts`
+  (reduceBlocks/deriveTasks/parseTodos/normTaskStatus). 모두 리프(JSX·컴포넌트 import 없음).
+  App.tsx 3927 → 3683.
+- **Phase 1 — EXTEND 추출 ✅.** `components/extend/`: `ExtendView`(컨테이너 + ExtendSection/
+  EXTEND_SECTIONS) + 6패널(`SkillsPanel`·`CommandsPanel`·`HooksPanel`·`McpPanel`·`AgentsPanel`·
+  `PluginsPanel`, 각자 에디터·Draft·템플릿 동거) + `shared.ts`(SKILL_NAME_RE, 3 에디터 공유).
+  App.tsx 3683 → 2276 (−1407).
+- **Phase 2 — CHAT 추출 ✅.** `components/chat/`: 리프 뷰 `TodoList`·`TodoBar`·`HistoryView`·
+  `BlockView`·`TurnView`·`PermissionModal`·`QuestionModal`, 그리고 `Composer`(컴포저+트랜스크립트,
+  ~685줄)와 **`useAgentEvents` 훅**. 훅은 turns/perms/dialogs/contextTokens/contextModel 상태 +
+  rAF-코얼레싱 스트리밍 구독을 소유 — 입력은 좁게 ref 5개({ownedRef,runIdRef,onSessionRef,
+  onResultRef,taRef}), 상태+setter 번들 반환. App.tsx 2276 → 1120.
+- **Phase 3 — SQUAD/PERSONA/TitleBar 추출 ✅.** `components/squad/SquadView.tsx`(SquadView +
+  makeAgent + squadPreset, chat의 TurnView·PermissionModal 재사용), `components/persona/
+  PersonaModal.tsx`(+PERSONA_PRESETS), `components/TitleBar.tsx`. App.tsx 1120 → **538**
+  (= App 컴포넌트 ~27 + MainShell ~480).
+
+### 플랜 대비 편차 (의도된 결정)
+- **`max-lines` 래칫: Phase 0 → 분해 후로 연기.** 분해 중엔 라인 한도가 노이즈; 파일이 작아진 지금이
+  도입 적기(재개 시 첫 단계 권장).
+- **CDP 회귀 체크리스트: 미수행.** 런타임 검증(라이브 앱+구독 세션 필요)은 사용자가 우선순위 낮춤.
+  성능·정확성 핵심 코드(스트리밍 rAF·메모이제이션)는 **본문 그대로 이동**이라 정적 게이트로 충분히 검증됨.
+- **`types.ts`에 `RunOptions` re-export 추가.** Composer/SquadView가 깨지기 쉬운 다단계 인라인
+  `import('../../../../main/agent')` 대신 `../../types`에서 가져오도록(§7 배럴 의도와 일치).
+- **exhaustive-deps 거짓양성 2건**(구독 1회 `[]`, 세션복원 effect의 안정적 훅 setter)은 코드베이스
+  기존 패턴인 문서화된 `eslint-disable-next-line`으로만 억제 — 로직 무변경(§6 준수).
+
+### 중단 지점 — 사용자 선택 (2026-06-14)
+Phase 3 후 사용자가 **"여기서 멈춤"** 선택. 주요 뷰(CHAT·SQUAD·EXTEND·PERSONA·TitleBar) 전부
+모듈화 완료를 충분한 지점으로 판단. **남은 작업은 연기일 뿐 폐기 아님** — 요청 시 재개:
+- **(선택) MainShell 슬림화.** 사이드바(16 useState + ~9 `selector` 섹션: MODEL/EFFORT/LIMITS/
+  PERMISSIONS/AGENT/MCP/CONVERSATIONS/PLAN USAGE/TOKENS)를 `Sidebar`로 분리 → App.tsx 추가 감량.
+  단 ~20-prop 인터페이스/강결합 → 그룹 prop 또는 Context(§Phase 5) 검토 필요, 뷰 추출보다 위험·노력 큼.
+- **Phase 4 — main + CSS.** `index.ts`의 ~41 ipc 핸들러 → `ipc/*`, `agent.ts` → `agent/` 배럴,
+  styles.css → 파셜(§2.2, brace 가드). 단순 이동이라 리스크 낮음.
+- **`max-lines` 래칫** (위 편차 참고) · **Phase 5 Context**(조건부, prop-drilling이 실제로 아플 때만).
+
+---
+
+## 9. 실행 결과 2 — Phase 4 백엔드 분해 + 래칫 (2026-06-14, 재개)
+
+**결과 요약: main 프로세스 백엔드 분해 + `max-lines` 래칫 완료.** §8의 "중단 지점"에서 연기됐던
+Phase 4의 **main 부분**과 래칫을 실행. 전 단계 행동 보존(순수 cut/paste + import 정리), 정적 게이트
+통과(typecheck ✅ · 프로덕션 빌드 ✅ · lint = 신규 에러 0). CSS 분할은 플랜의 "가치<리스크·선택"
+판정(§2.2 대안, §6 후퇴 조항)에 따라 **의도적 보류**.
+
+### 완료한 작업
+- **`agent.ts`(740줄) → `agent/` 폴더 + 배럴 ✅.** 11개 파일로 분해, 모두 ≤241줄:
+  `types.ts`(161, 전 타입) · `runStreaming.ts`(241, 코어 러너 — **이동만, 로직 무변경**) ·
+  `sessions.ts`(89, getSessions/getTranscript) · `capabilities.ts`(64) · `env.ts`(64, buildEnv/
+  workspaceDir/ensureWorkspace/SETTING_SOURCES) · `helpers.ts`(53, idlePrompt/resultErrorMessage/
+  toolContentToString/singlePrompt) · `compact.ts`(36) · `control.ts`(36, respondPermission/
+  respondDialog/interruptRun) · `usage.ts`(32) · `index.ts`(30, 배럴) · `state.ts`(12, 공유 맵).
+  - **배럴이 핵심 — import 경로 무수정 보존.** `../../main/agent`(renderer `types.ts`),
+    `../main/agent`(preload), `./agent`(main)가 폴더 `index.ts`로 그대로 해소 → 소비자 0 수정.
+  - **§6 가드 준수**: `runStreaming`의 runId 동시성(`active` Map, `pending*` 드레인)은 **이동만**.
+    공유 맵은 단일 출처 `state.ts`로 (러너가 채우고 control이 비움 — 양쪽이 같은 모듈 import).
+- **`index.ts`(181줄) → `ipc/*` + 슬림화(58줄) ✅.** ~41 ipc 핸들러를 도메인별 5모듈로:
+  `ipc/extend.ts`(75, skills/commands/hooks/mcp/agents/plugins) · `ipc/agent.ts`(36) ·
+  `ipc/auth.ts`(15) · `ipc/window.ts`(15) · `ipc/persona.ts`(11) · `ipc/index.ts`(19, `registerAll`).
+  `index.ts`는 BrowserWindow 생성 + `registerAll(ipcMain)` 호출만 남김(§2.3 목표 레이아웃 일치).
+- **`max-lines` ESLint 래칫 ✅.** `["warn",{max:400,skipBlankLines:true,skipComments:true}]`.
+  warning 등급 → 빌드 비차단·가시화(§4 래칫 의도). 현재 3개 파일 플래그(= 남은 슬림화 타깃):
+  `Composer.tsx`(612) · `App.tsx`(471, MainShell) · `SquadView.tsx`(436).
+
+### 검증 (정적 게이트 — §4)
+- `npm run typecheck` ✅ green · `npm run build` ✅ green(306 모듈).
+- `npm run lint`: **에러 3개(전부 기존, 신규 0)** — `require-yield`(idlePrompt, agent.ts:190 →
+  helpers.ts:10로 *동일 에러 이동*) + `frontmatter.ts` 공백 + `preload` ts-ignore(둘 다 미변경).
+  경고 21→24(+3 = 신규 래칫 경고뿐, `any` 경고는 agent/* 로 이동하며 개수 보존). **순수 이동 방증.**
+
+### 의도적 보류 (플랜 준수)
+- **CSS 분할 보류.** §2.2 대안("styles.css 통째로 유지, 섹션 주석만") + §6("brace 함정으로 회귀 잦으면
+  후퇴") 채택. 2622줄 단일 파일은 전 뷰 cascade에 영향 + nesting brace 함정 + CDP 런타임 확인 불가
+  환경 → 가치<리스크. lint는 `.ts,.tsx`만 대상이라 styles.css는 래칫에도 안 걸림.
+- **MainShell 슬림화 / Phase 5 Context 보류.** §8 중단 지점 그대로 — 강결합·~20-prop, 뷰 추출보다
+  위험. 래칫이 이제 `App.tsx`(471)를 가시화하므로 향후 재개 시 첫 타깃으로 명확.
+
+> Phase 4 = **백엔드(main) 완료 / CSS 보류**. 남은 유지보수 작업은 전부 *조건부·선택*(CSS, MainShell
+> 슬림화, Phase 5 Context)이며, 본선 모듈 분해(렌더러 + main 백엔드)는 이로써 종료.

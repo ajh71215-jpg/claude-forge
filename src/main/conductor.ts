@@ -13,6 +13,7 @@
 
 import type { Artifact, Plan, Subtask, Verdict } from './orchestration'
 import { MODEL_TIERS, TOPOLOGIES, topoSort } from './orchestration'
+import { isRole } from './roles'
 
 export interface PlanValidation {
   ok: boolean
@@ -45,6 +46,8 @@ export function validatePlan(plan: Plan): PlanValidation {
       errors.push(`subtask ${st.id || '?'}: bad topology ${String(st.topology)}`)
     if (!MODEL_TIERS.includes(st.model))
       errors.push(`subtask ${st.id || '?'}: bad model tier ${String(st.model)}`)
+    if (st.role !== undefined && !isRole(st.role))
+      errors.push(`subtask ${st.id || '?'}: unknown role ${String(st.role)}`)
   }
   for (const edge of plan.edges ?? []) {
     const [from, to] = edge

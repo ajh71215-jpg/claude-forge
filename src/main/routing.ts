@@ -20,6 +20,12 @@ export interface RouteInput {
   instruction: string
   /** Explicit tier from a Plan subtask; 'cascade'/undefined → auto-classify. */
   tier?: ModelTier
+  /**
+   * Default tier from the subtask's agent role (roles.ts). Used when the plan
+   * leaves the model on 'cascade' — a role's tier outranks the heuristic
+   * classifier but yields to an explicit non-cascade plan tier.
+   */
+  roleTier?: Tier
   /** Verification failures so far → walk the cascade ladder up. */
   priorFailures?: number
 }
@@ -81,6 +87,9 @@ export function route(input: RouteInput): RouteDecision {
   if (input.tier && input.tier !== 'cascade') {
     tier = input.tier
     rationale = `explicit tier ${tier} from plan`
+  } else if (input.roleTier) {
+    tier = input.roleTier
+    rationale = `role default tier ${tier}`
   } else {
     tier = TIER_BY_DIFFICULTY[difficulty]
     rationale = `difficulty=${difficulty} → ${tier}`

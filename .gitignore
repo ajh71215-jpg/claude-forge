@@ -11,3 +11,6 @@ out-selftest/
 
 # per-machine Claude Code local settings (absolute paths, not shared)
 .claude/settings.local.json
+
+# stray local build artifact (913MB) — never commit
+dist v2/

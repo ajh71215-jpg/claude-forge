@@ -22,6 +22,7 @@ const { runChecks, checksToVerdict } = require(path.join(base, 'toolVerifier.js'
 const { executeTopology } = require(path.join(base, 'topology.js'))
 const { getRole, isRole, ROLE_NAMES, listRoles } = require(path.join(base, 'roles.js'))
 const { runLoop } = require(path.join(base, 'loop.js'))
+const { detectKeywords, keywordSuggestsLoop, keywordSystemAppend } = require(path.join(base, 'keywords.js'))
 const { validateGoldenSet, summarize, baselineDelta, gateVerdict } = require(path.join(base, 'eval.js'))
 const goldenSet = require(path.join(__dirname, '..', 'eval', 'golden-set.json'))
 
@@ -304,7 +305,43 @@ async function main() {
       verify: async () => { throw new Error('should not run') }
     })
     check('loop rejects invalid plan without running', r5.stopped === 'invalid-plan' && r5.iterations === 0)
+
+    // PARTIAL RE-EXEC CORRECTNESS: a downstream subtask (B depends on A) that
+    // passed against a FAILING A must be RE-RUN once A is fixed — not served from
+    // a stale cache. A fails iter0 (B passes against it), A passes iter1; B must
+    // run again in iter1, so B runs exactly twice.
+    {
+      const runsById = {}
+      const plan6 = { goal: 'g', budgetUsd: 50, subtasks: [sub('A'), sub('B')], edges: [['A', 'B']] }
+      const r6 = await runLoop(plan6, {
+        runSubtask: async (st) => { runsById[st.id] = (runsById[st.id] ?? 0) + 1; return { subtaskId: st.id, output: 'o', costUsd: 1 } },
+        // A passes only on its 2nd attempt (iter1); B always passes.
+        verify: async (st) => verdict(st.id, st.id === 'A' ? runsById['A'] >= 2 : true)
+      }, { maxIterations: 4, maxRevisions: 0 })
+      check('loop re-runs downstream of a fixed upstream (no stale cache)', r6.goalPass === true && runsById['B'] === 2)
+    }
   }
+
+  // ============ KEYWORDS (native magic-keyword detector — OMC port) ============
+  group('keywords.ts — magic-keyword auto-trigger + false-positive guards')
+  check('detects ralph as a loop mode', detectKeywords('ralph: fix the failing build').some((m) => m.name === 'ralph' && m.action === 'loop'))
+  check('detects autopilot as a loop mode', detectKeywords('autopilot this refactor').some((m) => m.action === 'loop'))
+  check('keywordSuggestsLoop true for ralph', keywordSuggestsLoop(detectKeywords('use ralph here')) === true)
+  check('code review maps to code-reviewer role', detectKeywords('do a code review of auth.ts').some((m) => m.name === 'code-review' && m.role === 'code-reviewer'))
+  check('security review maps to security-reviewer role', detectKeywords('security review the login flow').some((m) => m.role === 'security-reviewer'))
+  check('ultrathink maps to a reasoning boost', detectKeywords('ultrathink about this design').some((m) => m.action === 'reason'))
+  check('deepsearch maps to explore role + fanout', detectKeywords('deepsearch the codebase for callers').some((m) => m.role === 'explore' && m.topology === 'fanout'))
+  // false-positive guards
+  check('informational "what is ralph" does NOT trigger', detectKeywords('what is ralph mode?').length === 0)
+  check('quoted keyword does NOT trigger', detectKeywords('the doc says "ralph" loops forever — how many iterations?').length === 0)
+  check('code-fenced keyword is stripped', detectKeywords('see ```\nrun ralph\n``` for details — explain it').length === 0)
+  check('pasted [RALPH LOOP - ITERATION 3] echo does NOT re-trigger', detectKeywords('[RALPH LOOP - ITERATION 3] continue working').length === 0)
+  check('activation intent overrides informational ("use ralph")', detectKeywords('explain then use ralph to finish').some((m) => m.action === 'loop'))
+  // priority + cancel exclusivity
+  check('cancel is exclusive (clears other matches)', (() => { const m = detectKeywords('stopomc and ralph'); return m.length === 1 && m[0].action === 'cancel' })())
+  check('combined keywords sort by priority (ralph before code-review)', (() => { const m = detectKeywords('ralph and code review it'); return m[0].name === 'ralph' && m.some((x) => x.name === 'code-review') })())
+  check('no keyword → empty + empty systemAppend', detectKeywords('just fix the typo on line 12').length === 0 && keywordSystemAppend([]) === '')
+  check('systemAppend concatenates active modes', keywordSystemAppend(detectKeywords('ralph code review')).includes('RALPH'))
 
   // ============ ③ EVAL CORE + REAL GOLDEN SET ============
   group('eval.ts — golden set + scoring + kill-criteria gate')

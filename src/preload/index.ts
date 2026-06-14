@@ -143,6 +143,12 @@ const forge = {
     roles: (): Promise<
       { name: string; description: string; tier: string; writeCapable: boolean; systemAppend: string }[]
     > => ipcRenderer.invoke('orchestrate:roles'),
+    /** Native magic-keyword detector (OMC port): map a goal/prompt to active modes. */
+    detectKeywords: (
+      prompt: string
+    ): Promise<
+      { name: string; action: string; priority: number; role?: string; topology?: string; matched: string }[]
+    > => ipcRenderer.invoke('orchestrate:detect-keywords', prompt),
     /** Subscribe to orchestration events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: OrchestrateEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: OrchestrateEvent): void => cb(payload)

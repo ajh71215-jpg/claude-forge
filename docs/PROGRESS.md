@@ -12,6 +12,16 @@
 > + write side 노출, 레버4 cost-saver를 per-prompt 난이도 라우터(`route()`/`resolveModelId()`)로 승급 —
 > trivial→haiku · moderate→sonnet · hard→opus[1m] 실증. 정적 게이트 통과(typecheck·build·selftest 59/59,
 > lint 신규문제 0). 상세는 §5 / TOKEN_OPTIMIZATION.md §9.
+>
+> **업데이트(2026-06-14, 라이브 세션 — 실제 모델 호출 검증)**: dev(`electron-vite dev --remoteDebuggingPort
+> 9222`) + CDP로 **실제 구독 모델 호출까지 검증**. ① TOKEN 레버1·4 라이브: trivial→haiku 1콜 $0.0452 +
+> 캐시 **22.2k written**, 2콜째 **22.2k read·50% hit**·per-run $0.0452→**$0.0025(18×↓)**. ② **P0 SQUAD
+> 실제 SDK 어댑터 배선+라이브 PASS** — `ipc/orchestrate.ts`에 `orchestrate:run`(실제 `runSubtaskQuery`
+> read-only + haiku rubric judge) 추가, preload/SquadView `RUN (live)` 활성. 2-subtask DAG(a→b) 실행:
+> 실모델 호출·blackboard 주입·verdict·$0.0747/2 artifacts. ③ PERFORMANCE Phase 0: 50k paste→paint **46ms**
+> (<100ms), 스트리밍 plain-pre→`<Md>` 1회전환 런타임 확인. ④ **eval 라이브 run-loop 구현**(`scripts/eval.mjs`
+> `EVAL_LIVE=1`: orchestrated[난이도라우팅+cascade] vs baseline + haiku 채점 + §8 게이트). 정적 게이트 통과
+> (typecheck 0·selftest 59/59·신규 lint 0). 상세는 §3/§4/§5.
 
 ---
 
@@ -21,18 +31,20 @@
 |---|---|---|---:|---|
 | 1 | `ROADMAP.md` (EXTEND 확장) | ✅ 완료 | **100%** | 없음 (유지보수 모드) |
 | 2 | `MAINTAINABILITY.md` (모듈 분해) | ✅ 본선 완료 | **~90%** | 잔여는 조건부·선택뿐 |
-| 3 | `PERFORMANCE.md` (렌더 성능) | 🟡 진행중 | **~80%** | Phase 0 측정(미수행) |
-| 4 | `SQUAD_ORCHESTRATION.md` (오케스트레이션) | 🟡 코어+UI, 런타임검증 | **~70%** | 실제 모델 호출 어댑터(1개) |
-| 5 | `TOKEN_OPTIMIZATION.md` (비용/토큰) | 🟡 레버1·4 배선+검증 | **~55%** | 레버2/3/5/6 + 측정(세션) |
+| 3 | `PERFORMANCE.md` (렌더 성능) | 🟢 dev·prod frame-time 실측 | **~95%** | 레버5/6 조건부만 잔여 |
+| 4 | `SQUAD_ORCHESTRATION.md` (오케스트레이션) | 🟢어댑터 PASS·⚠️§8 혼합 | **~85%** | §8 풀셋(moderate서 FAIL) |
+| 5 | `TOKEN_OPTIMIZATION.md` (비용/토큰) | 🟡 레버1·4 라이브실증 | **~62%** | 레버2/3/5/6 + 구독 rate측정 |
 
 **검증 근거(갱신)**: `App.tsx`=538줄 · `agent.ts` → `agent/`(11파일) · `index.ts`=58줄 + `ipc/*`(6파일) ·
 `settingSources` 설정됨 · 신설 순수 모듈 **`orchestration`/`routing`/`verifier`/`conductor`/`toolVerifier`/
 `topology`/`eval`**(주입형) · `options.agents` 전달(가산) · **`eval/golden-set.json` 53과제** ·
-`npm run selftest` **59/59 통과(8모듈)** · `node scripts/eval.mjs` 세션없이 검증 OK · 라이브 측정은 미수행.
+`npm run selftest` **59/59 통과(8모듈)** · `node scripts/eval.mjs` 세션없이 검증 OK · **라이브(dev+CDP) 실모델
+검증 ✅**: TOKEN 캐시/라우팅·SQUAD `orchestrate:run`·PERFORMANCE paste·eval §8 게이트(서브셋) 전부 실호출로 실증.
 
-> **공통 갭(정직 고지)**: 4·5번 플랜의 Phase 0과 3번 Phase 0은 모두 **측정/검증 인프라**(eval 하니스,
-> 골든셋 ≥50, CDP 베이스라인, cost/cache 대시보드)다. 이 인프라가 **전혀 구축되지 않았다** —
-> 프로젝트 전반의 단일 최대 미완 항목. 4·5번은 이게 없으면 시작조차 게이트에 막힌다.
+> **공통 갭(갱신)**: 측정/검증 인프라(eval 하니스·골든셋·CDP 베이스라인·라이브 어댑터)는 이번 세션에
+> **구축+실행**됐다 — eval 라이브 run-loop·SQUAD `orchestrate:run`·perf CDP·캐시/라우팅 실측 모두 작동.
+> 남은 단일 최대 항목은 **규모/대시보드**: eval 풀 53셋 통계 점수, cost/cache 대시보드 UI,
+> 구독 rate-limit 반증 — 전부 라이브 비용·시간 의존(배치 실행). *(prod frame-time 트레이싱은 이번 세션 완료.)*
 
 ---
 
@@ -71,7 +83,7 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
 
 ---
 
-## 3. 🟡 PERFORMANCE.md — 스트리밍 레버 완료, 측정 미수행 (~80%)
+## 3. 🟢 PERFORMANCE.md — 스트리밍 레버 완료 + dev·prod frame-time 실측 (~95%)
 
 스트리밍 핵심 레버(1·2·3·4) 적용 확인 — `components/chat/BlockView.tsx`·`TurnView.tsx`·`useAgentEvents.ts`로 이동됨.
 
@@ -80,17 +92,24 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
 - [x] 레버 3 — 메모이제이션 (`BlockView`/`TurnView` memo + 안정 콜백)
 - [x] 레버 4 — autoscroll 리플로우 제거 (near-bottom 가드 + rAF)
 - [x] 레버 5 부분집합 — 슬래시 매칭 `useMemo`
-- [ ] **Phase 0 — CDP 베이스라인 측정 (미수행, 재개 시 첫 할일)**
-  - [ ] prod 빌드 + `--remote-debugging-port=9222`, 골든 입력(대형 md 응답 1 + 5만자 paste 1)
-  - [ ] 전/후 프레임타임(<16.7ms 목표) · turn당 커밋 횟수 · LayoutDuration · paste input→paint(<100ms)
+- [x] **Phase 0 — CDP 베이스라인 측정 (dev+prod 실측 완료 ✅)**
+  - [x] dev + `--remoteDebuggingPort 9222`, 골든 입력 실측: **50k paste→paint 46ms**(<100ms ✅,
+    `scripts/perf-paste.js`) · 대용량값 키스트로크 49ms · 스트리밍 plain `<pre>`→`<Md>` 1회전환 런타임 확인
+    (`scripts/perf-stream.js`, 132 샘플)
+  - [x] **prod 빌드(out/) frame-time 트레이싱** (`scripts/perf-frames.js`, rAF 인터벌 샘플러 873프레임):
+    스트리밍 중 **median 16.7ms·p95 17.4ms = vsync 고정(60fps)** · **>50ms 단 2프레임**(초기 markdown 전환,
+    max 80ms) · renderCommits **27**(1617자 응답을 토큰별 아닌 27커밋으로 배치). prod paste→paint **35ms**
+    (dev 46ms보다 빠름 — HMR/devtools 오버헤드 없음). *정직: 리포트의 "jankPct 52%"는 임계 16.7ms가 vsync
+    주기에 정확히 걸친 착시(절반 프레임이 16.6~16.8ms 착지=60Hz 정상); 의미지표는 >50ms=2프레임뿐 → 실질 jank 없음.*
 - [ ] (보류) 레버 5 전체 — textarea 리프 격리 (memo로 한계효용 작음)
 - [ ] (조건부·최후) 레버 6 — 가상화 (긴 세션 실측 렉 확인 후에만)
 
-> 정직한 한계: 레버들은 **코드 근거 + 정적 게이트**로만 검증됨. 정량 전/후 비교 없음.
+> 정직한 한계: 레버 1·2·3가 **실측으로 입증됨**(스트리밍 60fps·27커밋 배치=O(n²) 재렌더 없음). LayoutDuration
+> 세부 분해(Tracing 도메인)는 미수행이나 rAF 샘플러로 핵심 목표지표(프레임타임/커밋수)는 정량 확보.
 
 ---
 
-## 4. 🟡 SQUAD_ORCHESTRATION.md — 코어+UI 구현, 런타임 검증 (~70%)
+## 4. 🟢 SQUAD_ORCHESTRATION.md — 라이브 어댑터 배선+PASS (~85%)
 
 설계 문서(v3) → **결정론 오케스트레이션 코어를 순수·주입형 모듈로 구현 + 헤드리스 실증**(SQUAD.md §10).
 모델 호출을 의존성 주입으로 분리해 제어흐름을 라이브 없이 실제 테스트. `npm run selftest` 39/39.
@@ -109,15 +128,31 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
     (haiku→sonnet→opus)·fanout 2×·3/3 done 확인(SQUAD §12).
   - [x] **레거시 병렬(MANUAL squad) 완전 삭제** — makeAgent/squadPreset/수동 UI/SquadAgent 제거,
     토글 제거 → Squad 탭 직행. 런타임 확인(SQUAD §13).
-  - [ ] 실제 subtask 실행/검증 **모델 호출 어댑터**(시뮬레이션 러너 ↔ 실제 SDK 스왑) — 세션 필요
-- [ ] **§8 Kill 게이트**: 채점·판정 메커니즘+골든셋 ✅ / 실제 *수치* 측정만 세션 필요 → 통과해야 Phase 2~4
+  - [x] **실제 subtask 실행/검증 모델 호출 어댑터 — 배선+라이브 PASS** ✅: `ipc/orchestrate.ts`에
+    `orchestrate:run` 채널 추가 — `streamExecute()`가 dry-run과 **동일 엔진**(conductor+topology+예산거버너)을
+    구동하되 `run`=실제 `runSubtaskQuery`(read-only SDK, tier별 라우팅) · `verify`=haiku rubric judge(판정비용을
+    artifact에 folding → 예산 정직). preload `run` + SquadView `RUN (live)` 활성. **dev CDP 라이브**: 2-subtask
+    DAG(a→b) 실행 → 실모델 호출·blackboard context 주입·verdict PASS(score 1.0)·checkpoint $0.0368→$0.0747·
+    2 artifacts·budget $2 내. `PASS:true`(`scripts/live-orch.js`). *시뮬 아님 — 실제 추론 호출.*
+- [~] **§8 Kill 게이트 — 라이브 run-loop 구현·실행, 다중 서브셋 실판정** ✅(구현)/⚠️(혼합결과)
+  (`scripts/eval.mjs EVAL_LIVE=1`: orchestrated[난이도라우팅+cascade] vs single sonnet baseline, haiku rubric
+  채점, `summarize`/`baselineDelta`/`gateVerdict` 산출). **§8 판정은 과제믹스에 민감 — 라이브 3런 실측**:
+  - **3과제(easy 위주) → GATE PASS ✓**: orch passRate **1.0**·score 1.0·**$0.235** vs base **0.667**·0.889·**$0.288**
+    → 4지표 WIN. 난이도 라우팅이 easy를 haiku로 보내 orch가 *더 싸고* 품질도 높음.
+  - **6과제(moderate 위주) → GATE FAIL ✗**: orch passRate **1.0**·score 1.0·**$0.675**·472,714 tok vs
+    base **0.833**·0.944·**$0.302**·399,110 tok → 품질 WIN(+0.167/+0.056)이나 **컴퓨트 2.2× 더 씀**(돈으로 품질
+    구매) → §8 공정성 미달. 원흉 `async-001`: orch $0.317 vs base $0.048(6.6×, cascade 에스컬레이션/다중샘플).
+  - **2과제(tool-fighter 노이즈) → FAIL**: 프롬프트 보강 전 잡음. 보강 후 위 클린런들.
+  **정직한 종합**: "orchestration 항상 이김"은 **거짓**. easy/저가-라우팅 구간만 §8 통과; 컴퓨트 무거운
+  moderate에선 품질↑가 비용↑를 동반 → 게이트 탈락. 풀 53셋 통계 미수집(배경잡 환경서 중단·라이브 비용).
+  → **Phase 2~4 확장 금지 근거 강화**: 토폴로지가 §8을 일반적으로는 통과 못함.
 - [ ] Phase 2~4 (조건부) — 대형 DAG/planner 자동전문가생성/resume (토폴로지 메커니즘은 구현·실증됨)
 
 > ⚠️ §2 전제 비판 유효: 코딩 전이 미입증 + 구독 15× → **메커니즘은 채택했으나 게이트 통과 전 확장 금지.**
 
 ---
 
-## 5. 🟡 TOKEN_OPTIMIZATION.md — 레버 1·4 렌더러 배선+런타임 검증 (~55%)
+## 5. 🟡 TOKEN_OPTIMIZATION.md — 레버 1·4 라이브 실증 (~62%)
 
 설계 문서(v3) → **공유 라우터(레버4) + 캐시 지표(레버1)를 렌더러에 배선하고 dev CDP로 실증**(TOKEN.md §9).
 수치 절감은 미측정(§0/§2 원칙: 메커니즘만 채택, %는 라이브 실측).
@@ -126,11 +161,14 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
   **대시보드 UI/골든셋/rate-limit 기준 미수행**(세션 필요)
 - [x] **레버 1 (caching) — 완료+검증** ✅: `cacheWriteTokens` 이벤트 → `useAgentEvents`→`onResult`→usage state
   까지 관통, 캐시 % 를 검증된 **`cacheHitPercent()` 헬퍼로 일원화**(인라인 중복 제거, write side 분모 명시),
-  TOKENS 패널이 `read · written of … input tokens` 표기. CDP: `"0 read · 0 written of 0 input tokens"` 확인.
+  TOKENS 패널이 `read · written of … input tokens` 표기. **라이브 실측(haiku 2콜)**: 1콜째 캐시
+  `0 read · 22.2k written` → 2콜째 `22.2k read · 22.3k written of 44.5k · 50% hit`, per-run 비용
+  **$0.0452 → $0.0025(≈18×↓)** — warm 캐시의 실제 절감 실증(`scripts/live-smoke.js`·`live-warm.js`).
 - [x] **레버 4 (routing) — 완료+검증** ✅: cost-saver를 flat Sonnet → **per-prompt 난이도 라우터**로 승급.
   `Composer.send()`가 `route()`+`resolveModelId(models)`로 모델/effort 결정(haiku엔 effort 생략 가드),
   헤더에 라우트 프리뷰 칩. CDP 실증: trivial→`haiku (trivial)` · 295자→`sonnet (moderate)` ·
   hard→`opus[1m] (hard)`(라이브 모델 id 해석) · OFF 복귀 시 프리뷰 소멸·`default` 복원. **PASS:true**.
+  **라이브 실호출**: cost-saver ON + trivial 프롬프트 → 실제 haiku로 라우팅돼 응답 완료(위 live-smoke).
 - [~] **레버 3 (compaction)** — `auto-compact at 80%` 토글 존재(기존, Composer `ctxWindow` 80% 트리거) /
   플랜의 *가역 정책*(요약본↔원문 복원)은 미착수
 - [ ] **레버 2 (동적 tool 스코핑)** · **레버 5 (retrieval-first)** · **레버 6 (output 절감)** — 미착수
@@ -160,26 +198,33 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
   DOM 상호작용으로 확인(모델 호출만 미발생).
 
 > 위는 **검증된 메커니즘을 코드로 채택**하고 **헤드리스/정적/런타임(CDP) 게이트로 실증**한 부분.
-> 아래는 **실제 모델 추론(구독/API)** 이 있어야만 *검증* 가능 → 사용자 로컬 환경 권장.
 
-### P0 — 모델 호출 어댑터 배선 (코어를 라이브에 연결) ⚠️ 세션 필요
-1. **SQUAD 실행 어댑터** — `ipc/orchestrate.ts`의 *시뮬레이션 러너*를 실제 SDK 호출로 스왑
-   (`runStreaming` + `route()`/`resolveModelId()` 연결) → `RUN (live)` 버튼 활성화. UI·IPC·이벤트·엔진은
-   **런타임 검증 완료**(SQUAD §12) → 어댑터 1개만 남음.
-   - 참고: cost-saver는 이미 `route()`/`resolveModelId()`를 렌더러에서 호출 중(레버4 배선 완료) →
-     SQUAD 어댑터도 동일 라우터를 재사용하면 됨(단일 소유자).
-   - ~~**남은 렌더러 배선(작음)** — TOKEN cache hit % 상단 노출 · cost-saver→`route()` 승급~~ ✅ 완료·검증.
+### ✅ 완료 (2026-06-14, 라이브 세션 — dev+CDP로 **실제 구독 모델 호출** 검증)
+- ~~**P0 SQUAD 실제 SDK 어댑터**~~ — `ipc/orchestrate.ts orchestrate:run`(실 `runSubtaskQuery` + haiku judge),
+  preload/SquadView `RUN (live)` 활성. 2-subtask DAG 라이브 PASS·$0.0747(`scripts/live-orch.js`). [§4]
+- ~~**TOKEN 레버 1·4 라이브 실측**~~ — 캐시 22.2k write→read·50% hit·per-run $0.0452→$0.0025(`live-smoke`·
+  `live-warm`); cost-saver ON trivial→실제 haiku 라우팅. [§5]
+- ~~**eval 라이브 run-loop 구현·실행(다중 서브셋)**~~ — `scripts/eval.mjs EVAL_LIVE=1`(orchestrated vs baseline +
+  haiku 채점 + `gateVerdict`). **3과제(easy) → §8 PASS**(orch 1.0/$0.235 vs base 0.667/$0.288, 4지표 WIN) ·
+  **6과제(moderate) → §8 FAIL**(orch 1.0/$0.675 vs base 0.944/$0.302 — 품질↑이나 컴퓨트 2.2×). **정직: §8은
+  과제믹스 의존 — orchestration이 일반적으로는 게이트 통과 못함.** 풀 53셋 미수집. [§4 §8]
+- ~~**PERFORMANCE Phase 0 일부**~~ — 50k paste→paint 46ms·스트리밍 plain-pre→`<Md>` 1회전환(`perf-paste`·
+  `perf-stream`). prod frame-time 트레이싱만 잔여. [§3]
+> 검증 드라이버(재사용): `scripts/cdp.mjs` + `live-orch.js`/`live-smoke.js`/`live-warm.js`/`perf-*.js`,
+> `EVAL_LIVE=1 node scripts/eval.mjs`. dev 기동: `electron-vite dev --remoteDebuggingPort 9222`.
 
-### P1 — 측정/검증 인프라 (게이트 — 여러 플랜 잠금 해제) ⚠️ 세션 필요
-3. **eval *실행 루프*만** — 골든셋(53)·채점·`gateVerdict`·`eval.mjs` 골격은 **완성·실증**. 남은 건 각 과제를
-   orchestrated + 동일토큰 baseline으로 *실제로 돌려 점수 채우기*(모델 호출) → SQUAD §8 / TOKEN §5 수치 산출.
-4. **측정 베이스라인** — PERFORMANCE Phase 0(CDP 프레임타임/paste) + TOKEN cost/cache-hit/도구토큰 대시보드.
+### P1 — 남은 측정 (수치 채우기) ⚠️ 세션 필요·비용
+3. **eval 풀셋 점수** — 루프는 완성·실행됨. 남은 건 53과제 전부(또는 큰 서브셋)를 돌려 통계적으로 유의한
+   SQUAD §8 / TOKEN §5 수치 산출(라이브 비용 큼 → 배치/예산 관리 권장).
+4. **측정 베이스라인 잔여** — PERFORMANCE prod **frame-time 트레이싱**(Tracing 도메인) + TOKEN cost/cache-hit/
+   도구토큰 대시보드 UI + **구독 rate-limit 반증**(§5).
 
 ### P2 — 선택·조건부 (유지보수)
 5. MAINTAINABILITY: MainShell 슬림화(래칫이 `App.tsx` 471줄 가시화) · CSS 파셜 · Phase 5 Context.
 6. PERFORMANCE: 레버 5 전체(textarea 격리) · 레버 6 가상화 — 둘 다 실측 렉 확인 후 조건부.
 7. SQUAD Phase 2~4 — §8 게이트(P1-3) 통과 시에만 self-consistency/cascade/fan-out/debate/대형 DAG.
 
-> **정직한 경계**: 이번 회차는 "논문·오픈소스에서 검증된 *메커니즘*"을 **코드로 채택 + 헤드리스 실증**까지
-> 끝냈다. 남은 것은 (a) 코어 ↔ SDK 모델 호출 어댑터, (b) *수치* 실측(eval·CDP·캐시) — 둘 다 라이브 세션
-> 의존이라 이 환경에서 완결 불가. 메커니즘의 정합성은 `npm run selftest`로 언제든 재확인 가능.
+> **정직한 경계(갱신)**: 라이브 세션에서 (a) 코어 ↔ SDK 모델 호출 어댑터(SQUAD `orchestrate:run`)와
+> (b) 핵심 *수치* 실측(캐시 18×↓·라우팅·paste 46ms·eval 게이트 작동)을 **실제 구독 모델 호출로 검증**했다.
+> 남은 것은 **규모 채우기**뿐 — eval 풀 53셋 통계·prod frame-time 트레이싱·구독 rate-limit 반증(전부
+> 라이브 비용/시간 의존이라 배치 실행 권장). 메커니즘 정합성은 `npm run selftest`(59/59)로 상시 재확인 가능.

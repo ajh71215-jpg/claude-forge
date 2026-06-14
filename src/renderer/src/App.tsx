@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
 import AuthGate from './components/AuthGate'
+import Icon from './components/Icon'
 import TitleBar from './components/TitleBar'
 import ExtendView from './components/extend/ExtendView'
 import Composer from './components/chat/Composer'
@@ -203,7 +204,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             onChange={(e) => setCostSaver(e.target.checked)}
           />
           <div>
-            <div className="saver-title">⚡ COST-SAVER</div>
+            <div className="saver-title">
+              <Icon name="bolt" className="saver-icon" /> COST-SAVER
+            </div>
             <div className="saver-desc">Auto-route each task by difficulty</div>
           </div>
         </label>
@@ -456,19 +459,22 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             className={`mode-tab ${view === 'chat' ? 'on' : ''}`}
             onClick={() => setView('chat')}
           >
+            <Icon name="chat" />
             CHAT
           </button>
           <button
             className={`mode-tab ${view === 'squad' ? 'on' : ''}`}
             onClick={() => setView('squad')}
           >
-            ⚔ SQUAD
+            <Icon name="squad" />
+            SQUAD
           </button>
           <button
             className={`mode-tab ${view === 'extend' ? 'on' : ''}`}
             onClick={() => setView('extend')}
           >
-            🧩 EXTEND
+            <Icon name="extend" />
+            EXTEND
           </button>
         </div>
         <div className="view-body">

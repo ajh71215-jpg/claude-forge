@@ -2,6 +2,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving. CommandDraft,
 // COMMAND_TEMPLATE and the CommandEditor modal travel WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
+import Icon from '../Icon'
 import type { CommandMeta } from '../../types'
 import { SKILL_NAME_RE } from './shared'
 
@@ -76,7 +77,9 @@ export default function CommandsPanel({ onChanged }: { onChanged?: () => void })
         <div className="skills-empty">loading…</div>
       ) : commands.length === 0 ? (
         <div className="skills-empty">
-          <div className="skills-empty-icon">⌨</div>
+          <div className="skills-empty-icon">
+            <Icon name="commands" />
+          </div>
           <div className="skills-empty-title">No custom commands yet</div>
           <div className="skills-empty-desc">
             Create reusable prompt templates — they appear in the composer slash menu on the next

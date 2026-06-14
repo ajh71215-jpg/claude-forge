@@ -1,6 +1,7 @@
 // Hooks manager panel (docs/MAINTAINABILITY.md Phase 1). Extracted verbatim
 // from App.tsx — behavior-preserving. HOOK_EVENTS travels WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
+import Icon from '../Icon'
 import type { HookRule } from '../../types'
 
 const HOOK_EVENTS = [
@@ -86,7 +87,9 @@ export default function HooksPanel(): JSX.Element {
         <div className="skills-empty">loading…</div>
       ) : rules.length === 0 ? (
         <div className="skills-empty">
-          <div className="skills-empty-icon">🪝</div>
+          <div className="skills-empty-icon">
+            <Icon name="hooks" />
+          </div>
           <div className="skills-empty-title">No hooks yet</div>
           <div className="skills-empty-desc">
             Add a hook to run a shell command when an event fires — e.g. a desktop notification on

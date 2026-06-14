@@ -3,6 +3,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving.
 import { useState, type JSX } from 'react'
 import type { McpServer } from '../../types'
+import Icon, { type IconName } from '../Icon'
 import SkillsPanel from './SkillsPanel'
 import CommandsPanel from './CommandsPanel'
 import HooksPanel from './HooksPanel'
@@ -12,13 +13,13 @@ import PluginsPanel from './PluginsPanel'
 
 type ExtendSection = 'skills' | 'commands' | 'hooks' | 'mcp' | 'agents' | 'plugins'
 
-const EXTEND_SECTIONS: { id: ExtendSection; label: string; icon: string; ready: boolean }[] = [
-  { id: 'skills', label: 'Skills', icon: '🧩', ready: true },
-  { id: 'commands', label: 'Commands', icon: '⌨', ready: true },
-  { id: 'hooks', label: 'Hooks', icon: '🪝', ready: true },
-  { id: 'mcp', label: 'MCP', icon: '🔌', ready: true },
-  { id: 'agents', label: 'Agents', icon: '🤖', ready: true },
-  { id: 'plugins', label: 'Plugins', icon: '📦', ready: true }
+const EXTEND_SECTIONS: { id: ExtendSection; label: string; icon: IconName; ready: boolean }[] = [
+  { id: 'skills', label: 'Skills', icon: 'skills', ready: true },
+  { id: 'commands', label: 'Commands', icon: 'commands', ready: true },
+  { id: 'hooks', label: 'Hooks', icon: 'hooks', ready: true },
+  { id: 'mcp', label: 'MCP', icon: 'mcp', ready: true },
+  { id: 'agents', label: 'Agents', icon: 'agents', ready: true },
+  { id: 'plugins', label: 'Plugins', icon: 'plugins', ready: true }
 ]
 
 /** The EXTEND tab: a console over the filesystem `.claude/` extension points. */
@@ -43,7 +44,7 @@ export default function ExtendView({
             className={`extend-nav-item ${section === s.id ? 'on' : ''}`}
             onClick={() => setSection(s.id)}
           >
-            <span className="extend-nav-icon">{s.icon}</span>
+            <Icon name={s.icon} className="extend-nav-icon" />
             <span className="extend-nav-label">{s.label}</span>
             {!s.ready && <span className="extend-soon">soon</span>}
           </button>
@@ -64,7 +65,7 @@ export default function ExtendView({
           <PluginsPanel onChanged={onMcpChanged} />
         ) : (
           <div className="extend-stub">
-            <div className="extend-stub-icon">{active?.icon}</div>
+            {active && <Icon name={active.icon} className="extend-stub-icon" />}
             <div className="extend-stub-title">{active?.label} — coming next</div>
             <div className="extend-stub-desc">
               This panel lands in a later roadmap phase. Skills is live now.

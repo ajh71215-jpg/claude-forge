@@ -163,6 +163,18 @@ export type AgentEvent =
       error?: string
     }
 
+/**
+ * Progress for an in-flight `/compact` run, pushed on `agent:compact-progress`
+ * so the renderer can render a live progress bar. `pct` is 0–100; `phase`
+ * 'start' | 'working' | 'done' | 'error'.
+ */
+export interface CompactProgress {
+  sessionId: string
+  phase: 'start' | 'working' | 'done' | 'error'
+  pct: number
+  error?: string
+}
+
 export type PermissionResult =
   | { behavior: 'allow' }
   | { behavior: 'deny'; message: string }

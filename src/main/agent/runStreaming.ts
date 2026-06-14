@@ -16,6 +16,7 @@ import { toSdkPlugins } from '../plugins'
 import { buildEnv, ensureWorkspace, SETTING_SOURCES } from './env'
 import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers'
 import { active, pendingDialogs, pendingPerms } from './state'
+import { emitAgentEvent } from '../pet/bus'
 import type { ActiveQuery, AgentEvent, AgentEventBody, QuestionResult, RunOptions } from './types'
 
 export async function runStreaming(
@@ -25,7 +26,10 @@ export async function runStreaming(
   opts: RunOptions = {}
 ): Promise<void> {
   const send = (payload: AgentEventBody): void => {
-    if (!sender.isDestroyed()) sender.send('agent:event', { runId, ...payload } as AgentEvent)
+    const event = { runId, ...payload } as AgentEvent
+    if (!sender.isDestroyed()) sender.send('agent:event', event)
+    // Tap for the desktop pet (no-op when the pet has no listeners).
+    emitAgentEvent(event)
   }
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')

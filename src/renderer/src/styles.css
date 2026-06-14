@@ -1579,6 +1579,51 @@ button:active:not(:disabled) {
 .ctx-gauge.hot .ctx-fill {
   background: var(--amber);
 }
+/* /compact live progress bar (replaces the compact button while running). */
+.compact-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--amber-bright);
+  font-size: 11px;
+}
+.compact-progress-label {
+  white-space: nowrap;
+}
+.compact-bar {
+  width: 80px;
+  height: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.compact-fill {
+  height: 100%;
+  background: var(--amber);
+  transition: width 0.35s ease;
+  /* Subtle barber-pole sheen so 0%-width / stalled states still read as "busy". */
+  background-image: linear-gradient(
+    90deg,
+    var(--amber-dim) 0%,
+    var(--amber) 50%,
+    var(--amber-dim) 100%
+  );
+}
+/* Inline text button used in selector hints (e.g. "reset" per-model max turns). */
+.link-reset {
+  background: none;
+  border: none;
+  color: var(--amber-bright);
+  cursor: pointer;
+  padding: 0;
+  margin-left: 6px;
+  font: inherit;
+  text-decoration: underline;
+}
+.link-reset:hover {
+  color: var(--amber);
+}
 .work-header .brand-mark {
   font-size: 12px;
 }

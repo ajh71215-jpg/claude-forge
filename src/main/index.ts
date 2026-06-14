@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { registerAll } from './ipc'
+// Importing the pet module registers the `pet://` scheme as privileged (must
+// happen before app `ready`), via a side effect in pet/protocol.ts.
+import { initPet } from './pet'
 
 // Optional remote debugging for local verification: set FORGE_CDP=<port>.
 // No effect in normal use (only active when the env var is present).
@@ -47,6 +50,9 @@ app.whenReady().then(() => {
   registerAll(ipcMain)
 
   createWindow()
+
+  // Desktop pet: installs the asset protocol and restores it if last enabled.
+  initPet()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

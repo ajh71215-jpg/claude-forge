@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { AuthStatus } from '../main/auth'
 import type {
   AgentEvent,
+  CompactProgress,
   RunOptions,
   Capabilities,
   SessionInfo,
@@ -64,6 +65,12 @@ const forge = {
       const listener = (_e: IpcRendererEvent, payload: AgentEvent): void => cb(payload)
       ipcRenderer.on('agent:event', listener)
       return () => ipcRenderer.removeListener('agent:event', listener)
+    },
+    /** Subscribe to /compact progress for the live progress bar. Returns unsubscribe. */
+    onCompactProgress: (cb: (p: CompactProgress) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, payload: CompactProgress): void => cb(payload)
+      ipcRenderer.on('agent:compact-progress', listener)
+      return () => ipcRenderer.removeListener('agent:compact-progress', listener)
     }
   },
   persona: {
@@ -136,6 +143,14 @@ const forge = {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
     maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
     close: (): Promise<void> => ipcRenderer.invoke('window:close')
+  },
+  pet: {
+    /** Current enabled state of the desktop pet. */
+    getEnabled: (): Promise<boolean> => ipcRenderer.invoke('pet:get-enabled'),
+    /** Set the pet on/off; resolves to the new enabled state. */
+    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('pet:set-enabled', on),
+    /** Toggle the pet; resolves to the new enabled state. */
+    toggle: (): Promise<boolean> => ipcRenderer.invoke('pet:toggle')
   }
 }
 

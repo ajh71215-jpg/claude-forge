@@ -19,7 +19,15 @@ import type {
   EffortLabel
 } from './types'
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
-import { cacheHitPercent, fmtTokens, mcpStatusClass, methodLabel, usageShortLabel } from './lib/format'
+import {
+  cacheHitPercent,
+  fmtTokens,
+  mcpStatusClass,
+  methodLabel,
+  usageShortLabel,
+  defaultMaxTurns,
+  resolveMaxTurns
+} from './lib/format'
 
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
@@ -72,7 +80,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [sessionKey, setSessionKey] = useState(0)
-  const [maxTurns, setMaxTurns] = useState(20)
+  // Per-model max turns. Each model keeps its own override; unset models fall
+  // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
+  // account default model).
+  const [maxTurnsByModel, setMaxTurnsByModel] = useState<Record<string, number>>({})
+  const maxTurns = resolveMaxTurns(maxTurnsByModel, model)
+  const setMaxTurns = (n: number): void =>
+    setMaxTurnsByModel((m) => ({ ...m, [model]: Math.max(1, n) }))
   const [maxBudget, setMaxBudget] = useState(0) // 0 = off
   const [autoCompact, setAutoCompact] = useState(false)
   const [costSaver, setCostSaver] = useState(false)
@@ -277,8 +291,26 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               min={1}
               max={200}
               value={maxTurns}
-              onChange={(e) => setMaxTurns(Math.max(1, Number(e.target.value) || 1))}
+              onChange={(e) => setMaxTurns(Number(e.target.value) || 1)}
             />
+          </div>
+          <div className="selector-hint">
+            per <b>{model}</b> · default {defaultMaxTurns(model)}
+            {maxTurnsByModel[model] !== undefined && (
+              <button
+                type="button"
+                className="link-reset"
+                onClick={() =>
+                  setMaxTurnsByModel((m) => {
+                    const next = { ...m }
+                    delete next[model]
+                    return next
+                  })
+                }
+              >
+                reset
+              </button>
+            )}
           </div>
           <div className="limit-row">
             <label htmlFor="maxbudget">max $ / run</label>
@@ -485,7 +517,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               effort={effortOption(effort)}
               commands={commands}
               models={models}
-              maxTurns={maxTurns}
+              maxTurnsByModel={maxTurnsByModel}
               maxBudget={maxBudget}
               autoCompact={autoCompact}
               costSaver={costSaver}

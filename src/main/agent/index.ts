@@ -18,6 +18,7 @@ export type {
   Attachment,
   TranscriptItem,
   AgentEvent,
+  CompactProgress,
   QuestionResult
 } from './types'
 

@@ -7,7 +7,16 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        // Two preload bundles: the main UI (index) and the desktop pet (pet).
+        input: {
+          index: resolve('src/preload/index.ts'),
+          pet: resolve('src/preload/pet.ts')
+        }
+      }
+    }
   },
   renderer: {
     resolve: {
@@ -15,6 +24,15 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        // Two renderer entries: the React app (index) and the plain-JS pet.
+        input: {
+          index: resolve('src/renderer/index.html'),
+          pet: resolve('src/renderer/pet/index.html')
+        }
+      }
+    }
   }
 })

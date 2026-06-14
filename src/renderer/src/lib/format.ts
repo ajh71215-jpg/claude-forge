@@ -85,6 +85,73 @@ export function toolArg(inputRaw: string): string {
   }
 }
 
+/** One rendered diff row: added (green), removed (red), or unchanged context. */
+export interface DiffLine {
+  type: 'add' | 'del' | 'ctx'
+  text: string
+}
+
+/**
+ * Line-level diff via classic LCS so only the lines that actually changed are
+ * marked add/del and shared lines stay as neutral context. Used to visualize
+ * Edit/Write/NotebookEdit tool inputs in the transcript.
+ */
+export function lineDiff(oldStr: string, newStr: string): DiffLine[] {
+  const a = oldStr.split('\n')
+  const b = newStr.split('\n')
+  const n = a.length
+  const m = b.length
+  // dp[i][j] = LCS length of a[i:] and b[j:].
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+  const out: DiffLine[] = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push({ type: 'ctx', text: a[i] })
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push({ type: 'del', text: a[i] })
+      i++
+    } else {
+      out.push({ type: 'add', text: b[j] })
+      j++
+    }
+  }
+  while (i < n) out.push({ type: 'del', text: a[i++] })
+  while (j < m) out.push({ type: 'add', text: b[j++] })
+  return out
+}
+
+/**
+ * Build a diff view from a tool-call's raw input. Edit/NotebookEdit diff the
+ * old vs new string; Write shows the whole new file as additions. Returns null
+ * for tools that aren't file edits (so the generic tool card renders instead).
+ */
+export function toolDiff(name: string, inputRaw: string): DiffLine[] | null {
+  if (name !== 'Edit' && name !== 'Write' && name !== 'NotebookEdit') return null
+  try {
+    const o = JSON.parse(inputRaw) as Record<string, unknown>
+    if (name === 'Write') {
+      const content = String(o.content ?? '')
+      if (!content) return null
+      return content.split('\n').map((text) => ({ type: 'add' as const, text }))
+    }
+    const oldS = String(o.old_string ?? o.old_source ?? '')
+    const newS = String(o.new_string ?? o.new_source ?? '')
+    if (!oldS && !newS) return null
+    return lineDiff(oldS, newS)
+  } catch {
+    return null
+  }
+}
+
 export function ctxWindow(model: string): number {
   if (!model) return 1_000_000
   const m = model.toLowerCase()

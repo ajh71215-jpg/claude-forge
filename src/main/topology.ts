@@ -13,6 +13,7 @@
 import type { Artifact, Subtask, Verdict } from './orchestration'
 import { aggregateVotes, debateConverged, shouldEarlyStop, type JudgeVote } from './verifier'
 import { escalate, route, type Tier } from './routing'
+import { getRole } from './roles'
 
 export type SampleRunner = (
   subtask: Subtask,
@@ -44,7 +45,11 @@ export interface TopologyResult {
  * verdict, and all samples (so the Squad-tab monitor can show per-sample work).
  */
 export async function executeTopology(subtask: Subtask, deps: TopologyDeps): Promise<TopologyResult> {
-  const baseTier = route({ instruction: subtask.instruction, tier: subtask.model }).tier
+  const baseTier = route({
+    instruction: subtask.instruction,
+    tier: subtask.model,
+    roleTier: getRole(subtask.role)?.tier
+  }).tier
   const n = Math.max(1, subtask.n ?? deps.defaultN ?? 3)
   const maxSteps = Math.max(1, deps.maxSteps ?? 3)
   const samples: Artifact[] = []

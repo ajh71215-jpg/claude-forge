@@ -21,6 +21,8 @@
     "src/main/toolVerifier.ts",
     "src/main/topology.ts",
     "src/main/eval.ts",
+    "src/main/roles.ts",
+    "src/main/loop.ts",
     "src/main/agent/types.ts"
   ]
 }

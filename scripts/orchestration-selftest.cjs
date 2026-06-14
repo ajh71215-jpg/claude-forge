@@ -20,6 +20,8 @@ const { aggregateVotes, shouldEarlyStop, pairwiseWithSwap, debateConverged } = r
 )
 const { runChecks, checksToVerdict } = require(path.join(base, 'toolVerifier.js'))
 const { executeTopology } = require(path.join(base, 'topology.js'))
+const { getRole, isRole, ROLE_NAMES, listRoles } = require(path.join(base, 'roles.js'))
+const { runLoop } = require(path.join(base, 'loop.js'))
 const { validateGoldenSet, summarize, baselineDelta, gateVerdict } = require(path.join(base, 'eval.js'))
 const goldenSet = require(path.join(__dirname, '..', 'eval', 'golden-set.json'))
 
@@ -241,6 +243,67 @@ async function main() {
     })
     check('cascade escalated to opus and passed', r5.verdict.pass === true && r5.artifact.output === 'opus')
     check('cascade tried multiple tiers', new Set(r5.samples.map((s) => s.output)).size >= 2)
+  }
+
+  // ============ ROLES (native oh-my-claudecode agent port) ============
+  group('roles.ts — agent-role registry')
+  check('all 19 OMC roles present', ROLE_NAMES.length === 19)
+  check('executor is a builder (write-capable)', getRole('executor').writeCapable === true)
+  check('architect is read-only advisor', getRole('architect').writeCapable === false)
+  check('role lookup is case-insensitive', getRole('Executor').name === 'executor')
+  check('unknown role rejected', isRole('not-a-role') === false && getRole('not-a-role') === undefined)
+  check('explore defaults to haiku tier', getRole('explore').tier === 'haiku')
+  check('every role has a non-empty systemAppend', listRoles().every((r) => r.systemAppend.trim().length > 0))
+  check('validatePlan accepts a known role', validatePlan({ goal: 'g', budgetUsd: 5, subtasks: [sub('A', { role: 'executor' })], edges: [] }).ok)
+  check('validatePlan rejects an unknown role', !validatePlan({ goal: 'g', budgetUsd: 5, subtasks: [sub('A', { role: 'wizard' })], edges: [] }).ok)
+  check('role tier routes the model on cascade', route({ instruction: 'fix a typo', roleTier: 'opus' }).tier === 'opus')
+  check('explicit plan tier outranks role tier', route({ instruction: 'x', tier: 'haiku', roleTier: 'opus' }).tier === 'haiku')
+
+  // ============ LOOP (native ralph/autopilot — loop until verified) ============
+  group('loop.ts — autonomous loop until goal verified')
+  {
+    // converges on iteration 1 when everything passes first try
+    const plan1 = { goal: 'g', budgetUsd: 10, subtasks: [sub('A'), sub('B')], edges: [['A', 'B']] }
+    const r1 = await runLoop(plan1, {
+      runSubtask: async (st) => ({ subtaskId: st.id, output: 'o', costUsd: 1 }),
+      verify: async (st) => verdict(st.id, true)
+    }, { maxIterations: 3 })
+    check('loop converges in 1 iteration when all pass', r1.iterations === 1 && r1.goalPass === true)
+
+    // a subtask fails until iteration 2, then passes → loop persists
+    {
+      const runsById = {}
+      const plan2 = { goal: 'g', budgetUsd: 50, subtasks: [sub('A'), sub('B')], edges: [] }
+      const r2 = await runLoop(plan2, {
+        runSubtask: async (st) => { runsById[st.id] = (runsById[st.id] ?? 0) + 1; return { subtaskId: st.id, output: 'o', costUsd: 1 } },
+        // A always passes; B passes only once it has been ATTEMPTED twice across iterations
+        verify: async (st) => verdict(st.id, st.id === 'A' ? true : runsById['B'] >= 2)
+      }, { maxIterations: 4, maxRevisions: 0 })
+      check('loop persists across iterations until goal passes', r2.goalPass === true && r2.iterations >= 2)
+      check('loop caches passed subtask A (run once)', runsById['A'] === 1)
+    }
+
+    // never passes → stops at max-iterations, not infinitely
+    const r3 = await runLoop({ goal: 'g', budgetUsd: 100, subtasks: [sub('A')], edges: [] }, {
+      runSubtask: async (st) => ({ subtaskId: st.id, output: 'o', costUsd: 1 }),
+      verify: async (st) => verdict(st.id, false)
+    }, { maxIterations: 2, maxRevisions: 0 })
+    check('loop stops at max-iterations when never verified', r3.stopped === 'max-iterations' && r3.iterations === 2 && !r3.goalPass)
+
+    // global budget hard-stops the loop
+    const r4 = await runLoop({ goal: 'g', budgetUsd: 1.5, subtasks: [sub('A')], edges: [] }, {
+      projectCostUsd: () => 1,
+      runSubtask: async (st) => ({ subtaskId: st.id, output: 'o', costUsd: 1 }),
+      verify: async (st) => verdict(st.id, false)
+    }, { maxIterations: 9 })
+    check('loop halts on global budget cap', r4.stopped === 'budget')
+
+    // invalid plan short-circuits without running
+    const r5 = await runLoop({ goal: '', budgetUsd: 0, subtasks: [], edges: [] }, {
+      runSubtask: async () => { throw new Error('should not run') },
+      verify: async () => { throw new Error('should not run') }
+    })
+    check('loop rejects invalid plan without running', r5.stopped === 'invalid-plan' && r5.iterations === 0)
   }
 
   // ============ ③ EVAL CORE + REAL GOLDEN SET ============

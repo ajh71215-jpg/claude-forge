@@ -14,6 +14,11 @@ export interface Subtask {
   topology: Topology
   model: ModelTier
   tools: string[]
+  /**
+   * Optional agent role (roles.ts) — assigns a persona, a default tier, and the
+   * read-only/builder tool gate. Unknown roles are rejected by validatePlan.
+   */
+  role?: string
   /** Success criteria for the verifier. Empty rubric = unverifiable → rejected. */
   rubric: string
   /** Subtask ids that must complete first (merged with Plan.edges). */

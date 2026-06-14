@@ -130,8 +130,19 @@ const forge = {
       plan: Plan
     ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
       ipcRenderer.invoke('orchestrate:run', runId, plan),
+    /** Native ralph/autopilot loop: re-run until the goal verifies or caps hit. */
+    runLoop: (
+      runId: string,
+      plan: Plan,
+      maxIterations?: number
+    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
+      ipcRenderer.invoke('orchestrate:run-loop', runId, plan, maxIterations),
     validate: (plan: Plan): Promise<{ ok: boolean; errors: string[] }> =>
       ipcRenderer.invoke('orchestrate:validate', plan),
+    /** Native agent roles (OMC port) for the subtask role picker. */
+    roles: (): Promise<
+      { name: string; description: string; tier: string; writeCapable: boolean; systemAppend: string }[]
+    > => ipcRenderer.invoke('orchestrate:roles'),
     /** Subscribe to orchestration events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: OrchestrateEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: OrchestrateEvent): void => cb(payload)

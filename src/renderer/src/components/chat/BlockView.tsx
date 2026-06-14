@@ -4,7 +4,7 @@
 // docs/PERFORMANCE.md levers 1 & 3 (do not change without re-profiling).
 import { memo, type JSX } from 'react'
 import type { Block } from '../../types'
-import { toolArg, toolIcon } from '../../lib/format'
+import { toolArg, toolDiff, toolIcon } from '../../lib/format'
 import { parseTodos } from '../../lib/blocks'
 import Md from '../Md'
 import TodoList from './TodoList'
@@ -65,14 +65,46 @@ const BlockView = memo(function BlockView({
   const badge = block.status === 'ok' ? 'OK' : block.status === 'error' ? 'ERR' : 'RUNNING'
   const result =
     block.result && block.result.length > 700 ? block.result.slice(0, 700) + '…' : block.result
+  // Visualize file edits (Edit/Write/NotebookEdit) as a colored diff: added
+  // lines green, removed red, unchanged neutral. Cap rendered rows so a huge
+  // Write doesn't blow up the transcript.
+  const diff = toolDiff(block.name, block.inputRaw)
+  const DIFF_CAP = 400
+  const diffShown = diff ? diff.slice(0, DIFF_CAP) : null
+  const adds = diff ? diff.filter((l) => l.type === 'add').length : 0
+  const dels = diff ? diff.filter((l) => l.type === 'del').length : 0
   return (
     <div className={`tool-card ${block.status}`}>
       <div className="tool-row">
         <span className="tool-icon">{toolIcon(block.name)}</span>
         <span className="tool-name">{block.name}</span>
         <span className="tool-arg">{arg}</span>
+        {diff && (adds > 0 || dels > 0) && (
+          <span className="diff-stat">
+            {adds > 0 && <span className="diff-stat-add">+{adds}</span>}
+            {dels > 0 && <span className="diff-stat-del">-{dels}</span>}
+          </span>
+        )}
         <span className={`tool-badge ${block.status}`}>{badge}</span>
       </div>
+      {diffShown && diffShown.length > 0 && (
+        <pre className="tool-diff">
+          {diffShown.map((l, i) => (
+            <div key={i} className={`diff-line ${l.type}`}>
+              <span className="diff-gutter">
+                {l.type === 'add' ? '+' : l.type === 'del' ? '-' : ' '}
+              </span>
+              <span className="diff-text">{l.text || ' '}</span>
+            </div>
+          ))}
+          {diff && diff.length > DIFF_CAP && (
+            <div className="diff-line ctx">
+              <span className="diff-gutter"> </span>
+              <span className="diff-text">… {diff.length - DIFF_CAP} more lines</span>
+            </div>
+          )}
+        </pre>
+      )}
       {result && block.status !== 'running' && <pre className="tool-result">{result}</pre>}
     </div>
   )

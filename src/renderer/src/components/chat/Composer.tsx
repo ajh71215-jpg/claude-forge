@@ -83,6 +83,22 @@ export default function Composer({
     { id: string; mediaType: string; base64: string; preview: string; name: string }[]
   >([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
+  // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
+  // when already near bottom (legacy — streaming text won't yank a reader down).
+  const [stickBottom, setStickBottom] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('forge-stick-bottom') !== '0'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('forge-stick-bottom', stickBottom ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [stickBottom])
   const promptHistRef = useRef<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const runIdRef = useRef<string | null>(null)
@@ -133,13 +149,17 @@ export default function Composer({
   useEffect(() => {
     const el = transcriptRef.current
     if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-    if (!nearBottom) return
+    // Follow mode pins unconditionally; legacy mode only nudges when the user is
+    // already near the bottom (don't yank them down mid-read).
+    if (!stickBottom) {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+      if (!nearBottom) return
+    }
     const id = requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight
     })
     return () => cancelAnimationFrame(id)
-  }, [turns])
+  }, [turns, stickBottom])
 
   // Load persisted prompt history once.
   useEffect(() => {
@@ -662,19 +682,32 @@ export default function Composer({
               }
             }}
           />
-          {running ? (
-            <button className="stop" onClick={stop}>
-              ■ STOP
-            </button>
-          ) : (
+          <div className="send-col">
             <button
-              className="primary send"
-              disabled={!prompt.trim() && attachments.length === 0}
-              onClick={() => send()}
+              className={`scroll-toggle ${stickBottom ? 'on' : ''}`}
+              title={
+                stickBottom
+                  ? 'Auto-scroll: following latest line (click to stop at answers)'
+                  : 'Auto-scroll: stops at answers (click to follow latest)'
+              }
+              onClick={() => setStickBottom((v) => !v)}
             >
-              Send
+              {stickBottom ? '⤓ Follow' : '⤒ Manual'}
             </button>
-          )}
+            {running ? (
+              <button className="stop" onClick={stop}>
+                ■ STOP
+              </button>
+            ) : (
+              <button
+                className="primary send"
+                disabled={!prompt.trim() && attachments.length === 0}
+                onClick={() => send()}
+              >
+                Send
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -23,6 +23,7 @@
     "src/main/eval.ts",
     "src/main/roles.ts",
     "src/main/loop.ts",
+    "src/main/keywords.ts",
     "src/main/agent/types.ts"
   ]
 }

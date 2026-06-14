@@ -3222,6 +3222,69 @@ button:active:not(:disabled) {
   font-size: 14px;
 }
 
+/* ---- magic-keyword auto-detect (OMC native port) ---- */
+.sq-keywords {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin: 0 20px 6px;
+}
+.sq-keywords-l {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.sq-kw {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: default;
+}
+.sq-kw-icon {
+  font-size: 11px;
+  opacity: 0.85;
+}
+.sq-kw.loop {
+  border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  color: var(--amber-bright);
+}
+.sq-kw.role {
+  border-color: color-mix(in srgb, var(--accent, #6ea8fe) 45%, transparent);
+  background: color-mix(in srgb, var(--accent, #6ea8fe) 12%, transparent);
+}
+.sq-kw.cancel {
+  border-color: color-mix(in srgb, var(--err, #f85149) 45%, transparent);
+  background: color-mix(in srgb, var(--err, #f85149) 12%, transparent);
+}
+/* Ralph button pulses when a loop keyword is detected in the goal. */
+.sq-btn.ghost.suggested {
+  border-color: color-mix(in srgb, var(--amber) 60%, transparent);
+  color: var(--amber-bright);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  animation: sq-kw-pulse 1.8s ease-in-out infinite;
+}
+@keyframes sq-kw-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 0%, transparent);
+  }
+}
+
 /* ---- two-pane body ---- */
 .sq-body {
   flex: 1;

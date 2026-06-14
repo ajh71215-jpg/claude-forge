@@ -18,6 +18,7 @@ import { executeTopology } from '../topology'
 import { runLoop } from '../loop'
 import { runSubtaskQuery } from '../agent/subtaskRunner'
 import { getRole, listRoles, type Role } from '../roles'
+import { detectKeywords, type KeywordMatch } from '../keywords'
 
 export type OrchestrateEvent =
   | { runId: string; kind: 'conductor'; event: ConductorEvent }
@@ -269,6 +270,12 @@ export function register(ipc: IpcMain): void {
   ipc.handle('orchestrate:validate', (_e, plan: Plan) => validatePlan(plan))
   // Native agent-role registry (OMC port) for the Squad subtask editor's picker.
   ipc.handle('orchestrate:roles', (): Role[] => listRoles())
+  // Native magic-keyword detector (OMC port): map a goal/prompt to active modes
+  // (ralph/autopilot→loop, code-review→role, ultrathink→reasoning, …) so the
+  // Squad UI can auto-suggest the loop and surface the detected modes.
+  ipc.handle('orchestrate:detect-keywords', (_e, prompt: string): KeywordMatch[] =>
+    detectKeywords(prompt)
+  )
 }
 
 // Subtask type re-exported for callers that build plans inline.

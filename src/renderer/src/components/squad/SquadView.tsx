@@ -23,6 +23,23 @@ interface RoleInfo {
   systemAppend: string
 }
 
+interface KeywordMatch {
+  name: string
+  action: string
+  priority: number
+  role?: string
+  topology?: string
+  matched: string
+}
+
+const ACTION_ICON: Record<string, string> = {
+  loop: '↻',
+  parallel: '⇉',
+  reason: '✸',
+  role: '◆',
+  cancel: '⊘'
+}
+
 type SubStatus = 'idle' | 'running' | 'verifying' | 'done' | 'failed' | 'stopped'
 interface SubMon {
   status: SubStatus
@@ -206,10 +223,27 @@ export default function SquadView(): JSX.Element {
   const [summary, setSummary] = useState<{ spentUsd: number; stopped?: string } | null>(null)
   const [roles, setRoles] = useState<RoleInfo[]>([])
   const [loop, setLoop] = useState<{ iteration: number; passed: number; total: number; goalPass?: boolean } | null>(null)
+  const [keywords, setKeywords] = useState<KeywordMatch[]>([])
 
   useEffect(() => {
     window.forge.orchestrate.roles().then(setRoles).catch(() => setRoles([]))
   }, [])
+
+  // Native magic-keyword auto-detect: scan the goal for OMC mode triggers
+  // (ralph/autopilot/ultrawork/code-review/…) and surface the matched modes so
+  // the operator can run the suggested loop. Debounced so typing stays smooth.
+  useEffect(() => {
+    const goal = plan.goal
+    const t = setTimeout(() => {
+      window.forge.orchestrate
+        .detectKeywords(goal)
+        .then((m) => setKeywords(m as KeywordMatch[]))
+        .catch(() => setKeywords([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [plan.goal])
+
+  const loopSuggested = keywords.some((k) => k.action === 'loop')
 
   useEffect(() => {
     return window.forge.orchestrate.onEvent((ev) => {
@@ -363,12 +397,38 @@ export default function SquadView(): JSX.Element {
               <button className="sq-btn ghost" onClick={runLive} disabled={running} title="Live run: real read-only SDK calls routed by tier + haiku rubric judge">
                 ▶ Live
               </button>
-              <button className="sq-btn ghost" onClick={runLoop} disabled={running} title="Ralph loop: re-run until every subtask verifies (cap 3 iterations / budget)">
+              <button
+                className={`sq-btn ghost ${loopSuggested ? 'suggested' : ''}`}
+                onClick={runLoop}
+                disabled={running}
+                title={
+                  loopSuggested
+                    ? 'Magic keyword detected in goal — Ralph loop suggested'
+                    : 'Ralph loop: re-run until every subtask verifies (cap 3 iterations / budget)'
+                }
+              >
                 ↻ Ralph
               </button>
             </div>
           </div>
         </header>
+
+        {/* ---- magic-keyword auto-detect (OMC native port) ---- */}
+        {keywords.length > 0 && (
+          <div className="sq-keywords">
+            <span className="sq-keywords-l">magic keywords</span>
+            {keywords.map((k) => (
+              <span
+                className={`sq-kw ${k.action}`}
+                key={k.name}
+                title={`${k.action}${k.role ? ` · role: ${k.role}` : ''}${k.topology ? ` · topology: ${k.topology}` : ''} — matched “${k.matched}”`}
+              >
+                <span className="sq-kw-icon">{ACTION_ICON[k.action] ?? '•'}</span>
+                {k.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* ---- KPI strip ---- */}
         <div className="sq-stats">

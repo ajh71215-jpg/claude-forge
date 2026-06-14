@@ -11,7 +11,33 @@
 // loop logic is headlessly testable (npm run selftest) like the rest of §-core.
 
 import type { Artifact, Plan } from './orchestration'
+import { deriveDeps } from './orchestration'
 import { executePlan, validatePlan, type ConductorDeps, type PlanValidation } from './conductor'
+
+/** Reverse of deriveDeps: subtask id → the ids that depend on it (its dependents). */
+function buildDependents(plan: Plan): Map<string, string[]> {
+  const deps = deriveDeps(plan)
+  const dependents = new Map<string, string[]>()
+  for (const st of plan.subtasks) dependents.set(st.id, [])
+  for (const [id, dlist] of deps) for (const d of dlist) dependents.get(d)?.push(id)
+  return dependents
+}
+
+/** Every transitive dependent of any id in `roots` (the work that must re-run). */
+function transitiveDependents(roots: Iterable<string>, dependents: Map<string, string[]>): Set<string> {
+  const out = new Set<string>()
+  const stack = [...roots]
+  while (stack.length) {
+    const id = stack.pop() as string
+    for (const dep of dependents.get(id) ?? []) {
+      if (!out.has(dep)) {
+        out.add(dep)
+        stack.push(dep)
+      }
+    }
+  }
+  return out
+}
 
 export interface LoopEvent {
   type: 'iteration-start' | 'iteration-result' | 'loop-done'
@@ -67,6 +93,7 @@ export async function runLoop(
   const maxIter = Math.max(1, Math.floor(opts.maxIterations ?? 3))
   const total = plan.subtasks.length
   const passed = new Map<string, Artifact>()
+  const dependents = buildDependents(plan)
   let spentUsd = 0
   let lastArtifacts: Artifact[] = []
   let stopped: string | undefined
@@ -79,6 +106,14 @@ export async function runLoop(
       break
     }
     ran = iteration + 1
+
+    // Partial re-execution correctness: a downstream subtask that passed against
+    // a still-FAILING upstream's output is stale once that upstream is re-worked.
+    // Invalidate the transitive dependents of every not-yet-passed subtask so
+    // they re-run this iteration against the corrected inputs (a subtask whose
+    // whole dependency chain already passed stays cached at zero cost).
+    const notPassed = plan.subtasks.map((s) => s.id).filter((id) => !passed.has(id))
+    for (const id of transitiveDependents(notPassed, dependents)) passed.delete(id)
     emit({ type: 'iteration-start', iteration, passed: passed.size, total })
 
     const res = await executePlan(

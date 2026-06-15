@@ -14,6 +14,7 @@ import {
   cacheHitPercent,
   fmtTokens
 } from '../src/renderer/src/lib/format'
+import { goalAchieved, goalDirective } from '../src/renderer/src/lib/goal'
 import type { AgentEvent, Block, Turn } from '../src/renderer/src/types'
 
 // ── format.ts ──────────────────────────────────────────────────────────────
@@ -142,6 +143,24 @@ test('conversationToMarkdown: includes prompts, answers, tools, cost', () => {
   assert.match(md, /done it/)
   assert.match(md, /\*\*Read\*\*/)
   assert.match(md, /\$0\.0123/)
+})
+
+// ── goal.ts ────────────────────────────────────────────────────────────────
+test('goalAchieved: last status token wins', () => {
+  assert.equal(goalAchieved('working… GOAL_CONTINUE'), false)
+  assert.equal(goalAchieved('done. GOAL_ACHIEVED'), true)
+  assert.equal(goalAchieved('no token here'), false)
+  // ACHIEVED earlier, CONTINUE later → not done.
+  assert.equal(goalAchieved('GOAL_ACHIEVED maybe? actually GOAL_CONTINUE'), false)
+  // CONTINUE earlier, ACHIEVED later → done.
+  assert.equal(goalAchieved('GOAL_CONTINUE … on reflection GOAL_ACHIEVED'), true)
+})
+
+test('goalDirective: embeds objective + both status tokens', () => {
+  const d = goalDirective('ship the feature')
+  assert.match(d, /ship the feature/)
+  assert.match(d, /GOAL_ACHIEVED/)
+  assert.match(d, /GOAL_CONTINUE/)
 })
 
 test('conversationToJson: round-trips to a structured object', () => {

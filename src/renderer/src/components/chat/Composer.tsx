@@ -14,7 +14,7 @@ import type {
   RunOptions
 } from '../../types'
 import { CLIENT_COMMANDS } from '../../lib/constants'
-import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
+import { ctxWindow, resolveMaxTurns } from '../../lib/format'
 // Shared model router (docs/TOKEN_OPTIMIZATION.md §3 lever 4 ∩ SQUAD §4): the
 // cost-saver classifies each prompt's difficulty and routes to the cheapest tier
 // that fits, instead of a flat "always Sonnet". Single owner — the conductor's
@@ -22,6 +22,8 @@ import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
 import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
 import { conversationToJson, conversationToMarkdown } from '../../lib/export'
+import { activityLabel, turnText, INTERACTIVE_ONLY } from '../../lib/composer'
+import { goalAchieved, goalDirective, GOAL_MAX_USD, type GoalState } from '../../lib/goal'
 import { useAgentEvents } from './useAgentEvents'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
@@ -29,91 +31,7 @@ import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
 import Elapsed from './Elapsed'
-import type { Turn, KeywordMatch } from '../../types'
-
-/** Plain-language description of what the agent is doing right now, derived from
- * the active turn's latest block — so the pinned live strip says e.g. "Read
- * src/main/agent.ts" or "thinking…" instead of an opaque "running". */
-function activityLabel(turn: Turn | null): { icon: string; text: string } {
-  const b = turn?.blocks[turn.blocks.length - 1]
-  if (!b) return { icon: '✦', text: 'thinking…' }
-  if (b.kind === 'thinking') return { icon: '✦', text: 'thinking…' }
-  if (b.kind === 'text') return { icon: '✎', text: 'writing response…' }
-  // tool block
-  if (b.status === 'running') {
-    const arg = toolArg(b.inputRaw)
-    return { icon: toolIcon(b.name), text: arg ? `${b.name} ${arg}` : `${b.name}…` }
-  }
-  return { icon: '⚒', text: 'working…' }
-}
-
-/** Live state for the autonomous /goal loop (Forge's headless analog of the
- * interactive Claude Code /goal: re-run the resumed session until the model
- * signals GOAL_ACHIEVED, an error, the iteration cap, or the cumulative budget). */
-interface GoalState {
-  objective: string
-  iter: number
-  max: number
-  /** USD spent across all iterations so far (sum of per-run result costs). */
-  spent: number
-  /** Cumulative USD cap — the loop hard-stops once `spent` reaches it. This is the
-   * runaway guard the per-run maxBudgetUsd can't provide (it resets each run). */
-  budget: number
-}
-
-/** Default cumulative USD ceiling for a /goal loop, used unless the user has set a
- * higher LIMITS "max $/run" (then that value is the goal's total budget). */
-const GOAL_MAX_USD = 10
-
-/** Directive that turns one run into a goal-loop step. Injected as a prefix on the
- * user message (not the system prompt) so it doesn't bust the prompt cache; the
- * agent keeps all its real tools + the user's permission mode. */
-function goalDirective(objective: string): string {
-  return [
-    'GOAL MODE — autonomous objective loop.',
-    `Objective: ${objective}`,
-    'Work toward this objective using your available tools. This runs in a loop:' +
-      ' after each turn you are automatically prompted to continue, so you need not' +
-      ' finish everything at once — make concrete, verifiable progress each turn.',
-    'At the VERY END of every response, output exactly one status token on its own line:',
-    '- GOAL_ACHIEVED — only when the objective is fully complete AND verified' +
-      ' (prefer running tests / build / typecheck to confirm before declaring done).',
-    '- GOAL_CONTINUE — when more work remains; briefly state the next concrete step.',
-    'Do not output GOAL_ACHIEVED prematurely.'
-  ].join('\n')
-}
-
-/** Did the assistant's response declare the goal complete? Last token wins so a
- * response that discusses GOAL_CONTINUE earlier but ends with GOAL_ACHIEVED
- * still resolves correctly (and vice-versa). */
-function goalAchieved(text: string): boolean {
-  const ach = text.lastIndexOf('GOAL_ACHIEVED')
-  if (ach < 0) return false
-  return ach > text.lastIndexOf('GOAL_CONTINUE')
-}
-
-/** Interactive-only CLI commands with no headless behavior — surfaced with a
- * clear note instead of being silently forwarded to the SDK (where they no-op). */
-const INTERACTIVE_ONLY = new Set([
-  'login',
-  'logout',
-  'agents',
-  'ide',
-  'bug',
-  'vim',
-  'terminal-setup',
-  'install-github-app'
-])
-
-/** Flatten a turn's searchable text (prompt + every block) for transcript search. */
-function turnText(t: Turn): string {
-  const parts = [t.prompt]
-  for (const b of t.blocks) {
-    if (b.kind === 'text' || b.kind === 'thinking') parts.push(b.text)
-    else if (b.kind === 'tool') parts.push(b.name, b.inputRaw, b.result ?? '')
-  }
-  return parts.join(' ').toLowerCase()
-}
+import type { KeywordMatch } from '../../types'
 
 export default function Composer({
   model,

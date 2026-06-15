@@ -11,7 +11,7 @@ Project guidance for Claude Code working in this repo. Read before building, run
 
 BYO-key / subscription, **local-only** — secrets never leave the machine to any third-party server. Auth supports Claude **subscription** (reuses `~/.claude` login), setup-token, or API key.
 
-The app has four primary views (`view: 'chat' | 'squad' | 'extend' | 'guide'`) plus an optional **desktop pet** ("Clawd") in its own frameless window. (`squad` is now the **Agents** tab — a live agent-activity dashboard, not a plan editor.)
+The app has five primary views (`view: 'chat' | 'squad' | 'cost' | 'extend' | 'guide'`) plus an optional **desktop pet** ("Clawd") in its own frameless window. (`squad` is now the **Agents** tab — a live agent-activity dashboard, not a plan editor; `cost` is the **Cost & Cache** dashboard — per-run token/cache/cost aggregation over the agent-activity history.) A **Cmd/Ctrl+K command palette** (`components/palette/CommandPalette.tsx`) launches shell actions from the keyboard.
 
 ## Architecture map
 
@@ -166,6 +166,12 @@ Two env-specific hurdles (`bootstrap/patch-app-builder.mjs` handles the first; b
 **AGENTS tab (formerly SQUAD) — reworked into an agent-activity dashboard.** The manual plan editor was removed; the orchestration **engine** (conductor / topology / routing / verifier / toolVerifier / roles / keywords / loop / eval — pure, `npm run selftest`) is kept as the backend. Orchestration modes now trigger from chat (magic keywords activate a mode on the live run) or when the model delegates; the Agents tab observes: live agent cards with an expandable per-agent **tool timeline**, native **subagent** lifecycle/usage + nested inner tools (via `parent_tool_use_id`), tool/judge verifier provenance, and a persisted **History** (`forge-agent-activity.json`). The **toolVerifier** is now wired into live runs (a subtask's `verifyCommands` → objective tool oracle; else haiku judge). Honest caveat: the new SDK-event handling (subagent nesting, reliability banner) passes typecheck + `selftest` but the renderer was **not** live-verified in the cloud session — confirm on a local Electron run.
 
 **GUIDE tab** — first-run feature tour (`components/guide/GuideView.tsx`).
+
+**COST tab — Cost & Cache dashboard** (`components/cost/CostView.tsx`). The SDK `result` message's full token/cache breakdown was streamed but only `costUsd` survived to `AgentActivity` history; `agentActivity.ts` now persists `inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens/contextTokens` per run, and the COST tab aggregates them (total cost, **prompt-cache hit %**, token totals, per-run breakdown table). Pure observatory — no model calls, no extra tokens.
+
+**Chat command + UX work** — (1) **`/goal [max] <objective>`**: a Forge-native *autonomous loop* (the headless analog of Claude Code's interactive `/goal`, which has no headless behavior). It appends a `GOAL_ACHIEVED`/`GOAL_CONTINUE` completion protocol to the `claude_code` preset, resumes the session each turn, and loops until achieved / error / iteration-cap, with a live goal banner over the composer (driven in `Composer.tsx`, not the orchestration `runLoop`). (2) **Command feedback**: unknown slash commands now get an "unknown command" notice instead of being silently sent as literal text; interactive-only commands (`/login`, `/agents`, …) are named as unavailable. (3) **Subagent tool nesting in chat**: `parentToolId` (already streamed) is carried into the renderer `Block` model so a subagent's tools nest under their parent Task — indented + collapsible (`TurnView.tsx`). (4) **Conversation export** (`lib/export.ts`): an Export dropdown saves the transcript as Markdown or JSON. (5) **Cmd/Ctrl+K command palette**. Honest caveat: all of this passes typecheck + `selftest` + a full `electron-vite build`, but the renderer was **not** live-verified in the cloud session — confirm `/goal` looping and the new tabs on a local Electron run.
+
+**Maintainability** — the sidebar control rail was extracted from `App.tsx` MainShell into `components/Sidebar.tsx` (App MainShell 600→422 lines); new CSS partials `07-cost.css` + `08-palette.css`.
 
 **Reliability awareness** — chat banner for api-retry / subscription rate-limit / auto-compaction; **live-activity strip** + tool elapsed timers; the `/compact` bar now climbs on a real time ticker.
 

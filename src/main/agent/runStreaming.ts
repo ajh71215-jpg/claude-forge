@@ -19,6 +19,7 @@ import { buildEnv, ensureWorkspace, SETTING_SOURCES } from './env'
 import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers'
 import { active, pendingDialogs, pendingPerms } from './state'
 import { emitAgentEvent } from '../pet/bus'
+import { buildMemoryInjection, noteRunWorkspace } from '../memory'
 import type { ActiveQuery, AgentEvent, AgentEventBody, QuestionResult, RunOptions } from './types'
 
 export async function runStreaming(
@@ -132,7 +133,21 @@ export async function runStreaming(
     return { behavior: 'allow', updatedInput: input }
   }
 
-  const q: any = query({ prompt: singlePrompt(prompt, opts.attachments), options } as any)
+  // Persistent project memory (docs: agentmemory absorption). On a FRESH
+  // conversation (not a resume), recall the most relevant captured facts and
+  // prepend them — compressed, budget-bounded — so the agent doesn't re-derive
+  // what earlier sessions already established. Only on the first turn, so the
+  // injected block never churns the prompt cache mid-conversation. Capture (the
+  // reverse direction) runs globally via initMemoryCapture(); we just tag this
+  // run's workspace so captured facts are scoped.
+  noteRunWorkspace(runId, opts.workspaceId)
+  let effectivePrompt = prompt
+  if (!opts.resume) {
+    const mem = await buildMemoryInjection(prompt, { workspaceId: opts.workspaceId })
+    if (mem.text) effectivePrompt = `${mem.text}\n\n${prompt}`
+  }
+
+  const q: any = query({ prompt: singlePrompt(effectivePrompt, opts.attachments), options } as any)
   active.set(runId, q as ActiveQuery)
 
   let turn = 0

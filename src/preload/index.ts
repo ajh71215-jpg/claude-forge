@@ -37,6 +37,7 @@ import type { ProviderEntry, ProviderSaveInput, ProviderSaveResult } from '../ma
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
 import type { WorkspaceFile } from '../main/workspace'
+import type { MemoryEntry } from '../main/memory'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -158,6 +159,17 @@ const forge = {
     /** Read one workspace file's contents (capped). */
     read: (id: string, rel: string): Promise<string> =>
       ipcRenderer.invoke('workspace:read', id, rel)
+  },
+  memory: {
+    /** Browse auto-captured project memory (newest first). */
+    list: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:list'),
+    /** Lexical (BM25) search over memory. */
+    search: (query: string): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:search', query),
+    delete: (id: string): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:delete', id),
+    clear: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:clear'),
+    /** Whether memory capture + recall is enabled (default on). */
+    enabled: (): Promise<boolean> => ipcRenderer.invoke('memory:enabled'),
+    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('memory:set-enabled', on)
   },
   activity: {
     /** Current live + persisted agent activity for the Squad dashboard. */

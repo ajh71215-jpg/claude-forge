@@ -832,6 +832,63 @@
   border-radius: 999px;
   padding: 1px 6px;
 }
+/* /goal autonomous loop banner — pinned above the composer while a goal runs */
+.goal-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 9%, var(--bg-raised));
+  font-size: 12px;
+}
+.goal-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.goal-mark {
+  flex: none;
+}
+.goal-label {
+  flex: none;
+  color: var(--amber-bright);
+  letter-spacing: 0.08em;
+  font-size: 10.5px;
+}
+.goal-obj {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.goal-iter {
+  flex: none;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.goal-stop {
+  flex: none;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 3px 9px;
+}
+.goal-stop:hover {
+  color: var(--text);
+  border-color: var(--amber);
+}
 /* Cursor-style prompt chevron in the composer */
 .composer-prompt {
   flex: none;

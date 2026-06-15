@@ -46,6 +46,55 @@ function activityLabel(turn: Turn | null): { icon: string; text: string } {
   return { icon: '⚒', text: 'working…' }
 }
 
+/** Live state for the autonomous /goal loop (Forge's headless analog of the
+ * interactive Claude Code /goal: re-run the resumed session until the model
+ * signals GOAL_ACHIEVED, an error, or the iteration cap). */
+interface GoalState {
+  objective: string
+  iter: number
+  max: number
+}
+
+/** System directive that turns one run into a goal-loop step. Appended to the
+ * claude_code preset so the agent keeps all its real tools + the user's
+ * permission mode; only the completion protocol is added. */
+function goalDirective(objective: string): string {
+  return [
+    'GOAL MODE — autonomous objective loop.',
+    `Objective: ${objective}`,
+    'Work toward this objective using your available tools. This runs in a loop:' +
+      ' after each turn you are automatically prompted to continue, so you need not' +
+      ' finish everything at once — make concrete, verifiable progress each turn.',
+    'At the VERY END of every response, output exactly one status token on its own line:',
+    '- GOAL_ACHIEVED — only when the objective is fully complete AND verified' +
+      ' (prefer running tests / build / typecheck to confirm before declaring done).',
+    '- GOAL_CONTINUE — when more work remains; briefly state the next concrete step.',
+    'Do not output GOAL_ACHIEVED prematurely.'
+  ].join('\n')
+}
+
+/** Did the assistant's response declare the goal complete? Last token wins so a
+ * response that discusses GOAL_CONTINUE earlier but ends with GOAL_ACHIEVED
+ * still resolves correctly (and vice-versa). */
+function goalAchieved(text: string): boolean {
+  const ach = text.lastIndexOf('GOAL_ACHIEVED')
+  if (ach < 0) return false
+  return ach > text.lastIndexOf('GOAL_CONTINUE')
+}
+
+/** Interactive-only CLI commands with no headless behavior — surfaced with a
+ * clear note instead of being silently forwarded to the SDK (where they no-op). */
+const INTERACTIVE_ONLY = new Set([
+  'login',
+  'logout',
+  'agents',
+  'ide',
+  'bug',
+  'vim',
+  'terminal-setup',
+  'install-github-app'
+])
+
 /** Flatten a turn's searchable text (prompt + every block) for transcript search. */
 function turnText(t: Turn): string {
   const parts = [t.prompt]
@@ -121,6 +170,15 @@ export default function Composer({
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
+  // /goal autonomous loop. goalRef mirrors the state synchronously so send() and
+  // the loop-driving effect see the current goal without waiting for a re-render.
+  const [goal, setGoalState] = useState<GoalState | null>(null)
+  const goalRef = useRef<GoalState | null>(null)
+  const setGoal = useCallback((g: GoalState | null): void => {
+    goalRef.current = g
+    setGoalState(g)
+  }, [])
+  const processedTurnRef = useRef<string | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
   const [stickBottom, setStickBottom] = useState<boolean>(() => {
@@ -225,6 +283,8 @@ export default function Composer({
     setContextTokens(0)
     setContextModel('')
     runIdRef.current = null
+    setGoal(null) // switching conversations abandons any in-flight goal loop
+    processedTurnRef.current = null
     const sid = sessionIdRef.current
     if (sid) {
       window.forge.agent
@@ -370,19 +430,27 @@ export default function Composer({
     // prompt activate a mode for THIS run — an extra system directive (+ optional
     // tier) layered on the claude_code preset. The agent keeps its real tools and
     // your permission mode; the AGENTS tab shows what it does. (docs/keywords.ts)
+    let append = ''
+    let keywordTier: string | undefined
     try {
       const modes = await window.forge.orchestrate.detectKeywords(text)
       const active = modes.filter((m) => m.action !== 'cancel')
-      const append = active
+      append = active
         .map((m) => m.systemAppend)
         .filter((s): s is string => !!s)
         .join('\n\n')
-      if (append) opts.systemPrompt = { type: 'preset', preset: 'claude_code', append }
-      const tier = active.find((m) => m.tier)?.tier
-      if (tier && !opts.model) opts.model = tier
+      keywordTier = active.find((m) => m.tier)?.tier
     } catch {
       /* keyword detection is best-effort; a normal run still proceeds */
     }
+    // In /goal mode every run carries the goal completion protocol so the agent
+    // emits GOAL_ACHIEVED / GOAL_CONTINUE the loop reads to decide whether to stop.
+    if (goalRef.current) {
+      const gd = goalDirective(goalRef.current.objective)
+      append = append ? `${append}\n\n${gd}` : gd
+    }
+    if (append) opts.systemPrompt = { type: 'preset', preset: 'claude_code', append }
+    if (keywordTier && !opts.model) opts.model = keywordTier
     try {
       await window.forge.agent.start(id, text, opts)
     } catch (e) {
@@ -394,8 +462,69 @@ export default function Composer({
   }
 
   async function stop(): Promise<void> {
+    setGoal(null) // a manual STOP also ends any running goal loop
     if (runIdRef.current) await window.forge.agent.interrupt(runIdRef.current)
   }
+
+  /** Enter /goal mode and kick off the first run. */
+  function startGoal(objective: string, max: number): void {
+    setGoal({ objective, iter: 1, max })
+    processedTurnRef.current = null
+    pushNotice(
+      '🎯 /goal',
+      `Goal set — running autonomously until complete (max ${max} iteration${max === 1 ? '' : 's'}).\n\nObjective: ${objective}`
+    )
+    void send(objective)
+  }
+
+  function stopGoal(): void {
+    const g = goalRef.current
+    setGoal(null)
+    if (runIdRef.current) void window.forge.agent.interrupt(runIdRef.current)
+    if (g) pushNotice('🎯 /goal', `Goal stopped after ${g.iter} iteration${g.iter === 1 ? '' : 's'}.`)
+  }
+
+  // Drive the /goal loop: when a goal run finishes, read the assistant's status
+  // token and either stop (achieved / error / cap) or auto-send a continuation
+  // that resumes the same session (so context + progress carry over).
+  useEffect(() => {
+    const g = goalRef.current
+    if (!g || running) return
+    const last = turns[turns.length - 1]
+    if (!last || last.running) return
+    if (processedTurnRef.current === last.id) return
+    processedTurnRef.current = last.id
+
+    if (last.meta?.error) {
+      setGoal(null)
+      pushNotice('🎯 /goal', `Goal stopped — the last run errored: ${last.meta.error}`)
+      return
+    }
+    const answer = last.blocks
+      .filter((b): b is Extract<typeof b, { kind: 'text' }> => b.kind === 'text')
+      .map((b) => b.text)
+      .join('\n')
+    if (goalAchieved(answer)) {
+      setGoal(null)
+      pushNotice('🎯 /goal', `✓ Goal achieved in ${g.iter} iteration${g.iter === 1 ? '' : 's'}.`)
+      return
+    }
+    if (g.iter >= g.max) {
+      setGoal(null)
+      pushNotice(
+        '🎯 /goal',
+        `Reached the ${g.max}-iteration cap without an explicit GOAL_ACHIEVED. Stopping — run /goal again to keep going.`
+      )
+      return
+    }
+    setGoal({ ...g, iter: g.iter + 1 })
+    void send(
+      'Continue working toward the goal. Make concrete progress, verify it, and remember to end with GOAL_ACHIEVED or GOAL_CONTINUE on its own line.'
+    )
+    // send / setGoal / pushNotice are stable enough for this effect; re-running it
+    // only when the transcript or running flag changes is exactly what we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turns, running])
 
   async function compact(): Promise<void> {
     const sid = sessionIdRef.current
@@ -496,6 +625,60 @@ export default function Composer({
       } else {
         pushNotice(raw, 'Permission: plan, ask, auto-edit, yolo')
       }
+      setPrompt('')
+      return true
+    }
+    // /goal <objective> — Forge's headless analog of the interactive Claude Code
+    // /goal: loop the resumed session until the agent reports GOAL_ACHIEVED.
+    if (cmd === 'goal') {
+      if (running) {
+        pushNotice(raw, 'Finish or stop the current run before starting a goal.')
+        setPrompt('')
+        return true
+      }
+      if (!arg) {
+        pushNotice(
+          raw,
+          'Usage: /goal [maxIterations] <objective> — runs autonomously until the' +
+            ' objective is met (or the cap). Example: /goal 15 add a dark-mode toggle with tests.'
+        )
+        setPrompt('')
+        return true
+      }
+      let max = 25
+      let objective = arg
+      const mm = arg.match(/^(\d{1,3})\s+([\s\S]+)$/)
+      if (mm) {
+        max = Math.min(100, Math.max(1, Number(mm[1])))
+        objective = mm[2].trim()
+      }
+      setPrompt('')
+      startGoal(objective, max)
+      return true
+    }
+    // Interactive-only CLI commands: tell the user instead of silently no-op'ing.
+    if (INTERACTIVE_ONLY.has(cmd)) {
+      pushNotice(
+        raw,
+        `/${cmd} is an interactive CLI command and isn't available in Forge's GUI.`
+      )
+      setPrompt('')
+      return true
+    }
+    // Unknown slash command: if it's not a real SDK/skill command either, don't
+    // silently forward it to the model as literal "/foo" text (which only
+    // confuses it). Tell the user — the same way the CLI rejects unknown commands.
+    const known = new Set(
+      [
+        ...CLIENT_COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]),
+        ...commands.flatMap((c) => [c.name, ...(c.aliases ?? [])])
+      ].map((s) => s.toLowerCase())
+    )
+    if (!known.has(cmd)) {
+      pushNotice(
+        raw,
+        `Unknown command /${cmd}. Type “/” to browse available commands, or remove the leading “/” to send this as a normal message.`
+      )
       setPrompt('')
       return true
     }
@@ -874,6 +1057,20 @@ export default function Composer({
       )}
 
       <div className="composer-wrap">
+        {goal && (
+          <div className="goal-banner" title="Autonomous goal loop — runs until the objective verifies">
+            <span className="goal-spinner" aria-hidden />
+            <span className="goal-mark">🎯</span>
+            <span className="goal-label">GOAL</span>
+            <span className="goal-obj">{goal.objective}</span>
+            <span className="goal-iter">
+              iteration {goal.iter}/{goal.max}
+            </span>
+            <button className="goal-stop" onClick={stopGoal} title="Stop the goal loop">
+              ■ stop goal
+            </button>
+          </div>
+        )}
         {!running && detectedModes.length > 0 && (
           <div className="mode-chips" title="Magic-keyword modes detected in your message — they activate on send">
             {detectedModes.map((m) => (
@@ -1021,6 +1218,11 @@ export default function Composer({
                 <span className="help-desc">{c.description}</span>
               </div>
             ))}
+            <div className="help-note">
+              <b>/goal</b> runs autonomously: it loops the conversation, resuming the session each
+              turn until the agent reports the objective complete (or the iteration cap). A banner
+              over the composer shows progress — stop it any time.
+            </div>
             <div className="help-note">
               Plus Claude commands (/usage, /cost, /compact…) and your skills — type / to browse.
               Interactive-only commands like /login or /agents aren't available in this environment.

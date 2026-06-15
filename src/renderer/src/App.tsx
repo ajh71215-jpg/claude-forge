@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import AuthGate from './components/AuthGate'
 import Icon from './components/Icon'
 import TitleBar from './components/TitleBar'
@@ -8,6 +8,7 @@ import SquadView from './components/squad/SquadView'
 import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
+import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
 import type {
   AuthMode,
   AuthStatus,
@@ -95,6 +96,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [view, setView] = useState<'chat' | 'squad' | 'cost' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
@@ -197,6 +199,80 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     await window.forge.auth.clear()
     onClear()
   }
+
+  // Cmd/Ctrl+K toggles the command palette.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Actions surfaced in the command palette — the shell's existing handlers, made
+  // keyboard-reachable. Rebuilt when the dynamic lists (models/sessions) change.
+  const paletteActions = useMemo<PaletteAction[]>(() => {
+    const go = (label: string, v: typeof view): PaletteAction => ({
+      id: 'view-' + v,
+      section: 'Go to',
+      label,
+      run: () => setView(v)
+    })
+    const acts: PaletteAction[] = [
+      go('Chat', 'chat'),
+      go('Agents', 'squad'),
+      go('Cost & Cache', 'cost'),
+      go('Extend', 'extend'),
+      go('Guide', 'guide'),
+      { id: 'new', section: 'Session', label: 'New conversation', hint: '/new', run: newSession },
+      {
+        id: 'persona',
+        section: 'Agent',
+        label: 'Customize agent…',
+        keywords: 'persona system prompt',
+        run: () => setShowPersona(true)
+      },
+      {
+        id: 'saver',
+        section: 'Settings',
+        label: costSaver ? 'Turn off cost-saver routing' : 'Turn on cost-saver routing',
+        keywords: 'cheap difficulty route',
+        run: () => setCostSaver((v) => !v)
+      }
+    ]
+    for (const p of PERMS)
+      acts.push({
+        id: 'perm-' + p.id,
+        section: 'Permission',
+        label: `Permission: ${p.title}`,
+        keywords: p.desc,
+        run: () => setPermission(p.id)
+      })
+    for (const e of EFFORTS)
+      if (effortSupported(e))
+        acts.push({ id: 'effort-' + e, section: 'Effort', label: `Effort: ${e}`, run: () => chooseEffort(e) })
+    for (const m of models)
+      acts.push({
+        id: 'model-' + m.value,
+        section: 'Model',
+        label: `Model: ${m.displayName}`,
+        keywords: m.value,
+        run: () => chooseModel(m.value)
+      })
+    for (const s of sessions.slice(0, 8))
+      acts.push({
+        id: 'sess-' + s.sessionId,
+        section: 'Resume',
+        label: s.title,
+        run: () => resumeSession(s.sessionId)
+      })
+    acts.push({ id: 'disconnect', section: 'Account', label: 'Disconnect', run: clear })
+    return acts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, sessions, costSaver, modelEfforts])
 
   return (
     <div className="shell">
@@ -565,6 +641,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           </div>
         </div>
       </main>
+      {paletteOpen && (
+        <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />
+      )}
       {showPersona && (
         <PersonaModal
           initial={persona ?? { enabled: false, mode: 'append', text: '' }}

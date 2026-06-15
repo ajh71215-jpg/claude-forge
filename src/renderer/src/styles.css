@@ -11,6 +11,7 @@
  *   05-squad    Squad → Agent Activity dashboard (live + history)
  *   06-guide    Guide tab — first-run feature tour
  *   07-cost     Cost tab — cost & cache dashboard
+ *   08-palette  Command palette (Cmd/Ctrl+K)
  */
 @import './styles/00-core.css';
 @import './styles/01-auth.css';
@@ -20,3 +21,4 @@
 @import './styles/05-squad.css';
 @import './styles/06-guide.css';
 @import './styles/07-cost.css';
+@import './styles/08-palette.css';

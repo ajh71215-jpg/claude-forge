@@ -14,7 +14,7 @@ import type {
   RunOptions
 } from '../../types'
 import { CLIENT_COMMANDS } from '../../lib/constants'
-import { ctxWindow, resolveMaxTurns } from '../../lib/format'
+import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
 // Shared model router (docs/TOKEN_OPTIMIZATION.md §3 lever 4 ∩ SQUAD §4): the
 // cost-saver classifies each prompt's difficulty and routes to the cheapest tier
 // that fits, instead of a flat "always Sonnet". Single owner — the conductor's
@@ -27,7 +27,24 @@ import TurnView from './TurnView'
 import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
+import Elapsed from './Elapsed'
 import type { Turn } from '../../types'
+
+/** Plain-language description of what the agent is doing right now, derived from
+ * the active turn's latest block — so the pinned live strip says e.g. "Read
+ * src/main/agent.ts" or "thinking…" instead of an opaque "running". */
+function activityLabel(turn: Turn | null): { icon: string; text: string } {
+  const b = turn?.blocks[turn.blocks.length - 1]
+  if (!b) return { icon: '✦', text: 'thinking…' }
+  if (b.kind === 'thinking') return { icon: '✦', text: 'thinking…' }
+  if (b.kind === 'text') return { icon: '✎', text: 'writing response…' }
+  // tool block
+  if (b.status === 'running') {
+    const arg = toolArg(b.inputRaw)
+    return { icon: toolIcon(b.name), text: arg ? `${b.name} ${arg}` : `${b.name}…` }
+  }
+  return { icon: '⚒', text: 'working…' }
+}
 
 /** Flatten a turn's searchable text (prompt + every block) for transcript search. */
 function turnText(t: Turn): string {
@@ -231,6 +248,7 @@ export default function Composer({
   }, [sessionKey])
 
   const running = turns.some((t) => t.running)
+  const activeTurn = turns.find((t) => t.running) ?? null
 
   // Task progress for the pinned bar above the composer. Models track work via
   // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
@@ -687,6 +705,18 @@ export default function Composer({
           )}
         </div>
       </div>
+      {running &&
+        (() => {
+          const act = activityLabel(activeTurn)
+          return (
+            <div className="live-strip" title="What the agent is doing right now">
+              <span className="ls-spinner" aria-hidden />
+              <span className="ls-icon">{act.icon}</span>
+              <span className="ls-text">{act.text}</span>
+              <Elapsed className="ls-elapsed" />
+            </div>
+          )
+        })()}
       {searchOpen && (
         <div className="transcript-search">
           <span className="ts-icon">⌕</span>

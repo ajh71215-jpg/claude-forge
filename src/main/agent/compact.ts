@@ -10,8 +10,10 @@ import type { CompactProgress } from './types'
  *
  * When a `sender` is provided, progress is streamed on the `agent:compact-progress`
  * channel so the renderer can show a live progress bar. The SDK `/compact` run is
- * opaque (no real percentage), so progress is modeled as a monotonic curve that
- * eases toward 90% while the summarizer streams, then snaps to 100% on completion.
+ * opaque (no real percentage), so progress is modeled by a TIME-BASED ticker that
+ * climbs 1% at a time toward 90% while the summarizer runs (so the bar visibly
+ * moves instead of stalling between the few streamed messages), then snaps to 100%
+ * on completion.
  */
 export async function compactSession(
   sessionId: string,
@@ -29,6 +31,17 @@ export async function compactSession(
   }
 
   emit({ sessionId: sid, phase: 'start', pct: 5 })
+
+  // Time-based ticker: climb 1% every 250ms toward a 90% ceiling so the bar is
+  // visibly alive for the whole opaque run. Cleared the moment the run resolves.
+  let pct = 5
+  const ticker = setInterval(() => {
+    if (pct < 90) {
+      pct += 1
+      emit({ sessionId: sid, phase: 'working', pct })
+    }
+  }, 250)
+
   try {
     // cwd must match the run that created the session, or resume can't locate it.
     const q: any = query({
@@ -41,19 +54,14 @@ export async function compactSession(
         cwd
       } as any
     })
-    let pct = 5
     for await (const msg of q as AsyncIterable<any>) {
       if (msg.session_id) sid = msg.session_id
-      if (msg.type === 'result') {
-        ok = msg.subtype === 'success'
-      } else {
-        // Ease toward 90% — each streamed message closes ~30% of the remaining gap.
-        pct = Math.min(90, pct + (90 - pct) * 0.3)
-        emit({ sessionId: sid, phase: 'working', pct: Math.round(pct) })
-      }
+      if (msg.type === 'result') ok = msg.subtype === 'success'
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
+  } finally {
+    clearInterval(ticker)
   }
   emit({ sessionId: sid, phase: error || !ok ? 'error' : 'done', pct: 100, error })
   return { ok, sessionId: sid, error }

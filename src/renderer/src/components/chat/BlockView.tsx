@@ -8,6 +8,7 @@ import { toolArg, toolDiff, toolIcon } from '../../lib/format'
 import { parseTodos } from '../../lib/blocks'
 import Md from '../Md'
 import TodoList from './TodoList'
+import Elapsed from './Elapsed'
 
 // Memoized: a completed block keeps a stable `block` ref + streaming=false, so it
 // skips re-render on every streaming flush. docs/PERFORMANCE.md lever 3.
@@ -62,6 +63,7 @@ const BlockView = memo(function BlockView({
     )
   }
   const arg = toolArg(block.inputRaw)
+  const running = block.status === 'running'
   const badge = block.status === 'ok' ? 'OK' : block.status === 'error' ? 'ERR' : 'RUNNING'
   const result =
     block.result && block.result.length > 700 ? block.result.slice(0, 700) + '…' : block.result
@@ -85,7 +87,11 @@ const BlockView = memo(function BlockView({
             {dels > 0 && <span className="diff-stat-del">-{dels}</span>}
           </span>
         )}
-        <span className={`tool-badge ${block.status}`}>{badge}</span>
+        {running && <Elapsed />}
+        <span className={`tool-badge ${block.status}`}>
+          {running && <span className="tool-spin" aria-hidden />}
+          {badge}
+        </span>
       </div>
       {diffShown && diffShown.length > 0 && (
         <pre className="tool-diff">

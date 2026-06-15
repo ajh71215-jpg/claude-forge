@@ -34,6 +34,8 @@ import type {
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
 import type { Plan } from '../main/orchestration'
 import type { OrchestrateEvent } from '../main/ipc/orchestrate'
+import type { ActivitySnapshot } from '../main/agentActivity'
+import type { KeywordMatch } from '../main/keywords'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -144,11 +146,8 @@ const forge = {
       { name: string; description: string; tier: string; writeCapable: boolean; systemAppend: string }[]
     > => ipcRenderer.invoke('orchestrate:roles'),
     /** Native magic-keyword detector (OMC port): map a goal/prompt to active modes. */
-    detectKeywords: (
-      prompt: string
-    ): Promise<
-      { name: string; action: string; priority: number; role?: string; topology?: string; matched: string }[]
-    > => ipcRenderer.invoke('orchestrate:detect-keywords', prompt),
+    detectKeywords: (prompt: string): Promise<KeywordMatch[]> =>
+      ipcRenderer.invoke('orchestrate:detect-keywords', prompt),
     /** Subscribe to orchestration events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: OrchestrateEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: OrchestrateEvent): void => cb(payload)
@@ -168,6 +167,18 @@ const forge = {
     setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('pet:set-enabled', on),
     /** Toggle the pet; resolves to the new enabled state. */
     toggle: (): Promise<boolean> => ipcRenderer.invoke('pet:toggle')
+  },
+  activity: {
+    /** Current live + persisted agent activity for the Squad dashboard. */
+    snapshot: (): Promise<ActivitySnapshot> => ipcRenderer.invoke('activity:snapshot'),
+    /** Clear persisted agent history; resolves to the fresh snapshot. */
+    clear: (): Promise<ActivitySnapshot> => ipcRenderer.invoke('activity:clear'),
+    /** Subscribe to live activity updates. Returns an unsubscribe fn. */
+    onUpdate: (cb: (snap: ActivitySnapshot) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, payload: ActivitySnapshot): void => cb(payload)
+      ipcRenderer.on('activity:update', listener)
+      return () => ipcRenderer.removeListener('activity:update', listener)
+    }
   }
 }
 

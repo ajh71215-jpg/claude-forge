@@ -7,6 +7,13 @@ import { useEffect, useState } from 'react'
 import type { AgentEvent, DialogReq, PermReq, Turn } from '../../types'
 import { reduceBlocks } from '../../lib/blocks'
 
+/** Live reliability signals shown as a non-intrusive banner over the composer. */
+export interface Reliability {
+  retry?: { attempt: number; max: number; status?: number | null }
+  rate?: { status: string; utilization?: number; rateLimitType?: string; resetsAt?: number }
+  compact?: { trigger: string; pre?: number; post?: number }
+}
+
 /** Payload Composer forwards to MainShell on a successful result. */
 export interface AgentResultPayload {
   costUsd?: number
@@ -50,6 +57,8 @@ export function useAgentEvents(refs: AgentEventRefs): {
   setContextTokens: React.Dispatch<React.SetStateAction<number>>
   contextModel: string
   setContextModel: React.Dispatch<React.SetStateAction<string>>
+  reliability: Reliability | null
+  setReliability: React.Dispatch<React.SetStateAction<Reliability | null>>
 } {
   const { ownedRef, runIdRef, onSessionRef, onResultRef, taRef } = refs
   const [turns, setTurns] = useState<Turn[]>([])
@@ -57,6 +66,10 @@ export function useAgentEvents(refs: AgentEventRefs): {
   const [dialogs, setDialogs] = useState<DialogReq[]>([])
   const [contextTokens, setContextTokens] = useState(0)
   const [contextModel, setContextModel] = useState('')
+  // Reliability awareness: API retries, subscription rate limits and auto-compaction
+  // — all from events the SDK already streams (no extra tokens). Surfaced so a pause
+  // reads as "retrying / rate-limited" instead of a frozen UI.
+  const [reliability, setReliability] = useState<Reliability | null>(null)
 
   // Subscribe once; route streaming events to the matching turn. Ignore events
   // that belong to other views (e.g. Squad runs) so usage isn't double-counted.
@@ -96,6 +109,42 @@ export function useAgentEvents(refs: AgentEventRefs): {
         if (ev.model) setContextModel(ev.model)
         return
       }
+      if (ev.type === 'api-retry') {
+        setReliability((r) => ({
+          ...r,
+          retry: { attempt: ev.attempt, max: ev.maxRetries, status: ev.errorStatus }
+        }))
+        return
+      }
+      if (ev.type === 'rate-limit') {
+        setReliability((r) =>
+          ev.status === 'allowed'
+            ? r?.rate
+              ? { ...r, rate: undefined }
+              : r
+            : {
+                ...r,
+                rate: {
+                  status: ev.status,
+                  utilization: ev.utilization,
+                  rateLimitType: ev.rateLimitType,
+                  resetsAt: ev.resetsAt
+                }
+              }
+        )
+        return
+      }
+      if (ev.type === 'compact-boundary') {
+        setReliability((r) => ({
+          ...r,
+          compact: { trigger: ev.trigger, pre: ev.preTokens, post: ev.postTokens }
+        }))
+        return
+      }
+      // Content resumed → a retry (if any) succeeded; clear the transient note.
+      if (ev.type === 'block-start') {
+        setReliability((r) => (r?.retry ? { ...r, retry: undefined } : r))
+      }
       if (ev.type === 'permission') {
         if (ev.runId === runIdRef.current) {
           setPerms((prev) => [...prev, { id: ev.id, toolName: ev.toolName, input: ev.input }])
@@ -134,6 +183,9 @@ export function useAgentEvents(refs: AgentEventRefs): {
           setPerms([])
           setDialogs([])
           taRef.current?.focus()
+          // Drop transient notes (retry/compact); a rate-limit warning is
+          // account-level so it persists until the next rate-limit update.
+          setReliability((r) => (r?.rate ? { rate: r.rate } : null))
         }
         if (typeof ev.contextTokens === 'number') setContextTokens(ev.contextTokens)
         if (ev.ok) {
@@ -171,6 +223,8 @@ export function useAgentEvents(refs: AgentEventRefs): {
     contextTokens,
     setContextTokens,
     contextModel,
-    setContextModel
+    setContextModel,
+    reliability,
+    setReliability
   }
 }

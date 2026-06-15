@@ -16,6 +16,7 @@ export type IconName =
   | 'plugins'
   | 'bolt'
   | 'tool'
+  | 'guide'
 
 const PATHS: Record<IconName, JSX.Element> = {
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
@@ -76,6 +77,12 @@ const PATHS: Record<IconName, JSX.Element> = {
   bolt: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
   tool: (
     <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2-2 2.6-2.6z" />
+  ),
+  guide: (
+    <>
+      <path d="M2 4h6a3 3 0 0 1 3 3v13a2.5 2.5 0 0 0-2.5-2.5H2z" />
+      <path d="M22 4h-6a3 3 0 0 0-3 3v13a2.5 2.5 0 0 1 2.5-2.5H22z" />
+    </>
   )
 }
 

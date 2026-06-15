@@ -4,6 +4,7 @@ import { registerAll } from './ipc'
 // Importing the pet module registers the `pet://` scheme as privileged (must
 // happen before app `ready`), via a side effect in pet/protocol.ts.
 import { initPet } from './pet'
+import { initActivity } from './agentActivity'
 
 // Optional remote debugging for local verification: set FORGE_CDP=<port>.
 // No effect in normal use (only active when the env var is present).
@@ -53,6 +54,10 @@ app.whenReady().then(() => {
 
   // Desktop pet: installs the asset protocol and restores it if last enabled.
   initPet()
+
+  // Agent-activity store: taps the event bus so the Squad dashboard captures
+  // every run/subagent regardless of which tab is focused.
+  initActivity()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

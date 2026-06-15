@@ -1,0 +1,210 @@
+:root {
+  /* Quiet-premium neutral base — calm, Cursor-CLI restraint. Near-monochrome
+     surfaces with one whisper of warm brass as the single accent. */
+  --bg: #0d0d0e;
+  --bg-deep: #09090a; /* titlebar, tab strip, nav rails */
+  --bg-raised: #141416;
+  --bg-card: #1a1a1d;
+  --border: #262629;
+  --border-strong: #34343a;
+  --text: #ededee;
+  --muted: #9a9aa2;
+  --faint: #6a6a72;
+
+  /* Near-monochrome accent: low-chroma warm gray (a whisper of forge warmth,
+     no orange). --accent-rgb feeds every translucent wash/glow via
+     rgba(var(--accent-rgb), a) so the whole UI stays quiet and neutral. */
+  --accent-rgb: 188, 180, 166;
+  --amber: #b4aa9b; /* primary/active fills + strong borders (warm gray) */
+  --amber-bright: #ece8e0; /* active text, links, headings (near-white) */
+  --amber-dim: #45423c; /* dim dividers, ghost borders */
+  --on-accent: #14130f; /* text on a light fill */
+
+  --danger: #d2806a; /* muted clay-red */
+  --ok: #6fb98a; /* muted green — success / additions / connected */
+
+  /* Latin/code render in monospace; Korean falls through to Pretendard
+     (the monospace fonts lack Hangul glyphs, so per-glyph fallback pins
+     Korean to Pretendard). */
+  --mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Pretendard Variable', 'Pretendard',
+    ui-monospace, monospace;
+  --sans: 'Pretendard Variable', 'Pretendard', system-ui, sans-serif;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 18px 44px rgba(0, 0, 0, 0.6);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* ---- app shell + custom title bar ---- */
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.titlebar {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  padding-left: 14px;
+}
+.titlebar-brand {
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  color: var(--amber-bright);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.titlebar-brand .brand-mark {
+  color: var(--amber);
+}
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+.tb-btn {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tb-btn:hover {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--amber-bright);
+}
+.tb-btn.close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+
+/* ---- custom scrollbars ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--amber-dim) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a3024;
+  border: 2px solid var(--bg);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--amber-dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  /* Quiet premium: sans for prose/UI, mono reserved for data/code/agent output. */
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* Unified monochrome line-icon (components/Icon.tsx). Sizes to 1em, inherits
+   currentColor, so every icon stays on-theme — no more multicolor emoji. */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.14em;
+  flex: none;
+}
+
+/* tabular figures for any data-bearing numerics */
+.mono,
+code,
+kbd,
+samp,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- interaction polish (calm, consistent states) ---- */
+:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+::selection {
+  background: rgba(var(--accent-rgb), 0.26);
+  color: var(--text);
+}
+
+/* ---- boot ---- */
+.boot {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--amber);
+  letter-spacing: 0.08em;
+}
+
+/* ---- brand ---- */
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--amber-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand.big {
+  font-size: 18px;
+}
+.brand-mark {
+  color: var(--amber);
+}
+

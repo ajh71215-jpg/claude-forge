@@ -11,6 +11,7 @@ import { sendPetState } from './petWindow'
 interface Theme {
   states: Record<string, string[]>
   workingTiers?: { minSessions: number; file: string }[]
+  idleAnimations?: { file: string; duration: number }[]
   timings?: {
     yawnDuration?: number
     wakeDuration?: number
@@ -25,7 +26,9 @@ const SLEEP_AFTER = 60_000 // no activity → start yawning
 const DOZE_AFTER = 30_000 // dozing → sleeping
 const MOUSE_POLL = 1500
 
-type Transient = { state: string; until: number } | null
+// A transient briefly overrides the computed state. `svg` lets a transient carry
+// an explicit asset (used by idle micro-animations, which are files not states).
+type Transient = { state: string; until: number; svg?: string } | null
 
 let theme: Theme | null = null
 let activeRuns = new Set<string>()
@@ -36,6 +39,7 @@ let displayed = '' // last svg pushed, for dedup
 
 let idleTimer: NodeJS.Timeout | null = null
 let transientTimer: NodeJS.Timeout | null = null
+let idleAnimTimer: NodeJS.Timeout | null = null
 let mousePoll: NodeJS.Timeout | null = null
 let lastCursor: { x: number; y: number } | null = null
 let running = false
@@ -71,8 +75,10 @@ function minDisplay(state: string, fallback: number): number {
 function recompute(): void {
   if (!running) return
   let state: string
+  let explicitSvg: string | undefined
   if (transient && Date.now() < transient.until) {
     state = transient.state
+    explicitSvg = transient.svg
   } else {
     transient = null
     if (activeRuns.size > 0) {
@@ -81,15 +87,15 @@ function recompute(): void {
       state = idlePhase
     }
   }
-  const svg = svgFor(state)
+  const svg = explicitSvg ?? svgFor(state)
   if (svg !== displayed) {
     displayed = svg
     sendPetState(state, svg)
   }
 }
 
-function setTransient(state: string, ms: number): void {
-  transient = { state, until: Date.now() + ms }
+function setTransient(state: string, ms: number, svg?: string): void {
+  transient = { state, until: Date.now() + ms, svg }
   if (transientTimer) clearTimeout(transientTimer)
   transientTimer = setTimeout(() => {
     transient = null
@@ -106,12 +112,55 @@ function clearIdleTimer(): void {
   }
 }
 
+// ── Idle micro-animations ──
+// While awake-but-idle (before yawning), occasionally play a brief animation from
+// theme.idleAnimations (look around / think bubble / read) so the pet feels alive
+// instead of frozen. Only fires in the 'idle' phase with no active runs; reschedules
+// itself. Previously these theme assets were unused.
+/** Stop the scheduler only (keeps any showing flourish — used when rescheduling). */
+function clearIdleAnim(): void {
+  if (idleAnimTimer) {
+    clearTimeout(idleAnimTimer)
+    idleAnimTimer = null
+  }
+}
+
+/** Stop the scheduler AND drop an in-flight flourish so it can't linger over real
+ * activity. Idle anims are the only transients that use the 'idle' state name. */
+function cancelIdleAnim(): void {
+  clearIdleAnim()
+  if (transient && transient.state === 'idle') {
+    transient = null
+    if (transientTimer) {
+      clearTimeout(transientTimer)
+      transientTimer = null
+    }
+  }
+}
+
+function scheduleIdleAnim(): void {
+  clearIdleAnim()
+  const anims = loadTheme().idleAnimations
+  if (!anims || !anims.length) return
+  // next idle flourish in 12–26s, jittered so it doesn't look metronomic.
+  const delay = 12_000 + Math.floor(Math.random() * 14_000)
+  idleAnimTimer = setTimeout(() => {
+    if (running && activeRuns.size === 0 && idlePhase === 'idle' && !transient) {
+      const a = anims[Math.floor(Math.random() * anims.length)]
+      setTransient('idle', a.duration, a.file)
+    }
+    scheduleIdleAnim()
+  }, delay)
+}
+
 function startIdleCountdown(): void {
   clearIdleTimer()
   idlePhase = 'idle'
+  scheduleIdleAnim()
   const sleepAfter = loadTheme().timings?.mouseSleepTimeout ?? SLEEP_AFTER
   idleTimer = setTimeout(() => {
     idlePhase = 'yawning'
+    cancelIdleAnim() // no flourishes once the pet starts settling to sleep
     recompute()
     const yawn = loadTheme().timings?.yawnDuration ?? 3000
     idleTimer = setTimeout(() => {
@@ -130,6 +179,7 @@ function startIdleCountdown(): void {
 function bumpActivity(): void {
   const wasAsleep = idlePhase === 'dozing' || idlePhase === 'sleeping'
   clearIdleTimer()
+  clearIdleAnim()
   if (wasAsleep && activeRuns.size === 0) {
     // brief wake animation before returning to idle
     idlePhase = 'idle'
@@ -162,10 +212,12 @@ export function onAgentEventForPet(ev: AgentEvent): void {
     case 'session':
       activeRuns.add(ev.runId)
       clearIdleTimer()
+      cancelIdleAnim()
       break
     case 'block-start':
       activeRuns.add(ev.runId)
       clearIdleTimer()
+      cancelIdleAnim()
       if (ev.kind === 'thinking') lastActivity = 'thinking'
       else lastActivity = 'working' // 'tool' or 'text'
       break
@@ -202,6 +254,10 @@ export function startPetState(): void {
   idlePhase = 'idle'
   displayed = ''
   lastCursor = null
+  // Reset any lingering timers so a restart (disable→enable) doesn't double-run.
+  if (transientTimer) clearTimeout(transientTimer)
+  transientTimer = null
+  clearIdleAnim()
   try {
     lastCursor = screen.getCursorScreenPoint()
   } catch {
@@ -216,6 +272,7 @@ export function startPetState(): void {
 export function stopPetState(): void {
   running = false
   clearIdleTimer()
+  clearIdleAnim()
   if (transientTimer) clearTimeout(transientTimer)
   if (mousePoll) clearInterval(mousePoll)
   transientTimer = null

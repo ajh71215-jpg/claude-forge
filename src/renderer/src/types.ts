@@ -40,6 +40,10 @@ export type Subtask = import('../../main/orchestration').Subtask
 export type Plan = import('../../main/orchestration').Plan
 export type ConductorEvent = import('../../main/conductor').ConductorEvent
 export type OrchestrateEvent = import('../../main/ipc/orchestrate').OrchestrateEvent
+export type AgentActivity = import('../../main/agentActivity').AgentActivity
+export type ActivitySnapshot = import('../../main/agentActivity').ActivitySnapshot
+export type ToolEvent = import('../../main/agentActivity').ToolEvent
+export type KeywordMatch = import('../../main/keywords').KeywordMatch
 
 export type EffortLabel = 'AUTO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX'
 

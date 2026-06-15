@@ -2,7 +2,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving. The streaming event
 // subscription (rAF-coalesced) and near-bottom autoscroll are docs/PERFORMANCE.md
 // levers 2 & 4 — do not change without re-profiling.
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type DragEvent as RDragEvent } from 'react'
 import type {
   Permission,
   Effort,
@@ -14,7 +14,7 @@ import type {
   RunOptions
 } from '../../types'
 import { CLIENT_COMMANDS } from '../../lib/constants'
-import { ctxWindow, resolveMaxTurns } from '../../lib/format'
+import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
 // Shared model router (docs/TOKEN_OPTIMIZATION.md §3 lever 4 ∩ SQUAD §4): the
 // cost-saver classifies each prompt's difficulty and routes to the cheapest tier
 // that fits, instead of a flat "always Sonnet". Single owner — the conductor's
@@ -27,6 +27,34 @@ import TurnView from './TurnView'
 import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
+import Elapsed from './Elapsed'
+import type { Turn, KeywordMatch } from '../../types'
+
+/** Plain-language description of what the agent is doing right now, derived from
+ * the active turn's latest block — so the pinned live strip says e.g. "Read
+ * src/main/agent.ts" or "thinking…" instead of an opaque "running". */
+function activityLabel(turn: Turn | null): { icon: string; text: string } {
+  const b = turn?.blocks[turn.blocks.length - 1]
+  if (!b) return { icon: '✦', text: 'thinking…' }
+  if (b.kind === 'thinking') return { icon: '✦', text: 'thinking…' }
+  if (b.kind === 'text') return { icon: '✎', text: 'writing response…' }
+  // tool block
+  if (b.status === 'running') {
+    const arg = toolArg(b.inputRaw)
+    return { icon: toolIcon(b.name), text: arg ? `${b.name} ${arg}` : `${b.name}…` }
+  }
+  return { icon: '⚒', text: 'working…' }
+}
+
+/** Flatten a turn's searchable text (prompt + every block) for transcript search. */
+function turnText(t: Turn): string {
+  const parts = [t.prompt]
+  for (const b of t.blocks) {
+    if (b.kind === 'text' || b.kind === 'thinking') parts.push(b.text)
+    else if (b.kind === 'tool') parts.push(b.name, b.inputRaw, b.result ?? '')
+  }
+  return parts.join(' ').toLowerCase()
+}
 
 export default function Composer({
   model,
@@ -84,6 +112,14 @@ export default function Composer({
   const [attachments, setAttachments] = useState<
     { id: string; mediaType: string; base64: string; preview: string; name: string }[]
   >([])
+  // Drag-and-drop image attach overlay + transcript search box.
+  const [dragOver, setDragOver] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  // Magic-keyword modes detected in the current draft (shown as chips so the
+  // trigger is discoverable before sending).
+  const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
@@ -141,7 +177,9 @@ export default function Composer({
     contextTokens,
     setContextTokens,
     contextModel,
-    setContextModel
+    setContextModel,
+    reliability,
+    setReliability
   } = useAgentEvents({ ownedRef, runIdRef, onSessionRef, onResultRef, taRef })
 
   // Keep the transcript pinned to the bottom as content streams in — but only
@@ -215,6 +253,7 @@ export default function Composer({
   }, [sessionKey])
 
   const running = turns.some((t) => t.running)
+  const activeTurn = turns.find((t) => t.running) ?? null
 
   // Task progress for the pinned bar above the composer. Models track work via
   // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
@@ -282,6 +321,8 @@ export default function Composer({
     const id = crypto.randomUUID()
     runIdRef.current = id
     ownedRef.current.add(id)
+    // Drop stale transient reliability notes on a new send (keep account rate-limit).
+    setReliability((r) => (r?.rate ? { rate: r.rate } : null))
     const previews = atts.map((a) => a.preview)
     setTurns((prev) => [
       ...prev,
@@ -325,6 +366,23 @@ export default function Composer({
     const turnCap = resolveMaxTurns(maxTurnsByModel, runModel || model || 'default')
     if (turnCap > 0) opts.maxTurns = turnCap
     if (maxBudget > 0) opts.maxBudgetUsd = maxBudget
+    // Native magic-keyword trigger: ralph/ultrathink/code-review/… typed in the
+    // prompt activate a mode for THIS run — an extra system directive (+ optional
+    // tier) layered on the claude_code preset. The agent keeps its real tools and
+    // your permission mode; the AGENTS tab shows what it does. (docs/keywords.ts)
+    try {
+      const modes = await window.forge.orchestrate.detectKeywords(text)
+      const active = modes.filter((m) => m.action !== 'cancel')
+      const append = active
+        .map((m) => m.systemAppend)
+        .filter((s): s is string => !!s)
+        .join('\n\n')
+      if (append) opts.systemPrompt = { type: 'preset', preset: 'claude_code', append }
+      const tier = active.find((m) => m.tier)?.tier
+      if (tier && !opts.model) opts.model = tier
+    } catch {
+      /* keyword detection is best-effort; a normal run still proceeds */
+    }
     try {
       await window.forge.agent.start(id, text, opts)
     } catch (e) {
@@ -444,6 +502,44 @@ export default function Composer({
     return false
   }
 
+  // Live magic-keyword detection on the draft → mode chips (debounced).
+  useEffect(() => {
+    const text = prompt.trim()
+    if (!text) {
+      setDetectedModes([])
+      return
+    }
+    const t = setTimeout(() => {
+      window.forge.orchestrate
+        .detectKeywords(text)
+        .then((m) => setDetectedModes(m.filter((x) => x.action !== 'cancel')))
+        .catch(() => setDetectedModes([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [prompt])
+
+  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        requestAnimationFrame(() => searchRef.current?.focus())
+      } else if (e.key === 'Escape' && searchOpen) {
+        setSearchOpen(false)
+        setSearch('')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
+
+  function onDrop(e: RDragEvent): void {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
+  }
+
   function addFiles(files: FileList | null): void {
     if (!files) return
     for (const file of Array.from(files)) {
@@ -550,8 +646,30 @@ export default function Composer({
       ? Math.min(100, Math.round((contextTokens / ctxWindow(contextModel)) * 100))
       : 0
 
+  const q = search.trim().toLowerCase()
+  const shownTurns = q ? turns.filter((t) => turnText(t).includes(q)) : turns
+
   return (
-    <div className="work">
+    <div
+      className={`work${dragOver ? ' drag-over' : ''}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault()
+          if (!dragOver) setDragOver(true)
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)
+      }}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="drop-overlay">
+          <div className="drop-overlay-inner">
+            <span className="drop-icon">⌬</span> drop images to attach
+          </div>
+        </div>
+      )}
       <div className="work-header">
         <div className="wh-left">
           <span className="wh-item">
@@ -574,6 +692,20 @@ export default function Composer({
           )}
         </div>
         <div className="wh-right">
+          {turns.length > 0 && (
+            <button
+              className={`mini-btn${searchOpen ? ' on' : ''}`}
+              title="Search this conversation (Ctrl/Cmd+F)"
+              onClick={() => {
+                const next = !searchOpen
+                setSearchOpen(next)
+                if (next) requestAnimationFrame(() => searchRef.current?.focus())
+                else setSearch('')
+              }}
+            >
+              ⌕ find
+            </button>
+          )}
           {contextTokens > 0 && (
             <div
               className={`ctx-gauge ${ctxPct >= 70 ? 'hot' : ''}`}
@@ -613,17 +745,111 @@ export default function Composer({
           )}
         </div>
       </div>
+      {running &&
+        (() => {
+          const act = activityLabel(activeTurn)
+          return (
+            <div className="live-strip" title="What the agent is doing right now">
+              <span className="ls-spinner" aria-hidden />
+              <span className="ls-icon">{act.icon}</span>
+              <span className="ls-text">{act.text}</span>
+              <Elapsed className="ls-elapsed" />
+            </div>
+          )
+        })()}
+      {reliability && (reliability.retry || reliability.rate || reliability.compact) && (
+        <div className="reliability">
+          {reliability.retry && (
+            <div className="rb-item retry">
+              <span className="rb-spin" aria-hidden /> Retrying
+              {reliability.retry.status ? ` (${reliability.retry.status})` : ''} — attempt{' '}
+              {reliability.retry.attempt}/{reliability.retry.max}…
+            </div>
+          )}
+          {reliability.rate && (
+            <div className={`rb-item rate ${reliability.rate.status}`}>
+              ⚠ Rate limit{reliability.rate.rateLimitType ? ` (${reliability.rate.rateLimitType})` : ''}
+              {typeof reliability.rate.utilization === 'number'
+                ? ` — ${Math.round(reliability.rate.utilization * 100)}% used`
+                : ''}
+              {reliability.rate.resetsAt
+                ? ` · resets ${new Date(
+                    reliability.rate.resetsAt > 1e12
+                      ? reliability.rate.resetsAt
+                      : reliability.rate.resetsAt * 1000
+                  ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : ''}
+            </div>
+          )}
+          {reliability.compact && (
+            <div className="rb-item compact">
+              ✦ Context {reliability.compact.trigger === 'auto' ? 'auto-' : ''}compacted
+              {reliability.compact.pre
+                ? ` — ${Math.round(reliability.compact.pre / 1000)}k→${
+                    reliability.compact.post ? Math.round(reliability.compact.post / 1000) + 'k' : '…'
+                  } tokens`
+                : ''}
+              <button
+                className="rb-x"
+                title="Dismiss"
+                onClick={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {searchOpen && (
+        <div className="transcript-search">
+          <span className="ts-icon">⌕</span>
+          <input
+            ref={searchRef}
+            className="ts-input"
+            value={search}
+            placeholder="Search this conversation…"
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setSearchOpen(false)
+                setSearch('')
+              }
+            }}
+          />
+          {q && (
+            <span className="ts-count">
+              {shownTurns.length} / {turns.length}
+            </span>
+          )}
+          <button
+            className="ts-close"
+            title="Close (Esc)"
+            onClick={() => {
+              setSearchOpen(false)
+              setSearch('')
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="transcript" ref={transcriptRef}>
-        <HistoryView items={history} />
+        {!q && <HistoryView items={history} />}
 
-        {idle && history.length === 0 && (
+        {idle && history.length === 0 && !q && (
           <div className="anvil">
             <div className="anvil-mark">⚒</div>
             <div className="anvil-text">The anvil is ready. Describe the work.</div>
           </div>
         )}
 
-        {turns.map((t) => (
+        {q && shownTurns.length === 0 && (
+          <div className="anvil">
+            <div className="anvil-text">No turns match “{search.trim()}”.</div>
+          </div>
+        )}
+
+        {shownTurns.map((t) => (
           <TurnView key={t.id} turn={t} onRetry={handleRetry} onEdit={handleEdit} />
         ))}
       </div>
@@ -648,6 +874,16 @@ export default function Composer({
       )}
 
       <div className="composer-wrap">
+        {!running && detectedModes.length > 0 && (
+          <div className="mode-chips" title="Magic-keyword modes detected in your message — they activate on send">
+            {detectedModes.map((m) => (
+              <span className={`mode-chip ${m.action}`} key={m.name}>
+                <span className="mode-chip-name">{m.name}</span>
+                <span className="mode-chip-act">{m.action}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {latestTodos && <TodoBar todos={latestTodos} />}
         {attachments.length > 0 && (
           <div className="attach-row">

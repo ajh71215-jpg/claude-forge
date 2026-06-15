@@ -4,6 +4,7 @@
 import { memo, type JSX } from 'react'
 import type { Block, Turn } from '../../types'
 import BlockView from './BlockView'
+import Elapsed from './Elapsed'
 
 /** One user→assistant exchange in the live transcript. */
 // Memoized: completed turns keep a stable `turn` ref and stable callbacks, so a
@@ -44,6 +45,7 @@ const TurnView = memo(function TurnView({
         <div className="forging">
           <span className="forging-dot" />
           forging…
+          <Elapsed className="forging-elapsed" />
         </div>
       )}
       {turn.meta?.error && (

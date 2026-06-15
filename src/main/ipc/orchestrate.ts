@@ -17,8 +17,33 @@ import { executePlan, validatePlan } from '../conductor'
 import { executeTopology } from '../topology'
 import { runLoop } from '../loop'
 import { runSubtaskQuery } from '../agent/subtaskRunner'
+import { verifyWithTools, execCommandRunner, type ToolCheck } from '../toolVerifier'
+import { workspaceDir } from '../agent/env'
 import { getRole, listRoles, type Role } from '../roles'
 import { detectKeywords, type KeywordMatch } from '../keywords'
+import { recordOrchestration } from '../agentActivity'
+
+/** Mirror a conductor event into the agent-activity dashboard (live + history). */
+function recordConductor(runId: string, plan: Plan, e: ConductorEvent): void {
+  if (!e.subtaskId) return
+  const st = plan.subtasks.find((s) => s.id === e.subtaskId)
+  const name = st?.role ? `${st.role} · ${e.subtaskId}` : e.subtaskId
+  if (e.type === 'subtask-start') {
+    recordOrchestration({ runId, subtaskId: e.subtaskId, name, detail: st?.instruction, status: 'running' })
+  } else if (e.type === 'checkpoint') {
+    const ev = e.verdict?.evidence ?? []
+    recordOrchestration({
+      runId,
+      subtaskId: e.subtaskId,
+      name,
+      detail: st?.instruction,
+      status: e.verdict && e.verdict.pass === false ? 'error' : 'ok',
+      pass: e.verdict?.pass,
+      score: e.verdict?.score,
+      verifier: ev.includes('verifier=tool') ? 'tool' : ev.length ? 'judge' : undefined
+    })
+  }
+}
 
 export type OrchestrateEvent =
   | { runId: string; kind: 'conductor'; event: ConductorEvent }
@@ -49,7 +74,8 @@ async function streamExecute(
   plan: Plan,
   makeRun: RunnerFactory,
   makeVerify: VerifierFactory,
-  projectCostUsd: () => number
+  projectCostUsd: () => number,
+  record = false
 ): Promise<RunResult> {
   const send = (ev: Record<string, unknown>): void => {
     if (!sender.isDestroyed()) sender.send('orchestrate:event', { runId, ...ev })
@@ -64,7 +90,10 @@ async function streamExecute(
   const result = await executePlan(plan, {
     maxRevisions: 1,
     projectCostUsd,
-    onEvent: (event) => send({ kind: 'conductor', event }),
+    onEvent: (event) => {
+      send({ kind: 'conductor', event })
+      if (record) recordConductor(runId, plan, event)
+    },
     // Each subtask runs its declared topology; the topology engine fans the
     // run/verify out per sample. The blackboard is closed over so live runs can
     // feed prior outputs in as read-only context.
@@ -147,7 +176,7 @@ function parseJudge(subtaskId: string, text: string, judgeCost: number): Verdict
     // Honest: this is an LLM judge (docs §3 prefers tool oracles WHEN APPLICABLE;
     // read-only text subtasks produce no toolchain artifact to check).
     rationale: `model-judge(haiku): ${text.replace(/\s+/g, ' ').trim().slice(0, 160)}`,
-    evidence: [`judge=haiku`, `judgeCostUsd=${judgeCost.toFixed(4)}`]
+    evidence: [`verifier=judge`, `judge=haiku`, `judgeCostUsd=${judgeCost.toFixed(4)}`]
   }
 }
 
@@ -181,8 +210,37 @@ const liveMakeRun = (send: Send): RunnerFactory => (blackboard) => async (s, ctx
   }
 }
 
-/** Live verifier: a cheap haiku rubric judge whose cost folds into the artifact. */
+/**
+ * Live verifier. PREFERRED PATH (docs §3): when the subtask declares
+ * `verifyCommands`, run them as an objective TOOL ORACLE (typecheck/test/build) in
+ * the workspace — no model, no verification gap, confidence 1. Otherwise fall back
+ * to a cheap haiku rubric judge (read-only text subtasks have no toolchain artifact
+ * to check), whose cost folds into the artifact so the budget governor stays honest.
+ */
 const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
+  const cmds = s.verifyCommands?.map((c) => c.trim()).filter(Boolean) ?? []
+  if (cmds.length) {
+    const checks: ToolCheck[] = cmds.map((command) => ({
+      name: command.split(/\s+/).slice(0, 3).join(' '),
+      command,
+      cwd: workspaceDir()
+    }))
+    try {
+      const verdict = await verifyWithTools(s.id, checks, execCommandRunner)
+      // Tag the verifier kind first so the Blackboard can show tool-vs-judge.
+      verdict.evidence = ['verifier=tool', ...verdict.evidence]
+      return verdict
+    } catch (e) {
+      return {
+        subtaskId: s.id,
+        pass: false,
+        score: 0,
+        confidence: 1,
+        rationale: `tool verifier error: ${e instanceof Error ? e.message : String(e)}`,
+        evidence: ['verifier=tool', 'error']
+      }
+    }
+  }
   const prompt =
     `You are a strict verifier judging whether a subtask's output meets its rubric.\n` +
     `SUBTASK: ${s.instruction}\n` +
@@ -202,7 +260,7 @@ const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
       score: 0,
       confidence: 0.3,
       rationale: `judge error: ${e instanceof Error ? e.message : String(e)}`,
-      evidence: ['judge=haiku', 'error']
+      evidence: ['verifier=judge', 'judge=haiku', 'error']
     }
   }
 }
@@ -210,7 +268,15 @@ const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
 function liveRun(sender: WebContents, runId: string, plan: Plan): Promise<RunResult> {
   // Live calls cost real money; project a per-subtask estimate so the budget
   // governor can hard-stop BEFORE overrunning plan.budgetUsd.
-  return streamExecute(sender, runId, plan, liveMakeRun(senderFor(sender, runId)), liveMakeVerify(), () => 0.15)
+  return streamExecute(
+    sender,
+    runId,
+    plan,
+    liveMakeRun(senderFor(sender, runId)),
+    liveMakeVerify(),
+    () => 0.15,
+    true
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +305,10 @@ async function liveLoop(
       },
       verify: async (st, art) =>
         art.verdict ?? { subtaskId: st.id, pass: true, score: 1, confidence: 1, rationale: 'ok', evidence: [] },
-      onEvent: (event) => send({ kind: 'conductor', event })
+      onEvent: (event) => {
+        send({ kind: 'conductor', event })
+        recordConductor(runId, plan, event)
+      }
     },
     {
       maxIterations,

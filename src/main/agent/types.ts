@@ -122,11 +122,94 @@ export type AgentEvent =
       kind: 'text' | 'thinking' | 'tool'
       name?: string
       toolId?: string
+      /** SDK parent_tool_use_id: when set, this block belongs to a subagent (the
+       * Task tool_use that spawned it), not the lead. Used to attribute subagent
+       * tool activity in the Agents dashboard. */
+      parentToolId?: string | null
     }
   | { runId: string; type: 'block-delta'; blockId: string; text: string }
   | { runId: string; type: 'tool-input'; blockId: string; partialJson: string }
   | { runId: string; type: 'block-stop'; blockId: string }
-  | { runId: string; type: 'tool-result'; toolId: string; ok: boolean; content: string }
+  | {
+      runId: string
+      type: 'tool-result'
+      toolId: string
+      ok: boolean
+      content: string
+      /** Subagent attribution (see block-start.parentToolId). */
+      parentToolId?: string | null
+    }
+  // ── Subagent (Task) lifecycle — native SDK system/task_* messages. No extra
+  //    tokens: these are already emitted; Forge just surfaces them. ──
+  | {
+      runId: string
+      type: 'task-started'
+      taskId: string
+      toolUseId?: string
+      subagentType?: string
+      description?: string
+    }
+  | {
+      runId: string
+      type: 'task-progress'
+      taskId: string
+      toolUseId?: string
+      subagentType?: string
+      totalTokens?: number
+      toolUses?: number
+      durationMs?: number
+    }
+  | {
+      runId: string
+      type: 'task-updated'
+      taskId: string
+      status?: 'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'paused'
+      description?: string
+      error?: string
+    }
+  | {
+      runId: string
+      type: 'task-done'
+      taskId: string
+      toolUseId?: string
+      status: 'completed' | 'failed' | 'stopped'
+      summary?: string
+      totalTokens?: number
+      toolUses?: number
+      durationMs?: number
+    }
+  | {
+      runId: string
+      type: 'tool-progress'
+      toolUseId: string
+      toolName: string
+      parentToolId?: string | null
+      elapsedSeconds: number
+    }
+  // ── Reliability awareness — explain pauses + show subscription limits. ──
+  | {
+      runId: string
+      type: 'api-retry'
+      attempt: number
+      maxRetries: number
+      retryDelayMs: number
+      errorStatus?: number | null
+    }
+  | {
+      runId: string
+      type: 'rate-limit'
+      status: 'allowed' | 'allowed_warning' | 'rejected'
+      utilization?: number
+      rateLimitType?: string
+      resetsAt?: number
+    }
+  | {
+      runId: string
+      type: 'compact-boundary'
+      trigger: 'manual' | 'auto'
+      preTokens?: number
+      postTokens?: number
+    }
   | {
       runId: string
       type: 'permission'

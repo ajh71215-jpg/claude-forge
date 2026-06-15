@@ -21,6 +21,7 @@ import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
 // cascade imports the same module, so the policy is never duplicated.
 import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
+import { conversationToJson, conversationToMarkdown } from '../../lib/export'
 import { useAgentEvents } from './useAgentEvents'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
@@ -165,6 +166,7 @@ export default function Composer({
   const [dragOver, setDragOver] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [exportOpen, setExportOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   // Magic-keyword modes detected in the current draft (shown as chips so the
   // trigger is discoverable before sending).
@@ -547,6 +549,25 @@ export default function Composer({
     }
   }
 
+  /** Download the current conversation (restored history + live turns) as md/json. */
+  function doExport(fmt: 'md' | 'json'): void {
+    setExportOpen(false)
+    const data = { history, turns }
+    const text = fmt === 'md' ? conversationToMarkdown(data) : conversationToJson(data)
+    const blob = new Blob([text], {
+      type: fmt === 'md' ? 'text/markdown' : 'application/json'
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    a.href = url
+    a.download = `forge-conversation-${stamp}.${fmt}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   /** Show a local system note as a finished turn (no SDK call). */
   function pushNotice(cmd: string, msg: string): void {
     const id = crypto.randomUUID()
@@ -875,6 +896,27 @@ export default function Composer({
           )}
         </div>
         <div className="wh-right">
+          {(turns.length > 0 || history.length > 0) && (
+            <div className="export-wrap">
+              <button
+                className={`mini-btn${exportOpen ? ' on' : ''}`}
+                title="Export this conversation"
+                onClick={() => setExportOpen((v) => !v)}
+              >
+                ⭳ export
+              </button>
+              {exportOpen && (
+                <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
+                  <button className="export-item" onClick={() => doExport('md')}>
+                    Markdown (.md)
+                  </button>
+                  <button className="export-item" onClick={() => doExport('json')}>
+                    JSON (.json)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {turns.length > 0 && (
             <button
               className={`mini-btn${searchOpen ? ' on' : ''}`}

@@ -29,6 +29,7 @@ import { useAgentEvents } from './useAgentEvents'
 import { useImageAttachments } from './useImageAttachments'
 import { useTranscriptSearch } from './useTranscriptSearch'
 import { useGoalLoop } from './useGoalLoop'
+import { useCompaction } from './useCompaction'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
 import TodoBar from './TodoBar'
@@ -105,8 +106,6 @@ export default function Composer({
   const [menuIndex, setMenuIndex] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
-  const [compacting, setCompacting] = useState(false)
-  const [compactPct, setCompactPct] = useState(0)
   const [history, setHistory] = useState<TranscriptItem[]>([])
   // Image attachments (drag-drop / picker / paste) — own hook.
   const { attachments, setAttachments, dragOver, setDragOver, fileRef, addFiles, onDrop } =
@@ -192,6 +191,18 @@ export default function Composer({
     maxBudget,
     sendRef,
     pushNotice
+  })
+
+  // Context compaction: manual /compact + live progress bar + auto-compact at 80%.
+  const { compacting, compactPct, compact } = useCompaction({
+    sessionIdRef,
+    onSessionRef,
+    pushNotice,
+    setContextTokens,
+    autoCompact,
+    running,
+    contextTokens,
+    contextModel
   })
 
   // Keep the transcript pinned to the bottom as content streams in — but only
@@ -285,24 +296,6 @@ export default function Composer({
       }
     }
   }
-
-  // Live /compact progress for the progress bar (main streams agent:compact-progress).
-  useEffect(() => {
-    const unsub = window.forge.agent.onCompactProgress((p) => {
-      // Only this conversation's compact drives this composer's bar — the IPC is
-      // broadcast to every mounted tab, so filter on our session id (H1).
-      if (p.sessionId === sessionIdRef.current) setCompactPct(p.pct)
-    })
-    return unsub
-  }, [])
-
-  // Auto-compact when context crosses 80% (opt-in via the LIMITS toggle).
-  useEffect(() => {
-    if (!autoCompact || compacting || running || !sessionIdRef.current || contextTokens <= 0) return
-    const pct = (contextTokens / ctxWindow(contextModel)) * 100
-    if (pct >= 80) compact()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextTokens])
 
   // Cost-saver routing (lever 4): classify the prompt's difficulty and pick the
   // cheapest tier that fits, resolving the tier alias to a concrete model id from
@@ -426,27 +419,6 @@ export default function Composer({
   async function stop(): Promise<void> {
     resetGoal() // a manual STOP also ends any running goal loop
     if (runIdRef.current) await window.forge.agent.interrupt(runIdRef.current)
-  }
-
-  async function compact(): Promise<void> {
-    const sid = sessionIdRef.current
-    if (!sid || compacting || running) return
-    setCompacting(true)
-    setCompactPct(0)
-    try {
-      const r = await window.forge.agent.compact(sid)
-      if (r.ok) {
-        onSessionRef.current(r.sessionId)
-        pushNotice('⟲ /compact', '✓ Context compacted — older messages summarized.')
-        setContextTokens(0)
-      } else {
-        pushNotice('⟲ /compact', `Compact failed${r.error ? ': ' + r.error : ''}`)
-      }
-    } finally {
-      setCompacting(false)
-      // Brief settle so the bar visibly reaches 100% before it disappears.
-      setTimeout(() => setCompactPct(0), 600)
-    }
   }
 
   /** Download the current conversation (restored history + live turns) as md/json. */

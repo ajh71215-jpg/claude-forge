@@ -8,13 +8,17 @@ import Icon from '../Icon'
 import { useConfirm } from '../ConfirmDialog'
 import type { ProviderEntry } from '../../types'
 
-/** goose provider id → default key env + a sensible default model + free flag. */
+/** goose provider id → default key env + a sensible default model + free flag.
+ * These are convenience presets; "custom" lets you add ANY provider goose
+ * supports (Cerebras, Mistral, Together, Fireworks, …) by typing its GOOSE_PROVIDER
+ * id + API-key env var. See goose's provider docs for ids/models. */
 const PRESETS: Record<string, { keyEnv: string; model: string; free: boolean; label: string }> = {
-  openrouter: { keyEnv: 'OPENROUTER_API_KEY', model: 'qwen/qwen3-coder:free', free: true, label: 'OpenRouter' },
-  google: { keyEnv: 'GOOGLE_API_KEY', model: 'gemini-2.0-flash', free: true, label: 'Google Gemini' },
-  groq: { keyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile', free: true, label: 'Groq' },
-  ollama: { keyEnv: '', model: 'qwen2.5-coder', free: true, label: 'Ollama (local)' }
+  openrouter: { keyEnv: 'OPENROUTER_API_KEY', model: 'qwen/qwen3-coder:free', free: true, label: 'OpenRouter (:free models)' },
+  google: { keyEnv: 'GOOGLE_API_KEY', model: 'gemini-2.0-flash', free: true, label: 'Google Gemini (daily free tier)' },
+  groq: { keyEnv: 'GROQ_API_KEY', model: 'llama-3.3-70b-versatile', free: true, label: 'Groq (daily free tier)' },
+  ollama: { keyEnv: '', model: 'qwen2.5-coder', free: true, label: 'Ollama (local, free)' }
 }
+const CUSTOM = 'custom'
 
 interface Draft {
   originalId?: string
@@ -153,8 +157,11 @@ function ProviderEditor({
   onSaved: (providers: ProviderEntry[]) => void
 }): JSX.Element {
   const isNew = !draft.originalId
+  const presetMatch = PRESETS[draft.gooseProvider] ? draft.gooseProvider : CUSTOM
   const [id, setId] = useState(draft.id)
-  const [gooseProvider, setGooseProvider] = useState(draft.gooseProvider)
+  const [mode, setMode] = useState(presetMatch) // dropdown value: preset key | 'custom'
+  const [customProvider, setCustomProvider] = useState(presetMatch === CUSTOM ? draft.gooseProvider : '')
+  const [customKeyEnv, setCustomKeyEnv] = useState('')
   const [defaultModel, setDefaultModel] = useState(draft.defaultModel)
   const [apiKey, setApiKey] = useState(draft.apiKey)
   const [ollamaHost, setOllamaHost] = useState(draft.ollamaHost)
@@ -163,17 +170,26 @@ function ProviderEditor({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  const isCustom = mode === CUSTOM
+  const gooseProvider = (isCustom ? customProvider : mode).trim().toLowerCase()
+  const keyEnv = isCustom ? customKeyEnv.trim() : PRESETS[mode]?.keyEnv ?? ''
   const idOk = /^[A-Za-z0-9_-]{1,64}$/.test(id.trim())
   const isOllama = gooseProvider === 'ollama'
   const needsKey = !isOllama && isNew
-  const canSave = idOk && defaultModel.trim().length > 0 && (!needsKey || apiKey.trim().length > 0)
+  const canSave =
+    idOk &&
+    gooseProvider.length > 0 &&
+    defaultModel.trim().length > 0 &&
+    (isOllama || keyEnv.length > 0) &&
+    (!needsKey || apiKey.trim().length > 0)
 
-  function applyPreset(provider: string): void {
-    setGooseProvider(provider)
-    const preset = PRESETS[provider]
+  function onPick(next: string): void {
+    setMode(next)
+    const preset = PRESETS[next]
     if (preset) {
       setFree(preset.free)
-      if (!defaultModel.trim() || PRESETS[draft.gooseProvider]?.model === defaultModel) {
+      // Fill the model when empty or still a previous preset's default.
+      if (!defaultModel.trim() || Object.values(PRESETS).some((p) => p.model === defaultModel)) {
         setDefaultModel(preset.model)
       }
     }
@@ -187,9 +203,9 @@ function ProviderEditor({
       const res = await window.forge.providers.save({
         originalId: draft.originalId,
         id: id.trim(),
-        gooseProvider: gooseProvider.trim(),
+        gooseProvider,
         defaultModel: defaultModel.trim(),
-        apiKeyEnv: PRESETS[gooseProvider]?.keyEnv,
+        apiKeyEnv: keyEnv || undefined,
         apiKey: apiKey.trim() || undefined,
         ollamaHost: ollamaHost.trim() || undefined,
         free,
@@ -225,17 +241,47 @@ function ProviderEditor({
             <span className="skill-flabel">Provider</span>
             <select
               className="skill-input hook-select"
-              value={gooseProvider}
-              onChange={(e) => applyPreset(e.target.value)}
+              value={mode}
+              onChange={(e) => onPick(e.target.value)}
             >
               {Object.entries(PRESETS).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v.label}
                 </option>
               ))}
+              <option value={CUSTOM}>Custom (any goose provider)…</option>
             </select>
           </label>
         </div>
+
+        {isCustom && (
+          <div className="hook-grid">
+            <label className="skill-field" style={{ marginBottom: 0 }}>
+              <span className="skill-flabel">
+                GOOSE_PROVIDER <span className="skill-hint">goose provider id</span>
+              </span>
+              <input
+                className="skill-input"
+                value={customProvider}
+                placeholder="cerebras / mistral / together / …"
+                spellCheck={false}
+                onChange={(e) => setCustomProvider(e.target.value)}
+              />
+            </label>
+            <label className="skill-field" style={{ marginBottom: 0 }}>
+              <span className="skill-flabel">
+                API key env <span className="skill-hint">var goose reads</span>
+              </span>
+              <input
+                className="skill-input"
+                value={customKeyEnv}
+                placeholder="CEREBRAS_API_KEY"
+                spellCheck={false}
+                onChange={(e) => setCustomKeyEnv(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
 
         <label className="skill-field">
           <span className="skill-flabel">
@@ -268,7 +314,7 @@ function ProviderEditor({
             <span className="skill-flabel">
               API key{' '}
               <span className="skill-hint">
-                {PRESETS[gooseProvider]?.keyEnv} · {isNew ? 'required' : 'leave blank to keep'}
+                {keyEnv || 'env var'} · {isNew ? 'required' : 'leave blank to keep'}
               </span>
             </span>
             <input

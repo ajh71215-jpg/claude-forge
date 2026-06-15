@@ -288,3 +288,89 @@
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* ── settings panel ── */
+.settings-modal {
+  width: 460px;
+  max-width: 92vw;
+}
+.settings-section {
+  margin-bottom: 18px;
+}
+.settings-section-title {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-label {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.settings-row input[type='number'] {
+  width: 90px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  text-align: right;
+}
+.settings-row input[type='number']:focus {
+  border-color: var(--amber);
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.settings-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-actions .ghost {
+  width: auto;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+.ghost.danger-text {
+  color: var(--danger);
+}
+.ghost.danger-text:hover {
+  border-color: var(--danger);
+}
+.brand-settings {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.brand-settings:hover {
+  color: var(--amber-bright);
+}

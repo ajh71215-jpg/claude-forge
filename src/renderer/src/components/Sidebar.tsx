@@ -73,6 +73,7 @@ export interface SidebarProps {
   onDeleteSession: (id: string) => void
   onSearchAll: () => void
   onShowPersona: () => void
+  onOpenSettings: () => void
   onDisconnect: () => void
 }
 
@@ -114,6 +115,7 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     onDeleteSession,
     onSearchAll,
     onShowPersona,
+    onOpenSettings,
     onDisconnect
   } = props
   const cacheHitPct = cacheHitPercent(usage.input, usage.cacheRead, usage.cacheWrite) ?? 0
@@ -137,6 +139,9 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark">⚒</span> FORGE
+        <button className="brand-settings" title="Settings" onClick={onOpenSettings}>
+          ⚙
+        </button>
       </div>
 
       <div className="conn">

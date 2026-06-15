@@ -13,6 +13,7 @@ import CommandPalette, { type PaletteAction } from './components/palette/Command
 import ShortcutsHelp from './components/ShortcutsHelp'
 import ConversationSearch from './components/ConversationSearch'
 import WorkspaceFiles from './components/WorkspaceFiles'
+import Settings from './components/Settings'
 import { ConfirmProvider, useConfirm } from './components/ConfirmDialog'
 import type {
   AuthMode,
@@ -159,6 +160,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [searchAllOpen, setSearchAllOpen] = useState(false)
   const [wsFilesOpen, setWsFilesOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const confirm = useConfirm()
   // Pinned conversations (local — sorted first in the sidebar). The SDK owns the
   // title (renameSession) and the transcript (deleteSession); pinning is Forge-only.
@@ -432,6 +434,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         run: () => setShortcutsOpen(true)
       },
       {
+        id: 'settings',
+        section: 'Help',
+        label: 'Settings…',
+        keywords: 'preferences limits pet data',
+        run: () => setSettingsOpen(true)
+      },
+      {
         id: 'saver',
         section: 'Settings',
         label: costSaver ? 'Turn off cost-saver routing' : 'Turn on cost-saver routing',
@@ -515,6 +524,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         onDeleteSession={deleteSessionAction}
         onSearchAll={() => setSearchAllOpen(true)}
         onShowPersona={() => setShowPersona(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onDisconnect={clear}
       />
       <main className="main main-work">
@@ -658,6 +668,15 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       )}
       {wsFilesOpen && activeTab && (
         <WorkspaceFiles workspaceId={activeTab.key} onClose={() => setWsFilesOpen(false)} />
+      )}
+      {settingsOpen && (
+        <Settings
+          maxBudget={maxBudget}
+          onSetMaxBudget={setMaxBudget}
+          autoCompact={autoCompact}
+          onSetAutoCompact={setAutoCompact}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
       {showPersona && (
         <PersonaModal

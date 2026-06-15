@@ -38,6 +38,7 @@ export type AgentActivity = import('../../main/agentActivity').AgentActivity
 export type ActivitySnapshot = import('../../main/agentActivity').ActivitySnapshot
 export type ToolEvent = import('../../main/agentActivity').ToolEvent
 export type KeywordMatch = import('../../main/keywords').KeywordMatch
+export type WorkspaceFile = import('../../main/workspace').WorkspaceFile
 
 export type EffortLabel = 'AUTO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX'
 

@@ -12,6 +12,7 @@ import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
 import ShortcutsHelp from './components/ShortcutsHelp'
 import ConversationSearch from './components/ConversationSearch'
+import WorkspaceFiles from './components/WorkspaceFiles'
 import { ConfirmProvider, useConfirm } from './components/ConfirmDialog'
 import type {
   AuthMode,
@@ -157,6 +158,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [searchAllOpen, setSearchAllOpen] = useState(false)
+  const [wsFilesOpen, setWsFilesOpen] = useState(false)
   const confirm = useConfirm()
   // Pinned conversations (local — sorted first in the sidebar). The SDK owns the
   // title (renameSession) and the transcript (deleteSession); pinning is Forge-only.
@@ -409,6 +411,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         run: () => setSearchAllOpen(true)
       },
       {
+        id: 'workspace-files',
+        section: 'Session',
+        label: 'Workspace files (this conversation)…',
+        keywords: 'edits diff files changed',
+        run: () => setWsFilesOpen(true)
+      },
+      {
         id: 'persona',
         section: 'Agent',
         label: 'Customize agent…',
@@ -579,6 +588,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               >
                 ＋
               </button>
+              <button
+                className="chat-tab-new"
+                title="Workspace files edited in this conversation"
+                onClick={() => setWsFilesOpen(true)}
+              >
+                ⌗
+              </button>
             </div>
             {/* One Composer per open tab, all kept mounted so background
                 conversations keep streaming when you switch (each runs in its own
@@ -639,6 +655,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
       {searchAllOpen && (
         <ConversationSearch onOpen={resumeSession} onClose={() => setSearchAllOpen(false)} />
+      )}
+      {wsFilesOpen && activeTab && (
+        <WorkspaceFiles workspaceId={activeTab.key} onClose={() => setWsFilesOpen(false)} />
       )}
       {showPersona && (
         <PersonaModal

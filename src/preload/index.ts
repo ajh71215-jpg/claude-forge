@@ -35,6 +35,7 @@ import type {
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
+import type { WorkspaceFile } from '../main/workspace'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -143,6 +144,13 @@ const forge = {
     setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('pet:set-enabled', on),
     /** Toggle the pet; resolves to the new enabled state. */
     toggle: (): Promise<boolean> => ipcRenderer.invoke('pet:toggle')
+  },
+  workspace: {
+    /** List files the agent created/edited in a conversation's isolated workspace. */
+    list: (id: string): Promise<WorkspaceFile[]> => ipcRenderer.invoke('workspace:list', id),
+    /** Read one workspace file's contents (capped). */
+    read: (id: string, rel: string): Promise<string> =>
+      ipcRenderer.invoke('workspace:read', id, rel)
   },
   activity: {
     /** Current live + persisted agent activity for the Squad dashboard. */

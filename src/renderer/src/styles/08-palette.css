@@ -222,3 +222,69 @@
   color: var(--faint);
   font-size: 11px;
 }
+
+/* ── workspace files viewer ── */
+.wsf-modal {
+  width: 860px;
+  max-width: 94vw;
+}
+.wsf-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 12px;
+  height: 60vh;
+}
+.wsf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+.wsf-file {
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.wsf-file:hover {
+  background: var(--bg-raised);
+}
+.wsf-file.on {
+  background: color-mix(in srgb, var(--amber) 12%, var(--bg-raised));
+}
+.wsf-file-path {
+  display: block;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsf-file.on .wsf-file-path {
+  color: var(--amber-bright);
+}
+.wsf-file-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.wsf-preview {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  background: var(--bg);
+}
+.wsf-note {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}

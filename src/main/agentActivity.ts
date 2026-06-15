@@ -20,6 +20,18 @@ import { onAgentEvent } from './pet/bus'
 export type ActivityKind = 'run' | 'task' | 'orchestration'
 export type ActivityStatus = 'running' | 'ok' | 'error'
 
+/** One tool an agent invoked (Read/Bash/Write/…) — built from events already
+ * streamed, so capturing it adds NO token/model cost. */
+export interface ToolEvent {
+  id: string
+  name: string
+  /** Short, salient argument (file path / command / pattern / url). */
+  arg?: string
+  status: ActivityStatus
+  startedAt: number
+  endedAt?: number
+}
+
 export interface AgentActivity {
   /** Stable id: runId (run), toolId (task), `${runId}:${subtaskId}` (orchestration). */
   id: string
@@ -38,6 +50,9 @@ export interface AgentActivity {
   score?: number
   /** Orchestration verifier provenance: objective tool oracle vs LLM judge. */
   verifier?: 'tool' | 'judge'
+  /** Tools this agent used, in order (main-agent runs; empty for subagents whose
+   * inner calls the SDK does not stream to us). */
+  tools?: ToolEvent[]
 }
 
 export interface ActivitySnapshot {
@@ -52,10 +67,44 @@ const live = new Map<string, AgentActivity>()
 let history: AgentActivity[] = []
 let loaded = false
 
-// blockId → toolId for Task blocks (tool-input carries blockId, result carries toolId).
-const taskBlockToTool = new Map<string, string>()
-// accumulated tool-input json per Task blockId, to parse subagent_type/description.
-const taskInput = new Map<string, string>()
+// Tool-call bookkeeping (tool-input carries blockId, tool-result carries toolId).
+const toolBlockToTool = new Map<string, string>() // blockId → toolId (every tool)
+const toolBlockOf = new Map<string, string>() // toolId → blockId (for cleanup)
+const toolOwner = new Map<string, string>() // toolId → runId (which run's timeline)
+const toolInput = new Map<string, string>() // blockId → accumulated input json
+
+const TOOLS_CAP = 200
+
+/** Pull a short, salient argument out of a tool's (possibly partial) input json. */
+function shortArg(json: string): string {
+  try {
+    const o = JSON.parse(json) as Record<string, unknown>
+    const pick =
+      o.file_path ?? o.path ?? o.command ?? o.pattern ?? o.url ?? o.query ?? o.description ?? o.prompt
+    if (typeof pick === 'string') return pick.length > 90 ? pick.slice(0, 90) + '…' : pick
+  } catch {
+    /* still streaming partial json */
+  }
+  return ''
+}
+
+/** Locate a run's ToolEvent by toolId. */
+function toolOf(toolId: string): ToolEvent | undefined {
+  const runId = toolOwner.get(toolId)
+  if (!runId) return undefined
+  return live.get(runId)?.tools?.find((t) => t.id === toolId)
+}
+
+/** Drop the per-block bookkeeping for a finished tool. */
+function cleanupTool(toolId: string): void {
+  const blockId = toolBlockOf.get(toolId)
+  if (blockId) {
+    toolBlockToTool.delete(blockId)
+    toolInput.delete(blockId)
+  }
+  toolBlockOf.delete(toolId)
+  toolOwner.delete(toolId)
+}
 
 function loadHistory(): void {
   if (loaded) return
@@ -140,52 +189,76 @@ export function onActivityEvent(ev: AgentEvent): void {
     case 'block-start': {
       if (run) {
         const a = actionFor(ev)
-        if (a) {
-          run.detail = a
-          broadcast()
+        if (a) run.detail = a
+      }
+      if (ev.kind === 'tool' && ev.toolId) {
+        // Record the tool on the owning run's timeline (no token cost — this
+        // event is streamed anyway).
+        if (run) {
+          const te: ToolEvent = {
+            id: ev.toolId,
+            name: ev.name ?? 'tool',
+            status: 'running',
+            startedAt: Date.now()
+          }
+          run.tools = run.tools ?? []
+          run.tools.push(te)
+          if (run.tools.length > TOOLS_CAP) run.tools.splice(0, run.tools.length - TOOLS_CAP)
+        }
+        toolBlockToTool.set(ev.blockId, ev.toolId)
+        toolBlockOf.set(ev.toolId, ev.blockId)
+        toolOwner.set(ev.toolId, ev.runId)
+        // A Task tool also spawns a tracked subagent card.
+        if (ev.name === 'Task') {
+          live.set(ev.toolId, {
+            id: ev.toolId,
+            kind: 'task',
+            runId: ev.runId,
+            name: 'subagent',
+            detail: 'spawning…',
+            status: 'running',
+            startedAt: Date.now()
+          })
         }
       }
-      // A spawned subagent.
-      if (ev.kind === 'tool' && ev.name === 'Task' && ev.toolId) {
-        taskBlockToTool.set(ev.blockId, ev.toolId)
-        live.set(ev.toolId, {
-          id: ev.toolId,
-          kind: 'task',
-          runId: ev.runId,
-          name: 'subagent',
-          detail: 'spawning…',
-          status: 'running',
-          startedAt: Date.now()
-        })
-        broadcast()
-      }
+      broadcast()
       break
     }
     case 'tool-input': {
-      // Accumulate a Task block's input json to learn subagent_type/description.
-      const toolId = taskBlockToTool.get(ev.blockId)
+      const toolId = toolBlockToTool.get(ev.blockId)
       if (toolId) {
-        const acc = (taskInput.get(ev.blockId) ?? '') + ev.partialJson
-        taskInput.set(ev.blockId, acc)
-        const t = live.get(toolId)
-        if (t) {
-          try {
-            const o = JSON.parse(acc) as { subagent_type?: string; description?: string }
-            if (o.subagent_type) t.name = o.subagent_type
-            if (o.description) t.detail = o.description
-            broadcast()
-          } catch {
-            /* still streaming partial json */
+        const acc = (toolInput.get(ev.blockId) ?? '') + ev.partialJson
+        toolInput.set(ev.blockId, acc)
+        const arg = shortArg(acc)
+        if (arg) {
+          const te = toolOf(toolId)
+          if (te) te.arg = arg
+          // For a Task, derive the subagent's type/description from the same json.
+          const task = live.get(toolId)
+          if (task && task.kind === 'task') {
+            try {
+              const o = JSON.parse(acc) as { subagent_type?: string; description?: string }
+              if (o.subagent_type) task.name = o.subagent_type
+              if (o.description) task.detail = o.description
+            } catch {
+              /* partial */
+            }
           }
+          broadcast()
         }
-      } else if (run && run.detail && !run.detail.includes(' ')) {
-        /* keep the short '<Tool>…' action; full args are noisy for the dashboard */
       }
       break
     }
     case 'tool-result': {
-      const t = live.get(ev.toolId)
-      if (t && t.kind === 'task') finish(t, ev.ok ? 'ok' : 'error')
+      const te = toolOf(ev.toolId)
+      if (te) {
+        te.status = ev.ok ? 'ok' : 'error'
+        te.endedAt = Date.now()
+      }
+      const task = live.get(ev.toolId)
+      if (task && task.kind === 'task') finish(task, ev.ok ? 'ok' : 'error')
+      cleanupTool(ev.toolId)
+      broadcast()
       break
     }
     case 'result': {

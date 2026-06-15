@@ -8,7 +8,7 @@
 // orchestration subtask regardless of the focused tab, and persists history to a
 // Forge-private json. We pull a snapshot on mount and subscribe to live updates.
 import { useEffect, useState, type JSX } from 'react'
-import type { AgentActivity, ActivitySnapshot } from '../../types'
+import type { AgentActivity, ActivitySnapshot, ToolEvent } from '../../types'
 
 const KIND_LABEL: Record<AgentActivity['kind'], string> = {
   run: 'main',
@@ -37,10 +37,37 @@ function relTime(ts: number, now: number): string {
   return `${Math.floor(d / 86_400_000)}d ago`
 }
 
+/** Expandable list of the tools an agent used (Read/Bash/Write/…). */
+function ToolList({ tools }: { tools: ToolEvent[] }): JSX.Element {
+  return (
+    <div className="ad-tools">
+      {tools.map((t, i) => (
+        <div className={`ad-tool ${t.status}`} key={t.id + i}>
+          <span className={`ad-tool-dot ${t.status}`} />
+          <span className="ad-tool-name">{t.name}</span>
+          {t.arg && <span className="ad-tool-arg">{t.arg}</span>}
+          {t.endedAt && (
+            <span className="ad-tool-dur">{fmtDuration(t.endedAt - t.startedAt)}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function SquadView(): JSX.Element {
   const [live, setLive] = useState<AgentActivity[]>([])
   const [history, setHistory] = useState<AgentActivity[]>([])
   const [now, setNow] = useState(Date.now())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const toggle = (key: string): void =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   // Initial snapshot + live subscription.
   useEffect(() => {
@@ -117,17 +144,32 @@ export default function SquadView(): JSX.Element {
             </div>
           ) : (
             <div className="ad-cards">
-              {live.map((a) => (
-                <div className={`ad-card ${a.kind}`} key={a.id}>
-                  <span className="ad-spinner" aria-hidden />
-                  <span className="ad-kind">
-                    {KIND_ICON[a.kind]} {KIND_LABEL[a.kind]}
-                  </span>
-                  <span className="ad-name">{a.name}</span>
-                  {a.detail && <span className="ad-detail">{a.detail}</span>}
-                  <span className="ad-elapsed">{fmtDuration(now - a.startedAt)}</span>
-                </div>
-              ))}
+              {live.map((a) => {
+                const hasTools = !!a.tools && a.tools.length > 0
+                const open = expanded.has(a.id)
+                return (
+                  <div className={`ad-card ${a.kind}`} key={a.id}>
+                    <div
+                      className={`ad-card-row${hasTools ? ' clickable' : ''}`}
+                      onClick={hasTools ? () => toggle(a.id) : undefined}
+                    >
+                      <span className="ad-spinner" aria-hidden />
+                      <span className="ad-kind">
+                        {KIND_ICON[a.kind]} {KIND_LABEL[a.kind]}
+                      </span>
+                      <span className="ad-name">{a.name}</span>
+                      {a.detail && <span className="ad-detail">{a.detail}</span>}
+                      {hasTools && (
+                        <span className="ad-toolcount">
+                          {a.tools!.length} {open ? '▾' : '▸'}
+                        </span>
+                      )}
+                      <span className="ad-elapsed">{fmtDuration(now - a.startedAt)}</span>
+                    </div>
+                    {open && hasTools && <ToolList tools={a.tools!} />}
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>
@@ -147,32 +189,42 @@ export default function SquadView(): JSX.Element {
               {history.map((a) => {
                 const ok = a.status === 'ok'
                 const dur = a.endedAt ? fmtDuration(a.endedAt - a.startedAt) : ''
+                const key = `${a.id}-${a.startedAt}`
+                const hasTools = !!a.tools && a.tools.length > 0
+                const open = expanded.has(key)
                 return (
-                  <div className={`ad-row ${a.status}`} key={`${a.id}-${a.startedAt}`}>
-                    <span className={`ad-status ${a.status}`}>{ok ? '✓' : '✗'}</span>
-                    <span className={`ad-kind ${a.kind}`}>{KIND_LABEL[a.kind]}</span>
-                    <span className="ad-name">{a.name}</span>
-                    {a.detail && <span className="ad-detail">{a.detail}</span>}
-                    {a.verifier && (
-                      <span
-                        className={`ad-verifier ${a.verifier}`}
-                        title={
-                          a.verifier === 'tool'
-                            ? 'Verified by an objective tool oracle (typecheck/test/build)'
-                            : 'Verified by an LLM rubric judge'
-                        }
-                      >
-                        {a.verifier === 'tool' ? '🔧' : '⚖'}
-                      </span>
-                    )}
-                    {a.kind === 'orchestration' && a.score !== undefined && (
-                      <span className="ad-score">{a.score.toFixed(2)}</span>
-                    )}
-                    {typeof a.costUsd === 'number' && a.costUsd > 0 && (
-                      <span className="ad-cost">${a.costUsd.toFixed(4)}</span>
-                    )}
-                    {dur && <span className="ad-dur">{dur}</span>}
-                    <span className="ad-time">{relTime(a.endedAt ?? a.startedAt, now)}</span>
+                  <div className="ad-hist" key={key}>
+                    <div
+                      className={`ad-row ${a.status}${hasTools ? ' clickable' : ''}`}
+                      onClick={hasTools ? () => toggle(key) : undefined}
+                    >
+                      <span className={`ad-status ${a.status}`}>{ok ? '✓' : '✗'}</span>
+                      <span className={`ad-kind ${a.kind}`}>{KIND_LABEL[a.kind]}</span>
+                      <span className="ad-name">{a.name}</span>
+                      {a.detail && <span className="ad-detail">{a.detail}</span>}
+                      {hasTools && <span className="ad-toolcount">{a.tools!.length} {open ? '▾' : '▸'}</span>}
+                      {a.verifier && (
+                        <span
+                          className={`ad-verifier ${a.verifier}`}
+                          title={
+                            a.verifier === 'tool'
+                              ? 'Verified by an objective tool oracle (typecheck/test/build)'
+                              : 'Verified by an LLM rubric judge'
+                          }
+                        >
+                          {a.verifier === 'tool' ? '🔧' : '⚖'}
+                        </span>
+                      )}
+                      {a.kind === 'orchestration' && a.score !== undefined && (
+                        <span className="ad-score">{a.score.toFixed(2)}</span>
+                      )}
+                      {typeof a.costUsd === 'number' && a.costUsd > 0 && (
+                        <span className="ad-cost">${a.costUsd.toFixed(4)}</span>
+                      )}
+                      {dur && <span className="ad-dur">{dur}</span>}
+                      <span className="ad-time">{relTime(a.endedAt ?? a.startedAt, now)}</span>
+                    </div>
+                    {open && hasTools && <ToolList tools={a.tools!} />}
                   </div>
                 )
               })}

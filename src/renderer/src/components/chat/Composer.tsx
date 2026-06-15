@@ -49,16 +49,25 @@ function activityLabel(turn: Turn | null): { icon: string; text: string } {
 
 /** Live state for the autonomous /goal loop (Forge's headless analog of the
  * interactive Claude Code /goal: re-run the resumed session until the model
- * signals GOAL_ACHIEVED, an error, or the iteration cap). */
+ * signals GOAL_ACHIEVED, an error, the iteration cap, or the cumulative budget). */
 interface GoalState {
   objective: string
   iter: number
   max: number
+  /** USD spent across all iterations so far (sum of per-run result costs). */
+  spent: number
+  /** Cumulative USD cap — the loop hard-stops once `spent` reaches it. This is the
+   * runaway guard the per-run maxBudgetUsd can't provide (it resets each run). */
+  budget: number
 }
 
-/** System directive that turns one run into a goal-loop step. Appended to the
- * claude_code preset so the agent keeps all its real tools + the user's
- * permission mode; only the completion protocol is added. */
+/** Default cumulative USD ceiling for a /goal loop, used unless the user has set a
+ * higher LIMITS "max $/run" (then that value is the goal's total budget). */
+const GOAL_MAX_USD = 10
+
+/** Directive that turns one run into a goal-loop step. Injected as a prefix on the
+ * user message (not the system prompt) so it doesn't bust the prompt cache; the
+ * agent keeps all its real tools + the user's permission mode. */
 function goalDirective(objective: string): string {
   return [
     'GOAL MODE — autonomous objective loop.',
@@ -429,15 +438,13 @@ export default function Composer({
     if (turnCap > 0) opts.maxTurns = turnCap
     if (maxBudget > 0) opts.maxBudgetUsd = maxBudget
     // Native magic-keyword trigger: ralph/ultrathink/code-review/… typed in the
-    // prompt activate a mode for THIS run — an extra system directive (+ optional
-    // tier) layered on the claude_code preset. The agent keeps its real tools and
-    // your permission mode; the AGENTS tab shows what it does. (docs/keywords.ts)
-    let append = ''
+    // prompt activate a mode for THIS run — an extra directive (+ optional tier).
+    let directive = ''
     let keywordTier: string | undefined
     try {
       const modes = await window.forge.orchestrate.detectKeywords(text)
       const active = modes.filter((m) => m.action !== 'cancel')
-      append = active
+      directive = active
         .map((m) => m.systemAppend)
         .filter((s): s is string => !!s)
         .join('\n\n')
@@ -449,12 +456,19 @@ export default function Composer({
     // emits GOAL_ACHIEVED / GOAL_CONTINUE the loop reads to decide whether to stop.
     if (goalRef.current) {
       const gd = goalDirective(goalRef.current.objective)
-      append = append ? `${append}\n\n${gd}` : gd
+      directive = directive ? `${directive}\n\n${gd}` : gd
     }
-    if (append) opts.systemPrompt = { type: 'preset', preset: 'claude_code', append }
     if (keywordTier && !opts.model) opts.model = keywordTier
+    // PROMPT-CACHE: inject per-turn directives into the USER MESSAGE rather than
+    // mutating opts.systemPrompt. The system prompt (+ tool defs) is the cacheable
+    // prefix; changing it per turn (keywords fire on some turns, not others) busts
+    // the cache and re-bills the whole prefix. As a user-message prefix the
+    // directive lands *after* the stable prefix — cache stays warm — and still
+    // reliably reaches the model on resumed turns. (persona stays on systemPrompt,
+    // resolved in runStreaming; it's global/stable so it doesn't bust the cache.)
+    const promptToSend = directive ? `[Forge mode]\n${directive}\n\n---\n\n${text}` : text
     try {
-      await window.forge.agent.start(id, text, opts)
+      await window.forge.agent.start(id, promptToSend, opts)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setTurns((prev) =>
@@ -470,11 +484,14 @@ export default function Composer({
 
   /** Enter /goal mode and kick off the first run. */
   function startGoal(objective: string, max: number): void {
-    setGoal({ objective, iter: 1, max })
+    // Cumulative budget: the user's "max $/run" if set (treated as the goal total),
+    // else a conservative default. This is the dollar runaway guard.
+    const budget = Math.max(GOAL_MAX_USD, maxBudget)
+    setGoal({ objective, iter: 1, max, spent: 0, budget })
     processedTurnRef.current = null
     pushNotice(
       '🎯 /goal',
-      `Goal set — running autonomously until complete (max ${max} iteration${max === 1 ? '' : 's'}).\n\nObjective: ${objective}`
+      `Goal set — running autonomously until complete (max ${max} iteration${max === 1 ? '' : 's'} · budget $${budget.toFixed(0)}).\n\nObjective: ${objective}`
     )
     void send(objective)
   }
@@ -497,6 +514,9 @@ export default function Composer({
     if (processedTurnRef.current === last.id) return
     processedTurnRef.current = last.id
 
+    // Accumulate the cost of the run that just finished (runaway-budget guard).
+    const spent = g.spent + (last.meta?.costUsd ?? 0)
+
     if (last.meta?.error) {
       setGoal(null)
       pushNotice('🎯 /goal', `Goal stopped — the last run errored: ${last.meta.error}`)
@@ -508,18 +528,29 @@ export default function Composer({
       .join('\n')
     if (goalAchieved(answer)) {
       setGoal(null)
-      pushNotice('🎯 /goal', `✓ Goal achieved in ${g.iter} iteration${g.iter === 1 ? '' : 's'}.`)
+      pushNotice(
+        '🎯 /goal',
+        `✓ Goal achieved in ${g.iter} iteration${g.iter === 1 ? '' : 's'} ($${spent.toFixed(2)}).`
+      )
+      return
+    }
+    if (spent >= g.budget) {
+      setGoal(null)
+      pushNotice(
+        '🎯 /goal',
+        `Reached the $${g.budget.toFixed(0)} budget ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — raise "max $/run" in LIMITS and run /goal again to continue.`
+      )
       return
     }
     if (g.iter >= g.max) {
       setGoal(null)
       pushNotice(
         '🎯 /goal',
-        `Reached the ${g.max}-iteration cap without an explicit GOAL_ACHIEVED. Stopping — run /goal again to keep going.`
+        `Reached the ${g.max}-iteration cap ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — run /goal again to keep going.`
       )
       return
     }
-    setGoal({ ...g, iter: g.iter + 1 })
+    setGoal({ ...g, iter: g.iter + 1, spent })
     void send(
       'Continue working toward the goal. Make concrete progress, verify it, and remember to end with GOAL_ACHIEVED or GOAL_CONTINUE on its own line.'
     )
@@ -1106,7 +1137,7 @@ export default function Composer({
             <span className="goal-label">GOAL</span>
             <span className="goal-obj">{goal.objective}</span>
             <span className="goal-iter">
-              iteration {goal.iter}/{goal.max}
+              iter {goal.iter}/{goal.max} · ${goal.spent.toFixed(2)}/${goal.budget.toFixed(0)}
             </span>
             <button className="goal-stop" onClick={stopGoal} title="Stop the goal loop">
               ■ stop goal

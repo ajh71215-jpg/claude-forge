@@ -26,6 +26,25 @@ import type {
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
 import { resolveMaxTurns } from './lib/format'
 
+/** Read a JSON value from localStorage, falling back to a default on any error. */
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? fallback : (JSON.parse(raw) as T)
+  } catch {
+    return fallback
+  }
+}
+
+/** Persist a JSON value to localStorage (best-effort). */
+function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
  * -> the (still mostly empty) main shell that later steps fill with the chat,
@@ -81,14 +100,21 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [sessionKey, setSessionKey] = useState(0)
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
-  // account default model).
-  const [maxTurnsByModel, setMaxTurnsByModel] = useState<Record<string, number>>({})
+  // account default model). Persisted (with the budget/auto-compact LIMITS) so a
+  // safety cap the user set survives restarts instead of silently resetting to off.
+  const [maxTurnsByModel, setMaxTurnsByModel] = useState<Record<string, number>>(() =>
+    loadJson('forge-max-turns', {})
+  )
   const maxTurns = resolveMaxTurns(maxTurnsByModel, model)
   const setMaxTurns = (n: number): void =>
     setMaxTurnsByModel((m) => ({ ...m, [model]: Math.max(1, n) }))
-  const [maxBudget, setMaxBudget] = useState(0) // 0 = off
-  const [autoCompact, setAutoCompact] = useState(false)
+  const [maxBudget, setMaxBudget] = useState<number>(() => loadJson('forge-max-budget', 0)) // 0 = off
+  const [autoCompact, setAutoCompact] = useState<boolean>(() => loadJson('forge-auto-compact', false))
   const [costSaver, setCostSaver] = useState(false)
+  // Persist the LIMITS settings whenever they change.
+  useEffect(() => saveJson('forge-max-turns', maxTurnsByModel), [maxTurnsByModel])
+  useEffect(() => saveJson('forge-max-budget', maxBudget), [maxBudget])
+  useEffect(() => saveJson('forge-auto-compact', autoCompact), [autoCompact])
   const [view, setView] = useState<'chat' | 'squad' | 'cost' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)

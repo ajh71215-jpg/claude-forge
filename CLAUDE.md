@@ -38,7 +38,8 @@ These modules own the deterministic plan logic; live model calls are **injected*
 
 ### IPC + window — `src/main/index.ts` (thin: ~70 lines) + `src/main/ipc/`
 - `index.ts` — creates the frameless `BrowserWindow` (custom titlebar), calls `registerAll(ipcMain)`, `initPet()`, and `initActivity()`. Set `FORGE_CDP=<port>` to enable remote debugging. Dev loads `ELECTRON_RENDERER_URL`; prod `loadFile(out/renderer/index.html)`.
-- `ipc/index.ts` — `registerAll` fans out to domain modules, each owning its own `ipcMain.handle` channels: `auth.ts`, `agent.ts`, `persona.ts`, `extend.ts`, `orchestrate.ts`, `activity.ts`, `window.ts`, `pet.ts`.
+- `ipc/index.ts` — `registerAll` fans out to domain modules, each owning its own `ipcMain.handle` channels: `auth.ts`, `agent.ts`, `persona.ts`, `extend.ts`, `orchestrate.ts`, `activity.ts`, `window.ts`, `pet.ts`, `workspace.ts`.
+- `ipc/workspace.ts` — `workspace:list` / `workspace:read`: list/read the files an agent created/edited in a conversation's isolated cwd (backed by `main/workspace.ts` — a pure local fs read, no model, no tokens), powering the **WorkspaceFiles** UI.
 - `ipc/orchestrate.ts` — drives the orchestration core. Channels: `orchestrate:dry-run` (simulated, no model), `orchestrate:run` (live: read-only `runSubtaskQuery` samples + a verifier — the **toolVerifier tool oracle** when a subtask declares `verifyCommands`, else a cheap haiku rubric judge), `orchestrate:run-loop`, `orchestrate:validate`, `orchestrate:roles`, `orchestrate:detect-keywords`. Mirrors conductor subtasks into the agent-activity store (with tool/judge verifier provenance).
 - `ipc/activity.ts` — `activity:snapshot` / `activity:clear` for the Agents dashboard (the store pushes `activity:update` itself).
 
@@ -58,18 +59,18 @@ A separate frameless, transparent, draggable window that animates in reaction to
 - `src/renderer/pet/` — plain-JS renderer (`index.html` + `pet.js` + `pet.css`), no React. `src/preload/pet.ts` — tiny pet-only `window.pet` surface (state in, drag/interactive out).
 
 ### Preload — `src/preload/index.ts`
-Exposes `window.forge` = `{ auth, agent.{start,interrupt,respondPermission,respondDialog,capabilities,sessions,usage,transcript,compact,onEvent,onCompactProgress}, persona, skills, commands, hooks, mcp, agents, plugins, orchestrate.{dryRun,run,runLoop,validate,roles,detectKeywords,onEvent}, activity.{snapshot,clear,onUpdate}, window, pet }`. The pet window has its own preload (`pet.ts` → `window.pet`).
+Exposes `window.forge` = `{ auth, agent.{start,interrupt,respondPermission,respondDialog,capabilities,sessions,usage,transcript,compact,onEvent,onCompactProgress}, persona, skills, commands, hooks, mcp, agents, plugins, orchestrate.{dryRun,run,runLoop,validate,roles,detectKeywords,onEvent}, activity.{snapshot,clear,onUpdate}, window, pet, workspace.{list,read} }`. The pet window has its own preload (`pet.ts` → `window.pet`).
 
 ### Renderer — `src/renderer/src/` (App.tsx decomposed into `components/`, per `docs/MAINTAINABILITY.md`)
 - `App.tsx` (~580 lines) — shell + `MainShell` (sidebar/usage/caps/session state + `view` routing). No longer monolithic.
-- `components/` — `TitleBar.tsx`, `AuthGate.tsx`, `Icon.tsx`, `Md.tsx` (markdown), and subfolders:
-  - `chat/` — `Composer`, `TurnView`, `BlockView`, `HistoryView`, `PermissionModal`, `QuestionModal` (AskUserQuestion via `canUseTool`), `TodoBar`/`TodoList` (reconstructed from Task tools), `Elapsed` (shared live timer), `useAgentEvents` (event routing hook, keyed by `runId`; owns the `Reliability` state). Composer also hosts: the **magic-keyword trigger** (typed `ralph`/`ultrathink`/`code-review`/… activate a mode for the run via a `claude_code`-preset `append` + optional tier; detected modes show as chips), a pinned **live-activity strip** (current action + elapsed), **drag-drop image attach** + clipboard paste, **transcript search** (Ctrl/Cmd+F), and the **reliability banner** (api-retry / rate-limit / auto-compact awareness). Running tool cards show a spinner + elapsed.
+- `components/` — `TitleBar.tsx`, `AuthGate.tsx`, `Icon.tsx`, `Md.tsx` (markdown), `Sidebar.tsx`, `Settings.tsx` (LIMITS/persona/pet/auth panel — gear in sidebar + command palette), `WorkspaceFiles.tsx` (browse files the agent edited in a conversation's isolated workspace, via `window.forge.workspace`), `ConversationSearch.tsx` (search across all conversations), `ConfirmDialog.tsx`, `ShortcutsHelp.tsx` (Cmd/Ctrl+/ overlay), and subfolders:
+  - `chat/` — the **Composer** is now thin: feature logic is extracted into co-located hooks (`useAgentEvents` event routing keyed by `runId`, owns `Reliability` state; `useChatTabs` the multi-tab/conversation state + localStorage persistence; `useCompaction` the `/compact` ticker; `useGoalLoop` the `/goal` autonomous loop + USD budget; `useImageAttachments` drag-drop/paste; `useTranscriptSearch` Ctrl/Cmd+F) and pure helpers into `lib/` (see below). Plus `TurnView`, `BlockView`, `HistoryView`, `PermissionModal`, `QuestionModal` (AskUserQuestion via `canUseTool`), `TodoBar`/`TodoList` (reconstructed from Task tools), `Elapsed` (shared live timer), `ReliabilityBanner` (api-retry / rate-limit / auto-compact awareness), `WorkHeader`. Composer hosts the **magic-keyword trigger** (typed `ralph`/`ultrathink`/`code-review`/… activate a mode via a user-message prefix + optional tier; detected modes show as chips), a pinned **live-activity strip**, and per-conversation **model & persona overrides**. Running tool cards show a spinner + elapsed.
   - `squad/SquadView.tsx` — the **Agents** tab, an **agent-activity dashboard** (NOT a plan editor — the manual plan editor was fully removed). Two sections fed by `window.forge.activity`: **Live** agent cards (spinner + current action + elapsed; click to expand the per-agent **tool timeline** Read/Bash/Write/…) and a persisted **History** list (status/cost/duration/verifier-provenance 🔧tool/⚖judge/time). Subagent cards show native usage (tokens/tool_uses) and nest their inner tools.
   - `guide/GuideView.tsx` — the **Guide** tab: a first-run feature tour (magic keywords, the Agents dashboard, cost-saver routing, slash commands, attach/search, EXTEND, persona, the Clawd pet, compaction, sign-in). Inline links jump to the relevant tab.
   - `extend/` — `ExtendView` + `SkillsPanel`/`CommandsPanel`/`HooksPanel`/`McpPanel`/`AgentsPanel`/`PluginsPanel` + `shared.ts`. Each panel only calls `window.forge` IPC (near-zero coupling).
-  - `persona/PersonaModal.tsx`.
-- `lib/` — pure helpers/types: `blocks.ts` (`reduceBlocks`), `format.ts`, `constants.ts` (`EFFORTS`/`PERMS`), `types.ts`.
-- `styles.css` — a thin **`@import` index**; the real CSS lives in `styles/` partials (`00-core`, `01-auth`, `02-sidebar`, `03-chat`, `04-extend`, `05-squad`, `06-guide`) split by section for maintainability. Theme vars (`--bg #0b0a09`, `--amber #e8932a`, Pretendard mono). **Edit the partials, not the index.** The CSS-nesting brace footgun (Gotchas) applies per partial — sanity-check brace balance after editing.
+  - `cost/CostView.tsx` — the **Cost & Cache** tab. `palette/CommandPalette.tsx` — the Cmd/Ctrl+K palette. `persona/PersonaModal.tsx`.
+- `lib/` — pure, side-effect-free helpers/types (the bulk of them covered by `npm run test`): `blocks.ts` (`reduceBlocks`/`parseTodos`/`deriveTasks`), `format.ts`, `export.ts` (Markdown/JSON transcript export), `goal.ts` (`/goal` directive + `GOAL_ACHIEVED` detection), `slashCommands.ts` (client-side slash-command dispatcher), `composer.ts` (Composer pure helpers), `storage.ts` (typed localStorage), `constants.ts` (`EFFORTS`/`PERMS`), `types.ts`.
+- `styles.css` — a thin **`@import` index**; the real CSS lives in `styles/` partials (`00-core`, `01-auth`, `02-sidebar`, `03-chat`, `04-extend`, `05-squad`, `06-guide`, `07-cost`, `08-palette`) split by section for maintainability. Theme vars (`--bg #0b0a09`, `--amber #e8932a`, Pretendard mono). **Edit the partials, not the index.** The CSS-nesting brace footgun (Gotchas) applies per partial — sanity-check brace balance after editing.
 
 ### Vendored reference — `new_folder/oh-my-claudecode/`
 A **read-only checked-in copy** of the upstream `oh-my-claudecode` project, kept purely as the **reference source** for the native ports in `roles.ts` / `keywords.ts` / `loop.ts`. It is not built or imported by the app. Don't ship features by depending on it at runtime — port the portable core into pure Forge modules.
@@ -84,11 +85,13 @@ npm run build        # production build → out/
 npm run start        # preview the built app (electron-vite preview)
 npm run typecheck    # tsc -p tsconfig.json --noEmit
 npm run selftest     # compile tsconfig.selftest.json → out-selftest, then run the headless orchestration self-test
+npm run test         # compile tsconfig.test.json → out-test, then run the pure renderer-lib unit tests (node:test)
 npm run lint         # eslint src --ext .ts,.tsx
 npm run format       # prettier --write src
 ```
 
 - **`npm run selftest`** is the cheap, always-available correctness check for the orchestration core: `scripts/orchestration-selftest.cjs` exercises DAG order, verify→revise cascade, budget hard-cap, plan-validation gate, judge-bias-mitigated voting, roles/keywords/loop — all with **injected stub model calls**, no live session. Run it after touching anything under the orchestration core. (~94 assertions.)
+- **`npm run test`** is the parallel gate for the **pure renderer lib** (`src/renderer/src/lib/{export,blocks,format,goal,slashCommands}.ts`): `test/lib.test.ts` runs them headlessly via `node:test` (no DOM/Electron/SDK), compiled by `tsconfig.test.json`. Run it after touching those modules. To run a single test, filter by name: `node --test out-test/test/*.test.js --test-name-pattern '<regex>'` (compile first with `node node_modules/typescript/bin/tsc -p tsconfig.test.json`).
 - **Live/CDP verification drivers** (need a real subscription session, cost money): `scripts/cdp.mjs` + `scripts/cdp-shot.mjs` (CDP), `scripts/live-orch.js` / `live-smoke.js` / `live-warm.js` (orchestration + token-cache realism), `EVAL_LIVE=1 node scripts/eval.mjs` (orchestrated-vs-baseline eval run loop), `scripts/perf-*.js` (paste/stream/frame perf), `scripts/smoke.mjs` (SDK concurrency).
 
 ESLint config: `.eslintrc.json` (`@typescript-eslint` + `react-hooks`; `no-explicit-any`/`no-unused-vars`/`no-console` are warnings). Prettier: `.prettierrc.json` (no semis, single quotes, width 100, no trailing comma, LF).
@@ -181,11 +184,16 @@ Two env-specific hurdles (`bootstrap/patch-app-builder.mjs` handles the first; b
 
 **Desktop pet ("Clawd")** — optional frameless transparent window that animates to agent activity (`src/main/pet/`, `src/renderer/pet/`), toggleable + persisted; idle micro-animations + listener/timer-leak fixes landed.
 
-**Maintainability refactor** (`docs/MAINTAINABILITY.md`) — behavior-preserving decomposition done: `agent.ts`→`agent/`, `index.ts`→thin shell + `ipc/`, monolithic `App.tsx`→`components/` + `lib/`, and `styles.css`→`styles/` partials.
+**Conversation management + settings** — sidebar conversations can be **renamed / pinned / deleted**; **search across all conversations** (`ConversationSearch.tsx`); **per-conversation model & persona overrides**; a **Settings panel** (`Settings.tsx`, gear in sidebar + palette) consolidates LIMITS/persona/pet/auth; a **keyboard-shortcut help overlay** (Cmd/Ctrl+/, `ShortcutsHelp.tsx`); and **WorkspaceFiles** (`WorkspaceFiles.tsx` + `main/workspace.ts` + `ipc/workspace.ts`) browses the files an agent created/edited in a conversation's isolated workspace — a local fs read, no model/tokens.
 
-**Tooling/infra:** ESLint + Prettier configured; `bootstrap/` provides one-step environment recovery for the reset-on-reboot machine; `npm run dev:web` gives a no-Electron browser design preview; `npm run selftest` is the standing headless correctness gate for the orchestration core.
+**Composer decomposition** — the monolithic `Composer` was split into co-located hooks (`useChatTabs`/`useCompaction`/`useGoalLoop`/`useImageAttachments`/`useTranscriptSearch`/`useAgentEvents`) + extracted components (`ReliabilityBanner`/`WorkHeader`) + tested pure helpers in `lib/` (`composer.ts`/`goal.ts`/`slashCommands.ts`/`storage.ts`), with `npm run test` (node:test) as the standing gate for those pure modules.
+
+**Maintainability refactor** (`docs/MAINTAINABILITY.md`) — behavior-preserving decomposition done: `agent.ts`→`agent/`, `index.ts`→thin shell + `ipc/`, monolithic `App.tsx`→`components/` + `lib/`, `Composer`→hooks + `lib/`, and `styles.css`→`styles/` partials.
+
+**Tooling/infra:** ESLint + Prettier configured; `bootstrap/` provides one-step environment recovery for the reset-on-reboot machine; `npm run dev:web` gives a no-Electron browser design preview; `npm run selftest` (orchestration core) and `npm run test` (pure renderer lib) are the standing headless correctness gates.
 
 ## Docs (under `docs/`)
+- `DESIGN.md` — UI/visual design language (theme, layout, component patterns).
 - `SQUAD_ORCHESTRATION.md` — orchestration design + evidence ledger (validated-mechanism grading).
 - `TOKEN_OPTIMIZATION.md` — cost levers (caching, difficulty routing, cascade).
 - `MAINTAINABILITY.md` — the behavior-preserving file-decomposition plan.

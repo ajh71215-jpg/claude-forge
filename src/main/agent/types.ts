@@ -195,7 +195,14 @@ export type AgentEvent =
       retryDelayMs: number
       errorStatus?: number | null
     }
-  | { runId: string; type: 'rate-limit'; info: Record<string, unknown> }
+  | {
+      runId: string
+      type: 'rate-limit'
+      status: 'allowed' | 'allowed_warning' | 'rejected'
+      utilization?: number
+      rateLimitType?: string
+      resetsAt?: number
+    }
   | {
       runId: string
       type: 'compact-boundary'

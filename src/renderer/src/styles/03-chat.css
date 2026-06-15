@@ -750,6 +750,58 @@
     transform: rotate(360deg);
   }
 }
+/* reliability banner: retry / rate-limit / auto-compact awareness */
+.reliability {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 24px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rb-item.retry {
+  background: color-mix(in srgb, var(--amber) 8%, var(--bg-raised));
+  color: var(--amber-bright);
+}
+.rb-item.rate {
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-raised));
+  color: var(--danger);
+}
+.rb-item.rate.allowed_warning {
+  background: color-mix(in srgb, var(--amber) 9%, var(--bg-raised));
+  color: var(--amber-bright);
+}
+.rb-item.compact {
+  background: var(--bg-raised);
+  color: var(--muted);
+}
+.rb-spin {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.rb-x {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+}
+.rb-x:hover {
+  color: var(--text);
+}
+
 /* magic-keyword mode chips above the composer */
 .mode-chips {
   display: flex;

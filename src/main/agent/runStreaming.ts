@@ -274,7 +274,14 @@ export async function runStreaming(
           elapsedSeconds: msg.elapsed_time_seconds ?? 0
         })
       } else if (msg.type === 'rate_limit_event') {
-        send({ type: 'rate-limit', info: (msg.rate_limit_info ?? {}) as Record<string, unknown> })
+        const ri = msg.rate_limit_info ?? {}
+        send({
+          type: 'rate-limit',
+          status: ri.status ?? 'allowed',
+          utilization: ri.utilization,
+          rateLimitType: ri.rateLimitType,
+          resetsAt: ri.resetsAt
+        })
       } else if (msg.type === 'result') {
         const ok = msg.subtype === 'success'
         const u = msg.usage

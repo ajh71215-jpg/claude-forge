@@ -177,7 +177,9 @@ export default function Composer({
     contextTokens,
     setContextTokens,
     contextModel,
-    setContextModel
+    setContextModel,
+    reliability,
+    setReliability
   } = useAgentEvents({ ownedRef, runIdRef, onSessionRef, onResultRef, taRef })
 
   // Keep the transcript pinned to the bottom as content streams in — but only
@@ -319,6 +321,8 @@ export default function Composer({
     const id = crypto.randomUUID()
     runIdRef.current = id
     ownedRef.current.add(id)
+    // Drop stale transient reliability notes on a new send (keep account rate-limit).
+    setReliability((r) => (r?.rate ? { rate: r.rate } : null))
     const previews = atts.map((a) => a.preview)
     setTurns((prev) => [
       ...prev,
@@ -753,6 +757,49 @@ export default function Composer({
             </div>
           )
         })()}
+      {reliability && (reliability.retry || reliability.rate || reliability.compact) && (
+        <div className="reliability">
+          {reliability.retry && (
+            <div className="rb-item retry">
+              <span className="rb-spin" aria-hidden /> Retrying
+              {reliability.retry.status ? ` (${reliability.retry.status})` : ''} — attempt{' '}
+              {reliability.retry.attempt}/{reliability.retry.max}…
+            </div>
+          )}
+          {reliability.rate && (
+            <div className={`rb-item rate ${reliability.rate.status}`}>
+              ⚠ Rate limit{reliability.rate.rateLimitType ? ` (${reliability.rate.rateLimitType})` : ''}
+              {typeof reliability.rate.utilization === 'number'
+                ? ` — ${Math.round(reliability.rate.utilization * 100)}% used`
+                : ''}
+              {reliability.rate.resetsAt
+                ? ` · resets ${new Date(
+                    reliability.rate.resetsAt > 1e12
+                      ? reliability.rate.resetsAt
+                      : reliability.rate.resetsAt * 1000
+                  ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : ''}
+            </div>
+          )}
+          {reliability.compact && (
+            <div className="rb-item compact">
+              ✦ Context {reliability.compact.trigger === 'auto' ? 'auto-' : ''}compacted
+              {reliability.compact.pre
+                ? ` — ${Math.round(reliability.compact.pre / 1000)}k→${
+                    reliability.compact.post ? Math.round(reliability.compact.post / 1000) + 'k' : '…'
+                  } tokens`
+                : ''}
+              <button
+                className="rb-x"
+                title="Dismiss"
+                onClick={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {searchOpen && (
         <div className="transcript-search">
           <span className="ts-icon">⌕</span>

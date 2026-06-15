@@ -1,6 +1,8 @@
 # GOOSE_INTEGRATION.md — free/multi-provider sub-agents via goose
 
-Status: **PLAN (verified, not yet implemented)**. Goal: let Forge's orchestration delegate simple/cheap subtasks to **free or cheaper non-Anthropic models** (OpenRouter `:free`, Google Gemini free tier, Groq, local Ollama) as *full agentic* sub-agents (file edit / grep / shell), **auto-routed** so the easy work costs $0 and only failures escalate to paid Claude.
+Status: **PLAN (verified, not yet implemented)**. Goal: let Forge's orchestration delegate simple/cheap subtasks to **free or cheaper non-Anthropic models** (OpenRouter `:free`, Google Gemini free tier, Groq, local Ollama) as *full agentic* sub-agents (file edit / grep / shell), so the easy work costs $0 and only failures escalate to paid Claude.
+
+**Chosen architecture: Plan A — Claude-as-orchestrator (hub-and-spoke).** The main chat Claude *is* the orchestrator. Forge exposes a custom **`delegate` tool** (in-process MCP) to the main run; Claude decides what to offload, writes the sub-task scope+prompt itself, and calls `delegate(...)`. Forge intercepts the call, runs it on a free model via goose, and returns the result text inline to Claude. Sub-agents never talk to each other directly — they **exchange *through* Claude** (Claude reads result A, frames prompt B with it), which keeps cost, loops, and verification under control. (The alternative deterministic-conductor design — "Plan B" — is recorded in §8; we are NOT building it. Free-form agent-to-agent chat — Octopal's HANDOFF — is deliberately excluded, see §7.)
 
 The leverage: instead of building+maintaining our own tool-calling agent loop, we drive **goose** (Block's Rust agent) — it already implements the loop, tool execution, MCP, and 40+ providers. This doc is grounded in two verified research passes (goose CLI/ACP spec + reverse-engineering `gilhyun/Octopal`, which ships exactly this pattern in Tauri).
 
@@ -42,38 +44,42 @@ The leverage: instead of building+maintaining our own tool-calling agent loop, w
 | cwd / isolation | spawn `{ cwd: ensureWorkspace(convId) }`; XDG → `<userData>/goose/{config,data,state}` | reuses existing isolated-workspace model; never touches user's goose |
 | Binary | build-time download script + electron-builder `extraResources`; resolve `process.resourcesPath`; dev PATH fallback | identical to how Forge already ships `claude.exe` (`asar:false`) |
 | Secrets | `forge-providers.json` (Forge-private, outside `.claude/`) | same rule as `forge-mcp.json` |
-| Dispatcher/HANDOFF | **NOT ported** | Forge already has its own orchestration core (conductor/routing/keywords); we only port the goose **ACP client** + **tool mapper** |
+| Entry point | **in-process MCP `delegate` tool** exposed to the main chat run (Plan A) | Claude calls it like `Task`, but Forge routes it to goose; no conductor wiring needed |
+| Agent-to-agent chat / HANDOFF | **NOT ported** | loops/cost/verification-gap; hub-and-spoke through Claude gives the collaboration benefit safely (§7) |
+| Deterministic conductor (Plan B) | **NOT built** (kept as library) | user chose Claude-as-orchestrator; conductor path recorded in §8 only |
 
 ---
 
-## 3. Architecture
+## 3. Architecture (Plan A — hub-and-spoke through Claude)
 
 ```
-                       Forge orchestration core (pure, unchanged)
-                       conductor.executePlan → deps.runSubtask(subtask, attempt, …)
-                                                     │
-                                routing.route() decides ENGINE + provider/model
-                                  ┌──────────────────┴───────────────────┐
-                            engine='claude'                        engine='goose'
-                                  │                                      │
-                       agent/subtaskRunner.ts                   goose/runGooseSubtask.ts
-                       (SDK query(), existing)                          │
-                                                          goose/pool.ts (long-lived `goose acp`)
-                                                                        │
-                                                          goose/acpClient.ts  (JSON-RPC 2.0 / stdio)
-                                                            initialize→session/new→prompt
-                                                                        │
-                                              goose/mapper.ts: session/update → AgentEvent
-                                                  + session/request_permission → Forge gate
-                                                                        │
-                                          ┌─────────────────────────────┴─────────┐
-                                   activity store (tool timeline)            Artifact{output,costUsd=0}
-                                                                                   │
-                                                                          conductor verify (toolVerifier/judge)
-                                                                          FAIL → escalate ladder: goose-free → haiku → sonnet → opus
+        Main chat run = THE ORCHESTRATOR (Claude, via SDK runStreaming)
+        │   Forge gives it an in-process MCP server exposing one tool:
+        │     delegate({ instruction, tier?, role?, writeCapable?, verifyCommands? }) → { output }
+        │
+        │  Claude decides "this is simple → offload", writes the sub-prompt, calls delegate(...)
+        ▼
+   ipc/agent.ts wires mcpServers += forgeDelegateServer   (alongside existing forge-mcp.json servers)
+        │
+        ▼
+   goose/delegateTool.ts  (MCP tool handler)
+        │  picks a ProviderEntry (routing.route → free model for trivial/easy; else cheapest enabled)
+        ▼
+   goose/runGooseSubtask.ts ── goose/pool.ts (long-lived `goose acp`) ── goose/acpClient.ts (JSON-RPC/stdio)
+        │                          initialize → session/new(cwd) → set_mode → session/prompt
+        │
+        ├─ goose/mapper.ts: session/update → activity bus  (Agents dashboard timeline, nested under the run)
+        ├─ session/request_permission → Forge read-only/builder gate
+        │
+        ▼
+   result text returned to the delegate tool  → returned inline to Claude as the tool_result
+        │  (cost: $0 for free providers)  │  Claude reads it, may delegate again or finish.
+        ▼
+   (optional) auto-escalation: if a delegated result fails Claude's own check, Claude simply
+   re-does it itself or delegates at a higher tier — escalation is Claude's judgement, not a fixed ladder.
 ```
 
-The conductor/topology/verifier code **does not change** — it already injects `deps.runSubtask`. We add a second adapter and a dispatcher in front of it.
+**What changes in Forge:** we add the `goose/*` modules + `providers.ts`, and register one extra in-process MCP server on the main run (`ipc/agent.ts`). `runStreaming` and the SDK loop are otherwise untouched; the SDK already merges `mcpServers`, surfaces the tool to the model, and routes its use through `canUseTool` + the activity bus — so the delegate tool's calls show up in chat and the Agents dashboard for free. The conductor/topology/verifier code is **not touched** (it stays a library).
 
 ---
 
@@ -122,30 +128,42 @@ export async function runGooseSubtask(opts: {
   signal?: AbortSignal
 }): Promise<{ output: string; costUsd: number; model: string }>
 ```
-- mode = `writeCapable ? 'approve' : 'approve'` (always `approve` so the gate runs; pure-text roles could use `chat`).
+- `GOOSE_MODE=approve` always (so our `session/request_permission` gate actually runs); a pure-text/read-only role may use `chat` (no tool execution at all).
 - permission handler = port of `subtaskRunner` gate: builder allows shell/text_editor/read/fetch; read-only allows read/grep/glob/fetch, denies shell/text_editor. `Task`/recursive spawn always denied.
 - system prompt prepended into the prompt text (ACP has no system field), reusing the existing subtask preamble + `roles.ts systemAppend`.
 - accumulate `agent_message_chunk` text → `output`; `costUsd: 0` (free) ; `model` from provider.
 
-### Changed: `src/main/routing.ts` (stays pure — no SDK/electron import)
-Add an engine/provider axis to `RouteDecision`:
+### New: `src/main/goose/delegateTool.ts`  ← **the Plan A entry point (in-process MCP server)**
+An MCP server (SDK `createSdkMcpServer` / tool) exposing **one tool** to the main chat Claude:
 ```ts
-export type Engine = 'claude' | 'goose'
-export interface RouteDecision { …; engine: Engine; provider?: string; model: string; … }
+// tool name: "delegate" (namespaced e.g. mcp__forge__delegate)
+delegate({
+  instruction: string,          // the sub-prompt Claude writes
+  tier?: 'free'|'cheap'|'auto',  // hint; 'free' forces a free provider, default 'auto'
+  role?: string,                // optional roles.ts persona (systemAppend + writeCapable default)
+  writeCapable?: boolean,       // may the sub-agent edit files? default from role, else false
+  verifyCommands?: string[]     // optional objective check (typecheck/test) the sub-agent must pass
+}) → { output: string, model: string, costUsd: number }
 ```
-- New input: `freeProviderAvailable?: boolean`, `capability?: 'agentic'|'text'` (default agentic).
-- Rule: if `difficulty ∈ {trivial,easy}` AND `freeProviderAvailable` AND not explicitly pinned to a Claude tier → `engine='goose'`. Else Claude tier as today.
-- **Cascade ladder becomes engine-aware**: `goose-free → haiku → sonnet → opus`. `escalate()` from goose-free steps to `haiku` (engine flips to claude). priorFailures walks the ladder exactly as today → free tries first, verifier FAIL escalates to paid.
-- Keep the heuristic a tunable default (same honesty caveat as today). **Add selftest cases** for the new branch.
+Handler: resolve a `ProviderEntry` (via `pickProvider` below) → `runGooseSubtask(...)` with the conversation's `cwd` → return the result text. Errors (no provider enabled / goose missing / quota 429) return a clear tool-error so **Claude can fall back to doing it itself** — graceful degradation, never a hard run failure.
 
-### Changed: dispatcher in the conductor's `deps.runSubtask` (in the orchestrate IPC / runner that builds `deps`)
-Consult `routing.route(...)`; if `engine==='goose'`, resolve the `ProviderEntry` (impure lookup, injected) and call `runGooseSubtask`; else `runSubtaskQuery`. Mirror to activity store with engine/provider provenance (extend the existing `🔧tool/⚖judge` provenance with a `🪿 goose:<provider>` tag).
+The tool description (shown to Claude) tells it *when* to use it: "Delegate a self-contained, low-stakes subtask (summarize, draft, classify, simple edit, lookup) to a free model to save budget. Provide a complete, standalone instruction — the sub-agent has no chat history. Verify the result yourself before relying on it."
 
-### Changed: `src/main/ipc/` — re-wire orchestration to a chat entry point
-This is what makes it *feel automatic*. Options (pick in Phase 3):
-- a magic keyword (`cheap` / `delegate`) in `keywords.ts` that routes the run's simple subtasks through goose; and/or
-- auto: when the model's plan has trivial/easy subtasks and a free provider is enabled, route them to goose by default.
-Add `providers:*` IPC channels (list/save/delete/test) + an **Extend → Providers** panel (mirror `McpPanel`).
+### Changed: `src/main/ipc/agent.ts` — register the delegate MCP server on the main run
+Where `runStreaming` opts are built, merge the delegate server into `mcpServers` (next to `forge-mcp.json` servers) **only when ≥1 provider is enabled**. Gate behind a setting (LIMITS/Settings: "Allow delegating subtasks to free providers"). Nothing else in `runStreaming` changes — the SDK surfaces the tool, routes its use through `canUseTool`, and streams `block-start`/`tool-result` (with `parent_tool_use_id`) so the delegate call already nests in chat + the Agents dashboard.
+
+### Changed: `src/main/routing.ts` (stays pure) — provider picker only
+No "engine axis" needed in Plan A (the tool *is* the goose path). Add a small pure helper used by the delegate handler:
+```ts
+export function pickProvider(
+  tierHint: 'free'|'cheap'|'auto', instruction: string,
+  enabled: { id: string; free: boolean }[]
+): string | undefined   // returns provider id, or undefined → caller tells Claude "no free provider; do it yourself"
+```
+Reuse `classifyDifficulty` as a tunable hint (e.g. `auto` + `hard` → return undefined so Claude keeps hard work itself). Keep the heuristic a default, not an oracle. **Add selftest cases** for `pickProvider`.
+
+### New: `src/main/ipc/providers.ts` + `src/renderer/.../extend/ProvidersPanel.tsx`
+`providers:*` IPC (list/save/delete/test) + an **Extend → Providers** panel (mirror `McpPanel`): add a provider, key, default model, enable. Pure `window.forge.providers` calls.
 
 ### New: `scripts/ensure-goose.mjs`  +  `electron-builder.yml`
 Build-time: download the pinned goose release per platform, unpack the binary into `resources/goose/<platform>-<arch>/`, chmod +x on unix. Add to `extraResources` (alongside `resources/pet`). Pin version in `scripts/goose-version.json`. **TODO: confirm release host (block/goose vs aaif-goose) at build time.**
@@ -168,22 +186,23 @@ Gate: `npm run typecheck`, `npm run lint`; manually add an OpenRouter key in the
 **Phase 1 — goose adapter + binary + ACP client** (`goose/*`, `runGooseSubtask`, `ensure-goose.mjs`).
 Gate: a **spike script** `scripts/goose-spike.mjs` — download goose, spawn `goose acp`, run `initialize→session/new→session/prompt` with an OpenRouter `:free` model against a temp cwd, and assert: (a) text output returned, (b) a builder run actually edits a file, (c) a read-only run is **denied** shell/edit by our permission handler. This is the make-or-break verification (proves ACP works on Forge's box and the gate holds). Capture stdout to confirm the `session/update` schema for the mapper.
 
-**Phase 2 — routing engine axis + dispatcher + activity mapping**.
-Gate: `npm run selftest` extended with engine/provider routing cases (pure, no live goose): trivial+free→goose, hard→opus, free FAIL→escalate to haiku→…→opus. Confirm goose tool events appear in the Agents dashboard timeline.
+**Phase 2 — delegate tool + MCP registration + activity mapping** (`delegateTool.ts`, `pickProvider`, `ipc/agent.ts` wiring).
+Gate: `npm run selftest` extended with `pickProvider` cases (pure, no live goose): `free`→provider, `auto`+`hard`→undefined (Claude keeps it), no-enabled→undefined. Manual (Electron): a chat run where Claude calls `delegate(...)`, the call nests in chat + the Agents dashboard timeline, and the result returns inline.
 
-**Phase 3 — wire to chat + free→Claude verifier cascade + eval honesty**.
-Gate: `EVAL_LIVE=1` golden-set run showing orchestrated-with-free ≥ single-Claude-baseline quality at lower $ (the §8 kill-criteria gate must stay honest — add a **quality-regression guard** so free routing can't silently drop golden-set scores). Manual: a `cheap` keyword run completes simple subtasks at $0 and escalates a deliberately-hard one to Claude.
+**Phase 3 — chat UX + guidance + eval honesty**.
+The main system prompt gets a short note that the `delegate` tool exists and when to prefer it (Forge-side append, cache-stable). Optional: a `cheap` magic keyword that nudges Claude to offload aggressively for that run; a Settings toggle + a per-run "delegated $0 / saved est." indicator.
+Gate: `EVAL_LIVE=1` golden-set run showing **delegation does not drop quality** vs Claude-only at equal-or-lower $ — add a **quality-regression guard** (free delegation can't silently lower golden-set scores). Manual: simple subtasks run at $0 via goose; a hard task Claude (correctly) keeps itself.
 
-**Phase 4 (optional)** — pooled long-lived sessions, `goose serve` HTTP transport, paid-via-goose cost estimation, CLI-subscription providers (claude-acp/codex), more models.
+**Phase 4 (optional)** — pooled long-lived sessions, `goose serve` HTTP transport, paid-via-goose cost estimation, bounded multi-provider **debate** topology (structured, not free chat), CLI-subscription providers (claude-acp/codex).
 
 ---
 
 ## 6. Risks & open questions (must resolve before depending on them)
 
-1. **Cost blindness** — goose ACP returns no usage. Mitigation: $0 for free providers (true); token-estimate for paid. The budget governor still bounds Claude-tier spend, which is where real $ is.
+1. **Cost blindness** — goose ACP returns no usage. Mitigation: $0 for free providers (true); token-estimate for paid. Real $ stays on the Claude main run, which the existing LIMITS max-$/run cap already bounds.
 2. **Release host discrepancy** — `block/goose` vs `aaif-goose/goose`. Pin + checksum-verify at build; re-confirm at integration.
 3. **ACP JSON schema drift** — `session/update` / `session/request_permission` shapes vary across goose versions. Mitigation: pin goose version; mapper tolerant of snake_case+camelCase (as Octopal does); capture real output in the Phase 1 spike.
-4. **Small-model tool-use reliability** — free models loop/emit bad tool args. Mitigation: this is exactly what the **verifier→escalate-to-Claude cascade** absorbs; cap `maxTurns` + max-tool-repetitions.
+4. **Small-model tool-use reliability** — free models loop/emit bad tool args. Mitigation: in Plan A **Claude is the safety net** — it reads every delegated result and re-does or re-delegates anything wrong; cap `maxTurns` + max-tool-repetitions; optional `verifyCommands` gives the sub-agent an objective check before returning.
 5. **Windows / locked-down env** — goose Windows asset is x86_64-msvc `.zip`; spawning `goose.exe` should behave like `claude.exe` (asar:false already). Confirm XDG env vars are honored on Windows (Octopal sets them unconditionally and it works).
 6. **goose v2.0-rc stability + no `session/cancel`** — cancellation is SIGKILL; ensure STOP from the UI kills the goose proc and frees the pool slot.
 7. **Privacy** — content leaves the machine to the provider. User has approved dropping local-only; still surface a clear per-provider notice and update README.
@@ -191,7 +210,13 @@ Gate: `EVAL_LIVE=1` golden-set run showing orchestrated-with-free ≥ single-Cla
 ---
 
 ## 7. What we deliberately do NOT do
-- Don't port Octopal's dispatcher / HANDOFF / room-history — Forge's conductor + routing + keywords already own orchestration.
+- **No free-form agent-to-agent chat / HANDOFF** (Octopal's mesh model). Reasons: token blowup, A↔B loops (Octopal needs depth caps + locks + already-called sets), no verification gate so errors compound, and it breaks budget discipline. The collaboration benefit is preserved by **hub-and-spoke through Claude** — sub-agents exchange info *via* the orchestrator, which reads result A and frames prompt B. If structured disagreement is ever wanted for quality, use a **bounded debate topology** (rounds + early-stop), not open chat.
 - Don't bundle claude-acp/codex CLIs — direct-API free providers only (v1).
-- Don't redirect the SDK's **native Task subagents** to goose (impossible — they run inside `claude.exe`); goose lives only behind Forge's own orchestration path.
-- Don't pursue Zed Agent Client Protocol *as a client integration of the SDK* (wrong direction, established earlier) — here ACP is used the other way: **Forge is the ACP client driving goose as the ACP agent.**
+- Don't redirect the SDK's **native Task subagents** to goose (impossible — they run inside `claude.exe`). Delegation reaches goose only via the **`delegate` MCP tool** Forge exposes to the main run.
+- Don't build the deterministic conductor path (Plan B, §8) — kept as a library only.
+- Don't pursue Zed Agent Client Protocol *as a client integration of the SDK* (wrong direction) — here ACP is used the other way: **Forge is the ACP client driving goose as the ACP agent.**
+
+---
+
+## 8. Rejected alternative — Plan B (deterministic conductor)
+Recorded for completeness. Forge's pure orchestration core (`conductor`/`topology`/`routing`/`verifier`) builds a validated plan DAG, routes trivial/easy subtasks to goose via `deps.runSubtask`, gates each with the tool-oracle/judge verifier, and walks a fixed cascade ladder `goose-free → haiku → sonnet → opus`, escalating only on a verifier FAIL. Pros: provable, budget-capped, honest same-compute eval. Cons: Claude does not "freely decide" delegation — Forge owns the skeleton. **User chose Plan A** (Claude-as-orchestrator) for flexibility; the conductor stays a tested library (`npm run selftest`) and could back a future "auto-plan" mode without conflicting with the delegate tool.

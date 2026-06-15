@@ -32,14 +32,7 @@ export type McpTransport = import('../../main/mcp').McpTransport
 export type AgentMeta = import('../../main/agents').AgentMeta
 export type PluginEntry = import('../../main/plugins').PluginEntry
 
-// Orchestration (docs/SQUAD_ORCHESTRATION.md) — re-exported so the Squad tab
-// imports plan/monitor types from one place.
-export type Topology = import('../../main/orchestration').Topology
-export type ModelTier = import('../../main/orchestration').ModelTier
-export type Subtask = import('../../main/orchestration').Subtask
-export type Plan = import('../../main/orchestration').Plan
-export type ConductorEvent = import('../../main/conductor').ConductorEvent
-export type OrchestrateEvent = import('../../main/ipc/orchestrate').OrchestrateEvent
+// Agent-activity dashboard types (the Squad/Cost tabs read these).
 export type AgentActivity = import('../../main/agentActivity').AgentActivity
 export type ActivitySnapshot = import('../../main/agentActivity').ActivitySnapshot
 export type ToolEvent = import('../../main/agentActivity').ToolEvent

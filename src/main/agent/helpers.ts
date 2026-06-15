@@ -7,6 +7,8 @@ import type { Attachment } from './types'
  * An async generator that never yields — used to keep a query stream open for
  * control-method probing (getCapabilities) without submitting any prompt.
  */
+// Intentionally never yields — it blocks forever to keep the query stream open.
+// eslint-disable-next-line require-yield
 export async function* idlePrompt(): AsyncGenerator<never> {
   await new Promise<void>(() => {})
 }

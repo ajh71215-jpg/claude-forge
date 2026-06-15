@@ -16,7 +16,7 @@ export function isValidSlug(name: string): boolean {
 }
 
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/.exec(raw)
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/.exec(raw)
   if (!m) return { meta: {}, body: raw }
   const meta: Record<string, string> = {}
   for (const line of m[1].split(/\r?\n/)) {

@@ -285,6 +285,10 @@
   border-color: var(--amber);
   background: rgba(var(--accent-rgb), 0.1);
 }
+.mini-btn.on {
+  border-color: var(--amber);
+  background: rgba(var(--accent-rgb), 0.16);
+}
 
 /* conversations list */
 .conv-list {

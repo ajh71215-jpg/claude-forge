@@ -12,6 +12,81 @@
   min-height: 0;
   overflow: hidden;
 }
+.work.drag-over {
+  outline: 2px dashed var(--amber);
+  outline-offset: -6px;
+}
+/* drag-and-drop image attach overlay */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.drop-overlay-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 26px;
+  border: 2px dashed var(--amber);
+  border-radius: 14px;
+  color: var(--amber-bright);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+.drop-icon {
+  font-size: 20px;
+}
+/* transcript search bar */
+.transcript-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.ts-icon {
+  color: var(--faint);
+  font-size: 14px;
+}
+.ts-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.ts-input::placeholder {
+  color: var(--faint);
+}
+.ts-count {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ts-close {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.ts-close:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
 .work-header {
   display: flex;
   align-items: center;

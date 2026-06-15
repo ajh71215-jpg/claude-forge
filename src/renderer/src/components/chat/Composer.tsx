@@ -2,7 +2,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving. The streaming event
 // subscription (rAF-coalesced) and near-bottom autoscroll are docs/PERFORMANCE.md
 // levers 2 & 4 — do not change without re-profiling.
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type DragEvent as RDragEvent } from 'react'
 import type {
   Permission,
   Effort,
@@ -27,6 +27,17 @@ import TurnView from './TurnView'
 import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
+import type { Turn } from '../../types'
+
+/** Flatten a turn's searchable text (prompt + every block) for transcript search. */
+function turnText(t: Turn): string {
+  const parts = [t.prompt]
+  for (const b of t.blocks) {
+    if (b.kind === 'text' || b.kind === 'thinking') parts.push(b.text)
+    else if (b.kind === 'tool') parts.push(b.name, b.inputRaw, b.result ?? '')
+  }
+  return parts.join(' ').toLowerCase()
+}
 
 export default function Composer({
   model,
@@ -84,6 +95,11 @@ export default function Composer({
   const [attachments, setAttachments] = useState<
     { id: string; mediaType: string; base64: string; preview: string; name: string }[]
   >([])
+  // Drag-and-drop image attach overlay + transcript search box.
+  const [dragOver, setDragOver] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const [histIndex, setHistIndex] = useState<number | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
@@ -444,6 +460,28 @@ export default function Composer({
     return false
   }
 
+  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        requestAnimationFrame(() => searchRef.current?.focus())
+      } else if (e.key === 'Escape' && searchOpen) {
+        setSearchOpen(false)
+        setSearch('')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
+
+  function onDrop(e: RDragEvent): void {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
+  }
+
   function addFiles(files: FileList | null): void {
     if (!files) return
     for (const file of Array.from(files)) {
@@ -550,8 +588,30 @@ export default function Composer({
       ? Math.min(100, Math.round((contextTokens / ctxWindow(contextModel)) * 100))
       : 0
 
+  const q = search.trim().toLowerCase()
+  const shownTurns = q ? turns.filter((t) => turnText(t).includes(q)) : turns
+
   return (
-    <div className="work">
+    <div
+      className={`work${dragOver ? ' drag-over' : ''}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault()
+          if (!dragOver) setDragOver(true)
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)
+      }}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="drop-overlay">
+          <div className="drop-overlay-inner">
+            <span className="drop-icon">⌬</span> drop images to attach
+          </div>
+        </div>
+      )}
       <div className="work-header">
         <div className="wh-left">
           <span className="wh-item">
@@ -574,6 +634,20 @@ export default function Composer({
           )}
         </div>
         <div className="wh-right">
+          {turns.length > 0 && (
+            <button
+              className={`mini-btn${searchOpen ? ' on' : ''}`}
+              title="Search this conversation (Ctrl/Cmd+F)"
+              onClick={() => {
+                const next = !searchOpen
+                setSearchOpen(next)
+                if (next) requestAnimationFrame(() => searchRef.current?.focus())
+                else setSearch('')
+              }}
+            >
+              ⌕ find
+            </button>
+          )}
           {contextTokens > 0 && (
             <div
               className={`ctx-gauge ${ctxPct >= 70 ? 'hot' : ''}`}
@@ -613,17 +687,56 @@ export default function Composer({
           )}
         </div>
       </div>
+      {searchOpen && (
+        <div className="transcript-search">
+          <span className="ts-icon">⌕</span>
+          <input
+            ref={searchRef}
+            className="ts-input"
+            value={search}
+            placeholder="Search this conversation…"
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setSearchOpen(false)
+                setSearch('')
+              }
+            }}
+          />
+          {q && (
+            <span className="ts-count">
+              {shownTurns.length} / {turns.length}
+            </span>
+          )}
+          <button
+            className="ts-close"
+            title="Close (Esc)"
+            onClick={() => {
+              setSearchOpen(false)
+              setSearch('')
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="transcript" ref={transcriptRef}>
-        <HistoryView items={history} />
+        {!q && <HistoryView items={history} />}
 
-        {idle && history.length === 0 && (
+        {idle && history.length === 0 && !q && (
           <div className="anvil">
             <div className="anvil-mark">⚒</div>
             <div className="anvil-text">The anvil is ready. Describe the work.</div>
           </div>
         )}
 
-        {turns.map((t) => (
+        {q && shownTurns.length === 0 && (
+          <div className="anvil">
+            <div className="anvil-text">No turns match “{search.trim()}”.</div>
+          </div>
+        )}
+
+        {shownTurns.map((t) => (
           <TurnView key={t.id} turn={t} onRetry={handleRetry} onEdit={handleEdit} />
         ))}
       </div>

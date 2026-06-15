@@ -33,7 +33,8 @@ export async function buildEnv(): Promise<Record<string, string>> {
  */
 export const SETTING_SOURCES = ['user', 'project'] as const
 
-let workspaceReady: Promise<string> | null = null
+// One in-flight/cached promise per workspace key ('' = shared root).
+const workspaceReady = new Map<string, Promise<string>>()
 
 /**
  * Path to Forge's persistent project workspace (its `.claude/` lives here).
@@ -43,22 +44,52 @@ export function workspaceDir(): string {
   return workspaceRoot()
 }
 
+/** Create the `.claude/{skills,commands,agents}` skeleton under `dir` (best-effort). */
+async function ensureClaudeDirs(dir: string): Promise<void> {
+  const claude = join(dir, '.claude')
+  await Promise.all([
+    fs.mkdir(join(claude, 'skills'), { recursive: true }),
+    fs.mkdir(join(claude, 'commands'), { recursive: true }),
+    fs.mkdir(join(claude, 'agents'), { recursive: true })
+  ]).catch(() => {})
+}
+
 /**
- * Create the workspace and its `.claude/` skill/command/agent dirs once, then
- * reuse the cached result. Best-effort: the SDK tolerates a missing `.claude/`,
- * so a mkdir failure still yields a usable cwd.
+ * Resolve a usable cwd for a run, creating it once and caching the result.
+ *
+ * - No `id` (or empty) → the shared root workspace (legacy single-conversation
+ *   behavior; its `.claude/` is the source of truth for Skills/Commands/Agents).
+ * - With an `id` → an ISOLATED per-conversation workspace at
+ *   `<root>/ws/<id>/`, so concurrent agents in different conversations can't
+ *   clobber each other's files. The root `.claude/` is linked in (junction on
+ *   Windows — no admin needed; symlink elsewhere) so EXTEND config + settings are
+ *   still seen. Any failure falls back to the shared root (never blocks a run).
  */
-export function ensureWorkspace(): Promise<string> {
-  if (!workspaceReady) {
-    const dir = workspaceRoot()
-    const claude = join(dir, '.claude')
-    workspaceReady = Promise.all([
-      fs.mkdir(join(claude, 'skills'), { recursive: true }),
-      fs.mkdir(join(claude, 'commands'), { recursive: true }),
-      fs.mkdir(join(claude, 'agents'), { recursive: true })
-    ])
-      .then(() => dir)
-      .catch(() => dir)
+export function ensureWorkspace(id?: string): Promise<string> {
+  const key = id && id.trim() ? id.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : ''
+  let p = workspaceReady.get(key)
+  if (!p) {
+    p = (async () => {
+      const root = workspaceRoot()
+      await ensureClaudeDirs(root)
+      if (!key) return root
+      try {
+        const dir = join(root, 'ws', key)
+        await fs.mkdir(dir, { recursive: true })
+        // Share the root .claude (config + settings) so the isolated workspace
+        // still loads Skills/Commands/Agents/hooks; only file edits are isolated.
+        const link = join(dir, '.claude')
+        try {
+          await fs.access(link)
+        } catch {
+          await fs.symlink(join(root, '.claude'), link, 'junction').catch(() => {})
+        }
+        return dir
+      } catch {
+        return root
+      }
+    })()
+    workspaceReady.set(key, p)
   }
-  return workspaceReady
+  return p
 }

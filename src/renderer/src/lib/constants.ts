@@ -24,6 +24,11 @@ export const CLIENT_COMMANDS: SlashCommand[] = [
   },
   { name: 'effort', description: 'Set reasoning effort', argumentHint: '<auto|low|medium|high|xhigh|max>' },
   { name: 'permission', description: 'Set permission mode', argumentHint: '<plan|ask|auto-edit|yolo>' },
+  {
+    name: 'goal',
+    description: 'Run autonomously until an objective is met (loops the session)',
+    argumentHint: '[max] <objective>'
+  },
   { name: 'clear', description: 'Start a new conversation', aliases: ['new'] },
   { name: 'help', description: 'Show available commands' }
 ]

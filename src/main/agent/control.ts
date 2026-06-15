@@ -34,3 +34,10 @@ export async function interruptRun(runId: string): Promise<void> {
     }
   }
 }
+
+/** Interrupt EVERY in-flight run — called on window-close / app-quit so a closing
+ * window can't leave an SDK subprocess streaming (and billing) in the background
+ * (notably on macOS, where closing the last window doesn't quit the app). */
+export async function interruptAll(): Promise<void> {
+  await Promise.all([...active.keys()].map((id) => interruptRun(id)))
+}

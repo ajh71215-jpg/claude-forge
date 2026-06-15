@@ -97,7 +97,8 @@ export function reduceBlocks(blocks: Block[], ev: AgentEvent): Block[] {
         toolId: ev.toolId ?? ev.blockId,
         name: ev.name ?? 'tool',
         inputRaw: '',
-        status: 'running'
+        status: 'running',
+        parentToolId: ev.parentToolId ?? null
       }
       return [...blocks, t]
     }

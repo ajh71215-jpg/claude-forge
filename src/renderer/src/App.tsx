@@ -1,12 +1,16 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import AuthGate from './components/AuthGate'
 import Icon from './components/Icon'
+import Sidebar from './components/Sidebar'
 import TitleBar from './components/TitleBar'
 import ExtendView from './components/extend/ExtendView'
 import Composer from './components/chat/Composer'
 import SquadView from './components/squad/SquadView'
+import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
+import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
+import { ConfirmProvider } from './components/ConfirmDialog'
 import type {
   AuthMode,
   AuthStatus,
@@ -20,15 +24,51 @@ import type {
   EffortLabel
 } from './types'
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
-import {
-  cacheHitPercent,
-  fmtTokens,
-  mcpStatusClass,
-  methodLabel,
-  usageShortLabel,
-  defaultMaxTurns,
-  resolveMaxTurns
-} from './lib/format'
+import { resolveMaxTurns } from './lib/format'
+
+/** Read a JSON value from localStorage, falling back to a default on any error. */
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? fallback : (JSON.parse(raw) as T)
+  } catch {
+    return fallback
+  }
+}
+
+/** Persist a JSON value to localStorage (best-effort). */
+function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* ignore quota / serialization errors */
+  }
+}
+
+/** One open conversation tab. `key` is also the isolated workspace id for the
+ * conversation, so concurrent tabs can't edit the same files. */
+interface ChatTab {
+  key: string
+  sessionId: string | null
+  /** Bumped to force the Composer to reset/restore when the tab's session changes. */
+  sessionKey: number
+}
+
+const WS_MAP_KEY = 'forge-session-ws'
+const MAX_TABS = 5
+
+/** Stable workspace id for a resumed session (so it reuses the dir where it did
+ * its file work), or null if this session predates the mapping. */
+function wsKeyForSession(sid: string): string | null {
+  return loadJson<Record<string, string>>(WS_MAP_KEY, {})[sid] ?? null
+}
+/** Remember which workspace a session belongs to, so a later resume reuses it. */
+function rememberSessionWs(sid: string, key: string): void {
+  const m = loadJson<Record<string, string>>(WS_MAP_KEY, {})
+  if (m[sid] === key) return
+  m[sid] = key
+  saveJson(WS_MAP_KEY, m)
+}
 
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
@@ -46,18 +86,20 @@ export default function App(): JSX.Element {
   }, [])
 
   return (
-    <div className="app">
-      <TitleBar />
-      <div className="app-body">
-        {status === null ? (
-          <div className="boot">heating the forge…</div>
-        ) : status.mode === null ? (
-          <AuthGate hasExistingLogin={status.hasExistingLogin} onAuthed={refresh} />
-        ) : (
-          <MainShell mode={status.mode} onClear={refresh} />
-        )}
+    <ConfirmProvider>
+      <div className="app">
+        <TitleBar />
+        <div className="app-body">
+          {status === null ? (
+            <div className="boot">heating the forge…</div>
+          ) : status.mode === null ? (
+            <AuthGate hasExistingLogin={status.hasExistingLogin} onAuthed={refresh} />
+          ) : (
+            <MainShell mode={status.mode} onClear={refresh} />
+          )}
+        </div>
       </div>
-    </div>
+    </ConfirmProvider>
   )
 }
 
@@ -79,21 +121,34 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   })
   const [subUsage, setSubUsage] = useState<UsageInfo | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [sessionKey, setSessionKey] = useState(0)
+  // Open conversation tabs. Each runs concurrently in its own isolated workspace
+  // (tab.key) and keeps streaming when you switch tabs (no interrupt). The active
+  // conversation's sessionId drives the sidebar highlight + usage.
+  const [tabs, setTabs] = useState<ChatTab[]>(() => [{ key: 't0', sessionId: null, sessionKey: 0 }])
+  const [activeKey, setActiveKey] = useState('t0')
+  const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
+  const sessionId = activeTab?.sessionId ?? null
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
-  // account default model).
-  const [maxTurnsByModel, setMaxTurnsByModel] = useState<Record<string, number>>({})
+  // account default model). Persisted (with the budget/auto-compact LIMITS) so a
+  // safety cap the user set survives restarts instead of silently resetting to off.
+  const [maxTurnsByModel, setMaxTurnsByModel] = useState<Record<string, number>>(() =>
+    loadJson('forge-max-turns', {})
+  )
   const maxTurns = resolveMaxTurns(maxTurnsByModel, model)
   const setMaxTurns = (n: number): void =>
     setMaxTurnsByModel((m) => ({ ...m, [model]: Math.max(1, n) }))
-  const [maxBudget, setMaxBudget] = useState(0) // 0 = off
-  const [autoCompact, setAutoCompact] = useState(false)
+  const [maxBudget, setMaxBudget] = useState<number>(() => loadJson('forge-max-budget', 0)) // 0 = off
+  const [autoCompact, setAutoCompact] = useState<boolean>(() => loadJson('forge-auto-compact', false))
   const [costSaver, setCostSaver] = useState(false)
-  const [view, setView] = useState<'chat' | 'squad' | 'extend' | 'guide'>('chat')
+  // Persist the LIMITS settings whenever they change.
+  useEffect(() => saveJson('forge-max-turns', maxTurnsByModel), [maxTurnsByModel])
+  useEffect(() => saveJson('forge-max-budget', maxBudget), [maxBudget])
+  useEffect(() => saveJson('forge-auto-compact', autoCompact), [autoCompact])
+  const [view, setView] = useState<'chat' | 'squad' | 'cost' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
@@ -119,9 +174,20 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       .then(setPersonaState)
       .catch(() => setPersonaState({ enabled: false, mode: 'append', text: '' }))
     // Refresh plan usage on a slow timer instead of every turn (avoids a
-    // /usage subprocess spawn per message).
-    const timer = window.setInterval(refreshUsage, 90_000)
-    return () => window.clearInterval(timer)
+    // /usage subprocess spawn per message). Skip ticks while the window is hidden
+    // — no point spawning a /usage subprocess for a backgrounded window — and
+    // refresh once when it becomes visible again so the panel isn't stale.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshUsage()
+    }, 90_000)
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') refreshUsage()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   const models: ModelInfo[] = caps?.models ?? []
@@ -148,19 +214,66 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     refreshSessions()
   }
 
-  // Prompt-cache hit rate via the single validated helper (lever 1) instead of an
-  // inline duplicate — read ÷ (fresh + read + write). Numerically identical to the
-  // old promptTotal-based calc (contextTokens == fresh+read+write per turn), now
-  // also explicitly accounting for the write side.
-  const cacheHitPct = cacheHitPercent(usage.input, usage.cacheRead, usage.cacheWrite) ?? 0
-
+  // ── Conversation tabs ──
+  /** Open a fresh conversation tab (or focus an existing empty one / the cap). */
   function newSession(): void {
-    setSessionId(null)
-    setSessionKey((k) => k + 1)
+    const empty = tabs.find((t) => t.sessionId === null)
+    if (empty) {
+      setActiveKey(empty.key)
+      return
+    }
+    if (tabs.length >= MAX_TABS) return // at cap — close a tab first
+    const t: ChatTab = { key: crypto.randomUUID(), sessionId: null, sessionKey: 0 }
+    setTabs((prev) => [...prev, t])
+    setActiveKey(t.key)
   }
+  /** Open a saved conversation: focus its tab if open, else load it (reusing the
+   * active empty tab when possible) so it resumes in its original workspace. */
   function resumeSession(id: string): void {
-    setSessionId(id)
-    setSessionKey((k) => k + 1)
+    const open = tabs.find((t) => t.sessionId === id)
+    if (open) {
+      setActiveKey(open.key)
+      return
+    }
+    const wsKey = wsKeyForSession(id) ?? crypto.randomUUID()
+    rememberSessionWs(id, wsKey)
+    const active = tabs.find((t) => t.key === activeKey)
+    if ((active && active.sessionId === null) || tabs.length >= MAX_TABS) {
+      const target = active && active.sessionId === null ? active.key : activeKey
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.key === target ? { key: wsKey, sessionId: id, sessionKey: t.sessionKey + 1 } : t
+        )
+      )
+      setActiveKey(wsKey)
+      return
+    }
+    setTabs((prev) => [...prev, { key: wsKey, sessionId: id, sessionKey: 0 }])
+    setActiveKey(wsKey)
+  }
+  /** Reset a tab to a fresh conversation (the /clear or /new command within it). */
+  function resetTab(key: string): void {
+    setTabs((prev) =>
+      prev.map((t) => (t.key === key ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
+    )
+  }
+  /** A run in `key` established its session id — record it (+ its workspace). */
+  function setTabSession(key: string, sid: string): void {
+    rememberSessionWs(sid, key)
+    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, sessionId: sid } : t)))
+  }
+  /** Close a tab (always keep at least one); focus a neighbor if it was active. */
+  function closeTab(key: string): void {
+    if (tabs.length <= 1) return
+    const idx = tabs.findIndex((t) => t.key === key)
+    const next = tabs.filter((t) => t.key !== key)
+    setTabs(next)
+    if (key === activeKey) setActiveKey(next[Math.max(0, idx - 1)].key)
+  }
+  /** Title for a tab: the saved session's title, else "New chat". */
+  function tabTitle(t: ChatTab): string {
+    if (!t.sessionId) return 'New chat'
+    return sessions.find((s) => s.sessionId === t.sessionId)?.title ?? 'Chat'
   }
   // Manually choosing a model/effort exits cost-saver mode.
   function chooseModel(v: string): void {
@@ -197,295 +310,122 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     onClear()
   }
 
+  // Cmd/Ctrl+K toggles the command palette.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Actions surfaced in the command palette — the shell's existing handlers, made
+  // keyboard-reachable. Rebuilt when the dynamic lists (models/sessions) change.
+  const paletteActions = useMemo<PaletteAction[]>(() => {
+    const go = (label: string, v: typeof view): PaletteAction => ({
+      id: 'view-' + v,
+      section: 'Go to',
+      label,
+      run: () => setView(v)
+    })
+    const acts: PaletteAction[] = [
+      go('Chat', 'chat'),
+      go('Agents', 'squad'),
+      go('Cost & Cache', 'cost'),
+      go('Extend', 'extend'),
+      go('Guide', 'guide'),
+      { id: 'new', section: 'Session', label: 'New conversation', hint: '/new', run: newSession },
+      {
+        id: 'persona',
+        section: 'Agent',
+        label: 'Customize agent…',
+        keywords: 'persona system prompt',
+        run: () => setShowPersona(true)
+      },
+      {
+        id: 'saver',
+        section: 'Settings',
+        label: costSaver ? 'Turn off cost-saver routing' : 'Turn on cost-saver routing',
+        keywords: 'cheap difficulty route',
+        run: () => setCostSaver((v) => !v)
+      }
+    ]
+    for (const p of PERMS)
+      acts.push({
+        id: 'perm-' + p.id,
+        section: 'Permission',
+        label: `Permission: ${p.title}`,
+        keywords: p.desc,
+        run: () => setPermission(p.id)
+      })
+    for (const e of EFFORTS)
+      if (effortSupported(e))
+        acts.push({ id: 'effort-' + e, section: 'Effort', label: `Effort: ${e}`, run: () => chooseEffort(e) })
+    for (const m of models)
+      acts.push({
+        id: 'model-' + m.value,
+        section: 'Model',
+        label: `Model: ${m.displayName}`,
+        keywords: m.value,
+        run: () => chooseModel(m.value)
+      })
+    for (const s of sessions.slice(0, 8))
+      acts.push({
+        id: 'sess-' + s.sessionId,
+        section: 'Resume',
+        label: s.title,
+        run: () => resumeSession(s.sessionId)
+      })
+    acts.push({ id: 'disconnect', section: 'Account', label: 'Disconnect', run: clear })
+    return acts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, sessions, costSaver, modelEfforts])
+
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">⚒</span> FORGE
-        </div>
-
-        <div className="conn">
-          <div className="conn-dot" />
-          <div>
-            <div className="conn-label">CONNECTED</div>
-            <div className="conn-method">{methodLabel(mode)}</div>
-          </div>
-        </div>
-
-        <label className={`saver-toggle ${costSaver ? 'on' : ''}`}>
-          <input
-            type="checkbox"
-            checked={costSaver}
-            onChange={(e) => setCostSaver(e.target.checked)}
-          />
-          <div>
-            <div className="saver-title">
-              <Icon name="bolt" className="saver-icon" /> COST-SAVER
-            </div>
-            <div className="saver-desc">Auto-route each task by difficulty</div>
-          </div>
-        </label>
-
-        <div className={`selector ${costSaver ? 'dim' : ''}`}>
-          <div className="selector-label">MODEL</div>
-          <div className="model-list">
-            {caps === null && <div className="selector-hint">loading models…</div>}
-            {caps && models.length === 0 && <div className="selector-hint">no models available</div>}
-            {model && models.length > 0 && !models.some((m) => m.value === model) && (
-              <button className="model-card on" onClick={() => chooseModel(model)}>
-                <div className="model-name">{model}</div>
-                <div className="model-desc">custom model id (via /model)</div>
-              </button>
-            )}
-            {models.map((m) => (
-              <button
-                key={m.value}
-                className={`model-card ${!costSaver && model === m.value ? 'on' : ''}`}
-                onClick={() => chooseModel(m.value)}
-              >
-                <div className="model-name">{m.displayName}</div>
-                {m.description && <div className="model-desc">{m.description}</div>}
-              </button>
-            ))}
-          </div>
-          {costSaver && (
-            <div className="selector-hint">auto-routed per task → haiku · sonnet · opus</div>
-          )}
-        </div>
-
-        <div className={`selector ${costSaver ? 'dim' : ''}`}>
-          <div className="selector-label">EFFORT</div>
-          <div className="effort-grid">
-            {EFFORTS.map((e) => {
-              const ok = effortSupported(e)
-              return (
-                <button
-                  key={e}
-                  className={`effort-cell ${!costSaver && effort === e ? 'on' : ''}`}
-                  disabled={!ok}
-                  title={ok ? undefined : `${model} has no separate effort control`}
-                  onClick={() => chooseEffort(e)}
-                >
-                  {e}
-                </button>
-              )
-            })}
-          </div>
-          {costSaver ? (
-            <div className="selector-hint">auto-routed per task difficulty</div>
-          ) : modelEfforts && modelEfforts.length === 0 ? (
-            <div className="selector-hint">{model} runs at a fixed effort</div>
-          ) : (
-            (effort === 'XHIGH' || effort === 'MAX') && (
-              <div className="effort-warn">⚠ high token use</div>
-            )
-          )}
-        </div>
-
-        <div className="selector">
-          <div className="selector-label">LIMITS</div>
-          <div className="limit-row">
-            <label htmlFor="maxturns">max turns</label>
-            <input
-              id="maxturns"
-              type="number"
-              min={1}
-              max={200}
-              value={maxTurns}
-              onChange={(e) => setMaxTurns(Number(e.target.value) || 1)}
-            />
-          </div>
-          <div className="selector-hint">
-            per <b>{model}</b> · default {defaultMaxTurns(model)}
-            {maxTurnsByModel[model] !== undefined && (
-              <button
-                type="button"
-                className="link-reset"
-                onClick={() =>
-                  setMaxTurnsByModel((m) => {
-                    const next = { ...m }
-                    delete next[model]
-                    return next
-                  })
-                }
-              >
-                reset
-              </button>
-            )}
-          </div>
-          <div className="limit-row">
-            <label htmlFor="maxbudget">max $ / run</label>
-            <input
-              id="maxbudget"
-              type="number"
-              min={0}
-              step={0.5}
-              placeholder="off"
-              value={maxBudget || ''}
-              onChange={(e) => setMaxBudget(Math.max(0, Number(e.target.value) || 0))}
-            />
-          </div>
-          <label className="limit-check">
-            <input
-              type="checkbox"
-              checked={autoCompact}
-              onChange={(e) => setAutoCompact(e.target.checked)}
-            />
-            auto-compact at 80% context
-          </label>
-        </div>
-
-        <div className="selector">
-          <div className="selector-label">PERMISSIONS</div>
-          <div className="perm-list">
-            {PERMS.map((p) => (
-              <button
-                key={p.id}
-                className={`perm-card ${permission === p.id ? 'on' : ''}`}
-                onClick={() => setPermission(p.id)}
-              >
-                <div className="perm-title">{p.title}</div>
-                <div className="perm-desc">{p.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="selector">
-          <div className="selector-head">
-            <div className="selector-label">AGENT</div>
-            <button className="mini-btn" onClick={() => setShowPersona(true)}>
-              ✎ Customize
-            </button>
-          </div>
-          <button className="persona-card" onClick={() => setShowPersona(true)}>
-            <div className="persona-row">
-              <span
-                className={`persona-dot ${persona?.enabled && persona.text.trim() ? 'on' : ''}`}
-              />
-              <span className="persona-state">
-                {persona?.enabled && persona.text.trim()
-                  ? 'Custom behavior active'
-                  : 'Default behavior'}
-              </span>
-            </div>
-            {persona?.enabled && persona.text.trim() ? (
-              <div className="persona-preview">
-                {persona.text.trim().slice(0, 90)}
-                {persona.text.trim().length > 90 ? '…' : ''}
-              </div>
-            ) : (
-              <div className="persona-preview muted">
-                Click to give the agent custom instructions
-              </div>
-            )}
-          </button>
-        </div>
-
-        <div className="selector">
-          <div className="selector-label">MCP SERVERS</div>
-          <div className="mcp-list">
-            {caps === null && <div className="selector-hint">…</div>}
-            {caps && mcpServers.length === 0 && <div className="selector-hint">none configured</div>}
-            {mcpServers.map((s) => (
-              <div className="mcp-row" key={s.name} title={s.url ?? ''}>
-                <span className={`mcp-dot ${mcpStatusClass(s.status)}`} />
-                <span className="mcp-name">{s.name.replace(/^claude\.ai /, '')}</span>
-                <span className="mcp-status">{s.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="selector">
-          <div className="selector-head">
-            <div className="selector-label">CONVERSATIONS</div>
-            <button className="mini-btn" onClick={newSession}>
-              + New
-            </button>
-          </div>
-          <div className="conv-list">
-            {sessions.length === 0 && <div className="selector-hint">no saved conversations</div>}
-            {sessions.slice(0, 12).map((s) => (
-              <button
-                key={s.sessionId}
-                className={`conv-row ${sessionId === s.sessionId ? 'on' : ''}`}
-                title={s.firstPrompt ?? s.title}
-                onClick={() => resumeSession(s.sessionId)}
-              >
-                {s.title}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="selector session">
-          <div className="selector-head">
-            <div className="selector-label">PLAN USAGE</div>
-            <div className="usage-head-right">
-              {caps?.account?.subscriptionType && (
-                <span className="plan-badge">{caps.account.subscriptionType}</span>
-              )}
-              <button className="mini-btn" title="Refresh usage" onClick={refreshUsage}>
-                ↻
-              </button>
-            </div>
-          </div>
-          {!subUsage && <div className="selector-hint">…</div>}
-          {subUsage && subUsage.entries.length === 0 && (
-            <div className="selector-hint">usage unavailable</div>
-          )}
-          {subUsage?.entries.map((e) => (
-            <div className="usage-entry" key={e.label}>
-              <div className="usage-top">
-                <span className="usage-label">{usageShortLabel(e.label)}</span>
-                <span className="usage-pct">{e.percent}%</span>
-              </div>
-              <div className="usage-bar">
-                <div
-                  className={`usage-fill ${e.percent >= 80 ? 'hot' : ''}`}
-                  style={{ width: `${Math.min(100, e.percent)}%` }}
-                />
-              </div>
-              <div className="usage-reset">resets {e.resets}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="selector">
-          <div className="selector-label">TOKENS · THIS SESSION</div>
-          <div className="tok-grid">
-            <div className="tok-cell">
-              <div className="tok-num">{fmtTokens(usage.input)}</div>
-              <div className="tok-lbl">fresh in</div>
-            </div>
-            <div className="tok-cell">
-              <div className="tok-num">{fmtTokens(usage.output)}</div>
-              <div className="tok-lbl">out</div>
-            </div>
-          </div>
-          <div className="usage-entry tok-cache">
-            <div className="usage-top">
-              <span className="usage-label">cache reuse</span>
-              <span className="usage-pct">{cacheHitPct}%</span>
-            </div>
-            <div className="usage-bar">
-              <div className="usage-fill" style={{ width: cacheHitPct + '%' }} />
-            </div>
-            <div className="usage-reset">
-              {fmtTokens(usage.cacheRead)} read · {fmtTokens(usage.cacheWrite)} written of{' '}
-              {fmtTokens(usage.promptTotal)} input tokens
-            </div>
-          </div>
-          <div className="session-meta local-cost">
-            ${usage.costUsd.toFixed(4)} · {usage.runs} run{usage.runs === 1 ? '' : 's'}
-          </div>
-        </div>
-
-        <button className="ghost" onClick={clear}>
-          Disconnect
-        </button>
-      </aside>
+      <Sidebar
+        mode={mode}
+        caps={caps}
+        models={models}
+        mcpServers={mcpServers}
+        model={model}
+        permission={permission}
+        effort={effort}
+        costSaver={costSaver}
+        modelEfforts={modelEfforts}
+        effortSupported={effortSupported}
+        maxTurns={maxTurns}
+        maxTurnsByModel={maxTurnsByModel}
+        maxBudget={maxBudget}
+        autoCompact={autoCompact}
+        subUsage={subUsage}
+        usage={usage}
+        sessions={sessions}
+        sessionId={sessionId}
+        persona={persona}
+        onChooseModel={chooseModel}
+        onChooseEffort={chooseEffort}
+        onSetPermission={setPermission}
+        onSetCostSaver={setCostSaver}
+        onSetMaxTurns={setMaxTurns}
+        onResetMaxTurns={() =>
+          setMaxTurnsByModel((m) => {
+            const next = { ...m }
+            delete next[model]
+            return next
+          })
+        }
+        onSetMaxBudget={setMaxBudget}
+        onSetAutoCompact={setAutoCompact}
+        onRefreshUsage={refreshUsage}
+        onNewSession={newSession}
+        onResumeSession={resumeSession}
+        onShowPersona={() => setShowPersona(true)}
+        onDisconnect={clear}
+      />
       <main className="main main-work">
         <div className="mode-tabs">
           <button
@@ -503,6 +443,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             AGENTS
           </button>
           <button
+            className={`mode-tab ${view === 'cost' ? 'on' : ''}`}
+            onClick={() => setView('cost')}
+          >
+            <Icon name="cost" />
+            COST
+          </button>
+          <button
             className={`mode-tab ${view === 'extend' ? 'on' : ''}`}
             onClick={() => setView('extend')}
           >
@@ -518,29 +465,76 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           </button>
         </div>
         <div className="view-body">
-          <div className="view-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
-            <Composer
-              model={model}
-              permission={permission}
-              effort={effortOption(effort)}
-              commands={commands}
-              models={models}
-              maxTurnsByModel={maxTurnsByModel}
-              maxBudget={maxBudget}
-              autoCompact={autoCompact}
-              costSaver={costSaver}
-              onResult={onResult}
-              sessionId={sessionId}
-              sessionKey={sessionKey}
-              onSession={setSessionId}
-              onSetModel={chooseModel}
-              onSetEffort={chooseEffort}
-              onSetPermission={setPermission}
-              onNewSession={newSession}
-            />
+          <div className="view-pane chat-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
+            <div className="chat-tabs" role="tablist">
+              {tabs.map((t) => (
+                <div
+                  key={t.key}
+                  className={`chat-tab ${t.key === activeKey ? 'on' : ''}`}
+                  onClick={() => setActiveKey(t.key)}
+                  title={tabTitle(t)}
+                >
+                  <span className="chat-tab-title">{tabTitle(t)}</span>
+                  {tabs.length > 1 && (
+                    <button
+                      className="chat-tab-x"
+                      title="Close conversation"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(t.key)
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                className="chat-tab-new"
+                title="New conversation (isolated workspace)"
+                disabled={tabs.length >= MAX_TABS}
+                onClick={newSession}
+              >
+                ＋
+              </button>
+            </div>
+            {/* One Composer per open tab, all kept mounted so background
+                conversations keep streaming when you switch (each runs in its own
+                workspace). Only the active tab is shown. */}
+            {tabs.map((t) => (
+              <div
+                key={t.key}
+                className="chat-tab-pane"
+                style={{ display: t.key === activeKey ? 'flex' : 'none' }}
+              >
+                <Composer
+                  model={model}
+                  permission={permission}
+                  effort={effortOption(effort)}
+                  commands={commands}
+                  models={models}
+                  maxTurnsByModel={maxTurnsByModel}
+                  maxBudget={maxBudget}
+                  autoCompact={autoCompact}
+                  costSaver={costSaver}
+                  onResult={onResult}
+                  workspaceId={t.key}
+                  sessionId={t.sessionId}
+                  sessionKey={t.sessionKey}
+                  onSession={(id) => setTabSession(t.key, id)}
+                  onSetModel={chooseModel}
+                  onSetEffort={chooseEffort}
+                  onSetPermission={setPermission}
+                  onNewSession={() => resetTab(t.key)}
+                />
+              </div>
+            ))}
           </div>
           <div className="view-pane" style={{ display: view === 'squad' ? 'flex' : 'none' }}>
             <SquadView />
+          </div>
+          <div className="view-pane" style={{ display: view === 'cost' ? 'flex' : 'none' }}>
+            <CostView />
           </div>
           <div className="view-pane" style={{ display: view === 'extend' ? 'flex' : 'none' }}>
             <ExtendView
@@ -554,6 +548,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           </div>
         </div>
       </main>
+      {paletteOpen && (
+        <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />
+      )}
       {showPersona && (
         <PersonaModal
           initial={persona ?? { enabled: false, mode: 'append', text: '' }}

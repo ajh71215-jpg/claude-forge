@@ -64,6 +64,10 @@ export type Block =
       inputRaw: string
       status: 'running' | 'ok' | 'error'
       result?: string
+      /** SDK parent_tool_use_id: when set, this tool was run by a subagent (the
+       * Task tool_use that spawned it). Used to nest subagent tools under their
+       * parent Task in the transcript (mirrors the Agents dashboard). */
+      parentToolId?: string | null
     }
 
 export interface Todo {

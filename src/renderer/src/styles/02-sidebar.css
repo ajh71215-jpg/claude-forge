@@ -644,6 +644,27 @@
   padding: 10px 20px;
 }
 
+/* themed confirm dialog (replaces native window.confirm) */
+.confirm-modal {
+  width: 400px;
+}
+.confirm-msg {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  user-select: text;
+}
+.primary.danger {
+  background: var(--danger);
+}
+.primary.danger:hover:not(:disabled) {
+  background: #e09177;
+}
+
 /* ---- AGENT persona (sidebar card) ---- */
 .persona-card {
   display: block;

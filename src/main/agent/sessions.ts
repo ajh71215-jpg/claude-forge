@@ -1,6 +1,7 @@
 // Past-conversation listing + transcript reconstruction (docs/MAINTAINABILITY.md
 // Phase 4). Extracted verbatim from the former src/main/agent.ts.
 
+import { sep } from 'path'
 import { workspaceDir } from './env'
 import { toolContentToString } from './helpers'
 import type { SessionInfo, TranscriptItem } from './types'
@@ -67,9 +68,11 @@ export async function getSessions(): Promise<SessionInfo[]> {
     const all: any[] = (await sdk.listSessions()) ?? []
     // Runs are anchored to the Forge workspace (see ensureWorkspace), so match
     // sessions to it — not process.cwd(), which differs in dev vs packaged.
+    // Concurrent conversations run in ISOLATED subdirs (<root>/ws/<id>), so accept
+    // the root and anything under it, not just an exact root match.
     const cwd = workspaceDir()
     return all
-      .filter((s) => !s.cwd || s.cwd === cwd)
+      .filter((s) => !s.cwd || s.cwd === cwd || s.cwd.startsWith(cwd + sep))
       // Hide internal/utility sessions (usage probes, empty capability queries).
       .filter((s) => {
         const fp = (s.firstPrompt ?? '').trim()

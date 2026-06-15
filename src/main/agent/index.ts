@@ -23,7 +23,7 @@ export type {
 } from './types'
 
 export { workspaceDir } from './env'
-export { respondPermission, respondDialog, interruptRun } from './control'
+export { respondPermission, respondDialog, interruptRun, interruptAll } from './control'
 export { getCapabilities } from './capabilities'
 export { getUsage } from './usage'
 export { getSessions, getTranscript } from './sessions'

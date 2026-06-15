@@ -5,6 +5,88 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* ── conversation tabs (concurrent, isolated-workspace conversations) ── */
+.chat-pane {
+  flex-direction: column;
+}
+.chat-pane > .chat-tabs {
+  flex: none; /* override .view-pane > * { flex: 1 } */
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 10px 0;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.chat-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: var(--bg-raised);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chat-tab.on {
+  background: var(--bg);
+  color: var(--amber-bright);
+  border-color: var(--amber-dim);
+}
+.chat-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tab-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+  border-radius: 4px;
+}
+.chat-tab-x:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
+.chat-tab-new {
+  flex: none;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 11px;
+}
+.chat-tab-new:hover:not(:disabled) {
+  color: var(--amber-bright);
+  border-color: var(--amber-dim);
+}
+.chat-tab-new:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.chat-tab-pane {
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-tab-pane > .work {
+  flex: 1;
+  min-height: 0;
+}
 .work.drag-over {
   outline: 2px dashed var(--amber);
   outline-offset: -6px;
@@ -103,6 +185,38 @@
   align-items: center;
   gap: 12px;
   flex: none;
+}
+/* conversation export dropdown */
+.export-wrap {
+  position: relative;
+}
+.export-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.export-item {
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 7px 10px;
+}
+.export-item:hover {
+  background: var(--bg-raised);
+  color: var(--amber-bright);
 }
 .ctx-gauge {
   display: flex;
@@ -408,6 +522,39 @@
 }
 .tool-card.error {
   border-color: var(--danger);
+}
+/* Subagent tool nesting — a subagent's inner tools indent under their parent
+   Task with a connecting rail, and can be collapsed. */
+.subagent-nest {
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--amber-dim);
+}
+.subagent-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0;
+  padding: 2px 8px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.subagent-toggle:hover {
+  color: var(--text);
+  border-color: var(--amber-dim);
+}
+.subagent-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-card.nested {
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
 }
 .tool-row {
   display: flex;
@@ -831,6 +978,63 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 1px 6px;
+}
+/* /goal autonomous loop banner — pinned above the composer while a goal runs */
+.goal-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 9%, var(--bg-raised));
+  font-size: 12px;
+}
+.goal-spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in srgb, var(--amber) 30%, transparent);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.goal-mark {
+  flex: none;
+}
+.goal-label {
+  flex: none;
+  color: var(--amber-bright);
+  letter-spacing: 0.08em;
+  font-size: 10.5px;
+}
+.goal-obj {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.goal-iter {
+  flex: none;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.goal-stop {
+  flex: none;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 3px 9px;
+}
+.goal-stop:hover {
+  color: var(--text);
+  border-color: var(--amber);
 }
 /* Cursor-style prompt chevron in the composer */
 .composer-prompt {

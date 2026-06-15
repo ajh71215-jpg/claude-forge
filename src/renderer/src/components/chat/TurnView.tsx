@@ -1,7 +1,7 @@
 // One user→assistant exchange in the live transcript (docs/MAINTAINABILITY.md
 // Phase 2). Extracted verbatim from App.tsx — behavior-preserving. Memoization
 // is docs/PERFORMANCE.md lever 3 (do not change without re-profiling).
-import { memo, type JSX } from 'react'
+import { Fragment, memo, useState, type JSX } from 'react'
 import type { Block, Turn } from '../../types'
 import BlockView from './BlockView'
 import Elapsed from './Elapsed'
@@ -18,7 +18,63 @@ const TurnView = memo(function TurnView({
   onRetry: (prompt: string) => void
   onEdit: (prompt: string) => void
 }): JSX.Element {
-  const lastIdx = turn.blocks.length - 1
+  // Subagent tool groups can be collapsed (set of parent toolIds the user hid).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const toggle = (id: string): void =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const lastId = turn.blocks.length ? turn.blocks[turn.blocks.length - 1].id : null
+
+  // Group a subagent's tool blocks under their parent Task. A block is a child
+  // iff its parentToolId matches the toolId of another tool block in this turn
+  // (the SDK forwards parent_tool_use_id). One pass builds the parent→children
+  // map; the rest render at top level. (Mirrors agentActivity.ts attribution.)
+  const toolIds = new Set<string>()
+  for (const b of turn.blocks) if (b.kind === 'tool') toolIds.add(b.toolId)
+  const childrenByParent = new Map<string, Block[]>()
+  const isChild = (b: Block): boolean =>
+    b.kind === 'tool' && !!b.parentToolId && toolIds.has(b.parentToolId)
+  for (const b of turn.blocks) {
+    if (b.kind === 'tool' && b.parentToolId && toolIds.has(b.parentToolId)) {
+      const arr = childrenByParent.get(b.parentToolId)
+      if (arr) arr.push(b)
+      else childrenByParent.set(b.parentToolId, [b])
+    }
+  }
+  const topLevel = turn.blocks.filter((b) => !isChild(b))
+
+  // Render a list of blocks, recursively nesting any subagent children under the
+  // parent Task (depth>0 → indented + collapsible). Depth is normally ≤1 (the
+  // lead spawns subagents; subagents rarely spawn more), but recursion keeps any
+  // block from being dropped at deeper nesting.
+  const render = (list: Block[], depth: number): JSX.Element[] =>
+    list.map((b) => {
+      const toolId = b.kind === 'tool' ? b.toolId : null
+      const kids = toolId ? childrenByParent.get(toolId) : undefined
+      const node = (
+        <BlockView block={b} streaming={turn.running && b.id === lastId} nested={depth > 0} />
+      )
+      if (!toolId || !kids || kids.length === 0) return <Fragment key={b.id}>{node}</Fragment>
+      const isCollapsed = collapsed.has(toolId)
+      return (
+        <Fragment key={b.id}>
+          {node}
+          <div className="subagent-nest">
+            <button className="subagent-toggle" onClick={() => toggle(toolId)}>
+              ↳ subagent · {kids.length} tool{kids.length === 1 ? '' : 's'}{' '}
+              {isCollapsed ? '▸' : '▾'}
+            </button>
+            {!isCollapsed && <div className="subagent-tools">{render(kids, depth + 1)}</div>}
+          </div>
+        </Fragment>
+      )
+    })
+
   function copy(): void {
     const text = turn.blocks
       .filter((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text')
@@ -38,9 +94,7 @@ const TurnView = memo(function TurnView({
         )}
         {turn.prompt}
       </div>
-      {turn.blocks.map((b, i) => (
-        <BlockView key={b.id} block={b} streaming={turn.running && i === lastIdx} />
-      ))}
+      {render(topLevel, 0)}
       {turn.running && turn.blocks.length === 0 && (
         <div className="forging">
           <span className="forging-dot" />

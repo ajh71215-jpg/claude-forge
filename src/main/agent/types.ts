@@ -37,6 +37,13 @@ export interface RunOptions {
   /** Per-run system prompt (per-agent persona). Overrides the global persona. */
   systemPrompt?: string | { type: 'preset'; preset: 'claude_code'; append?: string }
   /**
+   * Isolated workspace id. Each concurrent conversation runs in its own cwd
+   * (`<workspaceRoot>/ws/<id>/`) so multiple agents can't clobber each other's
+   * files; the shared `.claude/` config is linked in. Absent → the shared root
+   * workspace (legacy single-conversation behavior).
+   */
+  workspaceId?: string
+  /**
    * Named subagents the lead may delegate to via the Task tool (SDK `agents`
    * option). Enables orchestrator-worker topologies. Omitted → no delegation,
    * i.e. identical to current behavior. (docs/SQUAD_ORCHESTRATION.md §6)

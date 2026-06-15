@@ -150,6 +150,73 @@ select {
   font-family: inherit;
 }
 
+/* ---- custom form controls ----
+   Replace the native Windows/OS widgets (checkbox, number spinners, select
+   chevron) with Forge-themed equivalents so the UI looks the same on every
+   platform instead of falling back to OS chrome. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background-color: var(--bg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 72%;
+  cursor: pointer;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+input[type='checkbox']:hover {
+  border-color: var(--amber);
+}
+input[type='checkbox']:checked {
+  background-color: var(--amber);
+  border-color: var(--amber);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%230d0d0e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* number inputs: drop the native spin buttons (very OS-specific) */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* select: themed control + custom chevron (the popup list stays native — that's
+   unavoidable for a <select> — but the closed control matches the theme) */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%239a9aa2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 13px;
+}
+select:focus {
+  border-color: var(--amber);
+  outline: none;
+}
+select option {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
 /* Unified monochrome line-icon (components/Icon.tsx). Sizes to 1em, inherits
    currentColor, so every icon stays on-theme — no more multicolor emoji. */
 .icon {

@@ -13,6 +13,18 @@
 > trivial→haiku · moderate→sonnet · hard→opus[1m] 실증. 정적 게이트 통과(typecheck·build·selftest 59/59,
 > lint 신규문제 0). 상세는 §5 / TOKEN_OPTIMIZATION.md §9.
 >
+> **업데이트(2026-06-15, GOOSE 무료-프로바이더 위임 — Plan A)**: 새 플랜 `docs/GOOSE_INTEGRATION.md`.
+> 메인 Claude가 in-process MCP **`delegate` 툴**로 간단한 서브태스크를 **무료 모델(OpenRouter/Gemini/Groq/
+> Ollama/임의 goose 프로바이더)** 에 위임 → goose(ACP/stdio JSON-RPC)로 실행 → 결과 인라인 반환(허브-앤-
+> 스포크; agent-to-agent 자유채팅 없음). **구현·검증 완료**: `providers.ts`(+forge-providers.json)+IPC+
+> ProvidersPanel(Custom 옵션), `goose/*`(binary·env·acpClient·mapper·runGooseSubtask·delegateTool·registry·
+> quota), runStreaming 배선, routing.pickProvider/orderProviders, `cheap` 키워드, Agents 대시보드 중첩,
+> 인터럽트 정리·동시성캡·런어웨이가드·**429 쿼터 폴백**(프로바이더 순환+쿨다운). 정적 게이트: typecheck 0·
+> **selftest 105**·ensure/spike 스크립트. **라이브 검증(goose 1.37.0)**: initialize→session/new→set_mode→
+> session/prompt 생명주기·env 키주입·usage_update 토큰·다운로드/추출. **잔여(키 필요, GOOSE_INTEGRATION §9
+> 체크리스트)**: session/request_permission 형태→read-only 게이트 확정(현재 fail-closed)·mapper 필드명·
+> quota 정규식·eval 회귀가드. PR #18.
+>
 > **업데이트(2026-06-14, 라이브 세션 — 실제 모델 호출 검증)**: dev(`electron-vite dev --remoteDebuggingPort
 > 9222`) + CDP로 **실제 구독 모델 호출까지 검증**. ① TOKEN 레버1·4 라이브: trivial→haiku 1콜 $0.0452 +
 > 캐시 **22.2k written**, 2콜째 **22.2k read·50% hit**·per-run $0.0452→**$0.0025(18×↓)**. ② **P0 SQUAD

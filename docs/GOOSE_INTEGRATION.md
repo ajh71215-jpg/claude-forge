@@ -241,3 +241,40 @@ Gate: `EVAL_LIVE=1` golden-set run showing **delegation does not drop quality** 
 
 ## 8. Rejected alternative — Plan B (deterministic conductor)
 Recorded for completeness. Forge's pure orchestration core (`conductor`/`topology`/`routing`/`verifier`) builds a validated plan DAG, routes trivial/easy subtasks to goose via `deps.runSubtask`, gates each with the tool-oracle/judge verifier, and walks a fixed cascade ladder `goose-free → haiku → sonnet → opus`, escalating only on a verifier FAIL. Pros: provable, budget-capped, honest same-compute eval. Cons: Claude does not "freely decide" delegation — Forge owns the skeleton. **User chose Plan A** (Claude-as-orchestrator) for flexibility; the conductor stays a tested library (`npm run selftest`) and could back a future "auto-plan" mode without conflicting with the delegate tool.
+
+---
+
+## 9. Follow-up checklist (next session — most need a provider key)
+
+The framework is complete + green (typecheck, selftest 105). What remains is live-confirmation + optional polish. Test path first:
+```bash
+node scripts/ensure-goose.mjs                          # fetch goose into resources/goose/<plat>/
+GOOSE_BIN=resources/goose/<plat>-<arch>/goose \
+GOOSE_PROVIDER=groq GOOSE_MODEL=llama-3.3-70b-versatile GROQ_API_KEY=... \
+  node scripts/goose-spike.mjs "Write hello() to hello.js and return its contents"
+```
+The spike prints the raw `session/update` + `session/request_permission` + error JSON — that output is what closes items A–C.
+
+### A. Finalize the read-only permission gate  — `src/main/goose/runGooseSubtask.ts`
+Currently **fail-closed**: `selectPermissionOption` / `requestedToolAllowed` guess the `session/request_permission` payload (Octopal-documented, not live-verified) and reject on uncertainty. From the spike's `[server-request]` log, confirm the real field names (`params.options[].{optionId,kind}`, the requested tool name path) and adjust the two helpers. Builder mode uses `GOOSE_MODE=auto` (no prompts) and is unaffected.
+
+### B. Confirm the mapper field names  — `src/main/goose/mapper.ts`
+`mapUpdate` reads several likely keys for `agent_message_chunk` (`content.text`/`text`) and `tool_call` (`title`/`toolName`, `rawInput`/`input`). Verify against the spike's `[update]` lines and tighten. `usage_update` (`used`/`size`) is already confirmed live.
+
+### C. Tune quota error classification  — `src/main/goose/quota.ts`
+`RE_RATE` / `RE_DAILY` / `RE_CONFIG` / `RE_UNAVAIL` match against the provider's error text. Trigger a real 429 (hammer a free tier) and confirm the message routes to the right cooldown class (esp. per-day → local midnight).
+
+### D. Eval quality-regression guard  — `eval.ts` / `scripts/eval.mjs` (needs `EVAL_LIVE=1` + key)
+Add a check that delegating simple subtasks to free models does NOT lower golden-set scores vs Claude-only at equal-or-lower $. Keep the §8 honesty bar (don't win by spending more — here "spend" includes quality/latency, not just $).
+
+### E. Optional Phase 4 (key-free, polish — build only if wanted)
+- **"Test provider" button** in `ProvidersPanel` → a `providers:test` IPC that spawns goose + `initialize`/`session/new` (key-free binary/config check) or a 1-token prompt (with key).
+- **Paid-via-goose cost pricing** — price `GooseSubtaskResult.tokensUsed` per model so non-free providers show real $ (free stays $0).
+- **Cost tab "saved" indicator** — surface delegated token volume / estimated savings (`CostView`).
+- **Long-lived pooled sessions** (`goose/pool.ts`) or `goose serve` HTTP transport — replace per-task spawn; only if spawn latency hurts.
+- **Bounded multi-provider debate** topology (rounds + early-stop) — structured disagreement for quality, NOT free-form peer chat.
+
+### Build/packaging reminders
+- `scripts/ensure-goose.mjs` must run per-target before `electron-builder` (it populates `resources/goose/<plat>/`, which `extraResources` bundles). The binary is git-ignored.
+- Pin a concrete goose version in `scripts/goose-version.json` (currently `stable`); re-confirm the release host (`block/goose` vs `aaif-goose/goose`) and add a checksum.
+- On the locked-down Windows box, `goose.exe` spawns like `claude.exe` (asar:false already); confirm `XDG_*` env vars are honored there.

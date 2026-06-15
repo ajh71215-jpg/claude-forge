@@ -34,7 +34,8 @@ The app has five primary views — **Chat**, **Agents**, **Cost**, **Extend**, *
 - **Magic keywords** — typing `ralph`, `ultrathink`, `code-review`, and friends activates an orchestration mode for the run (with false-positive guards), shown as chips.
 - **Agents dashboard** — a live agent-activity view: agent cards with current action + elapsed, an expandable per-agent **tool timeline** (Read/Bash/Write/…), native **subagent** lifecycle/usage with nested inner tools, verifier provenance (🔧 tool oracle / ⚖ judge), and a persisted **History**. Pure local capture — zero extra tokens.
 - **Cost & Cache dashboard** — per-run token/cache/cost aggregation: total cost, **prompt-cache hit %**, token totals, and a per-run breakdown table.
-- **Extend console** — a GUI over the filesystem `.claude/`: Skills, Commands, Hooks, MCP servers, Agents, Plugins. (Secrets-bearing config — MCP, plugins, skill toggles — stay in Forge-private `forge-*.json`, out of model-readable `.claude/`.)
+- **Extend console** — a GUI over the filesystem `.claude/`: Skills, Commands, Hooks, MCP servers, Agents, Plugins, **Providers**. (Secrets-bearing config — MCP, plugins, skill toggles, provider keys — stay in Forge-private `forge-*.json`, out of model-readable `.claude/`.)
+- **Free / multi-provider delegation** *(experimental — needs a provider key)* — register free non-Anthropic models (OpenRouter / Gemini / Groq / Ollama, or any goose-supported provider) under **Extend → Providers**; the orchestrator Claude then offloads simple subtasks to them via a `delegate` tool (driven by [goose](https://github.com/block/goose)) so easy work costs $0, with automatic 429/quota fallback across providers. Design + status in [`docs/GOOSE_INTEGRATION.md`](./docs/GOOSE_INTEGRATION.md). **Note:** delegated subtask content is sent to that provider — not local-only.
 - **Guide** — a first-run feature tour with inline links into each tab.
 - **Desktop pet ("Clawd")** — an optional frameless, transparent, draggable window that animates in reaction to agent activity. Toggleable + persisted.
 - **MCP server status**, **subscription usage %** panel, custom **persona/system prompt**, **token optimization** (cache-stable prompts, difficulty routing, cascade), **Pretendard** font, frameless custom titlebar + themed scrollbar.
@@ -121,7 +122,7 @@ electron.vite.config.ts
 
 ## Privacy & safety
 
-- **Local-only / BYO key.** Your credentials and conversation content stay on your machine; nothing is sent to third-party servers. MCP servers, plugins, and skill toggles live in Forge-private `forge-*.json` so secrets stay out of model-readable `.claude/`.
+- **Local-only / BYO key.** Your credentials and conversation content stay on your machine; nothing is sent to third-party servers. MCP servers, plugins, and skill toggles live in Forge-private `forge-*.json` so secrets stay out of model-readable `.claude/`. **Exception:** if you opt into **free-provider delegation** (Extend → Providers), the content of delegated subtasks *is* sent to that provider — disabled until you add a provider.
 - The Claude Agent SDK's **safety guardrails are intentional and kept intact** — Forge is built entirely on the official SDK, not on any modified or de-guardrailed source.
 
 ## License

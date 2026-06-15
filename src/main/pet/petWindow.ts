@@ -65,7 +65,15 @@ function persistPositionDebounced(): void {
   }, 400)
 }
 
+let ipcRegistered = false
+
+// Drag/interactive handlers are registered ONCE for the app lifetime and guard on
+// the module-level `win`. Registering per-open (paired with removeAllListeners on
+// 'closed') had a rapid enable→disable→enable race where a stale 'closed' could
+// tear down the new window's listeners; a single idempotent registration avoids it.
 function registerIpc(): void {
+  if (ipcRegistered) return
+  ipcRegistered = true
   ipcMain.on('pet:drag-start', () => {
     if (!win) return
     const c = screen.getCursorScreenPoint()
@@ -86,13 +94,6 @@ function registerIpc(): void {
     if (on) win.setIgnoreMouseEvents(false)
     else win.setIgnoreMouseEvents(true, { forward: true })
   })
-}
-
-function unregisterIpc(): void {
-  ipcMain.removeAllListeners('pet:drag-start')
-  ipcMain.removeAllListeners('pet:drag-move')
-  ipcMain.removeAllListeners('pet:drag-end')
-  ipcMain.removeAllListeners('pet:set-interactive')
 }
 
 /** Create (or focus) the pet window. Idempotent. */
@@ -131,11 +132,10 @@ export function openPetWindow(): BrowserWindow {
   // Start click-through; the renderer flips this on body hover via IPC.
   win.setIgnoreMouseEvents(true, { forward: true })
 
-  win.on('ready-to-show', () => win?.showInactive())
+  win.once('ready-to-show', () => win?.showInactive())
   win.on('closed', () => {
     win = null
     dragOrigin = null
-    unregisterIpc()
   })
 
   registerIpc()

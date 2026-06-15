@@ -10,9 +10,12 @@ const config = arg ? JSON.parse(arg.slice('--pet-config='.length)) : { svgBaseUr
 contextBridge.exposeInMainWorld('petConfig', config)
 
 contextBridge.exposeInMainWorld('pet', {
-  /** main → pet: state changed; renderer swaps the displayed svg. */
-  onState: (cb: (state: string, svgFile: string) => void): void => {
-    ipcRenderer.on('pet:state', (_e, state: string, svgFile: string) => cb(state, svgFile))
+  /** main → pet: state changed; renderer swaps the displayed svg. Returns an
+   * unsubscribe fn so a reloaded renderer can drop its old listener (no leak). */
+  onState: (cb: (state: string, svgFile: string) => void): (() => void) => {
+    const listener = (_e: unknown, state: string, svgFile: string): void => cb(state, svgFile)
+    ipcRenderer.on('pet:state', listener as (...args: unknown[]) => void)
+    return () => ipcRenderer.removeListener('pet:state', listener as (...args: unknown[]) => void)
   },
   /** pet → main: begin a drag (main snapshots cursor + window origin). */
   dragStart: (): void => ipcRenderer.send('pet:drag-start'),

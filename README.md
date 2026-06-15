@@ -27,6 +27,9 @@ The app has five primary views — **Chat**, **Agents**, **Cost**, **Extend**, *
 - **Permission modes** — `PLAN` (read-only), `ASK` (approve each tool), `AUTO-EDIT` (auto-approve edits), `YOLO` (bypass). `AskUserQuestion` surfaces as an in-app modal.
 - **Sessions** — conversations list with **resume** and full **transcript restore**; `/compact` to summarize older context and free tokens.
 - **Composer niceties** — prompt history (`↑`/`↓`), message actions (copy / retry / edit), drag-drop image attach + clipboard paste, transcript search (`Ctrl/Cmd+F`), slash-command menu with unknown-command feedback, and conversation **export** (Markdown / JSON).
+- **Conversation management** — rename / pin / delete conversations in the sidebar, **search across all conversations**, and **per-conversation model & persona overrides**.
+- **Workspace file browser** — browse the files an agent created or edited in a conversation's isolated workspace (a pure local fs read — no model, no tokens).
+- **Settings panel & shortcuts** — a consolidated Settings panel (LIMITS / persona / pet / auth — gear in the sidebar or via the palette) and a keyboard-shortcut help overlay (`Cmd/Ctrl+/`).
 - **`/goal [max] <objective>`** — a Forge-native autonomous loop that resumes the session each turn until the goal is achieved / an iteration cap / a cumulative USD budget, with a live goal banner.
 - **Magic keywords** — typing `ralph`, `ultrathink`, `code-review`, and friends activates an orchestration mode for the run (with false-positive guards), shown as chips.
 - **Agents dashboard** — a live agent-activity view: agent cards with current action + elapsed, an expandable per-agent **tool timeline** (Read/Bash/Write/…), native **subagent** lifecycle/usage with nested inner tools, verifier provenance (🔧 tool oracle / ⚖ judge), and a persisted **History**. Pure local capture — zero extra tokens.
@@ -72,6 +75,7 @@ npm run start        # preview the built app
 ```bash
 npm run typecheck    # tsc --noEmit
 npm run selftest     # headless orchestration-core correctness check (~94 assertions, no live session)
+npm run test         # pure renderer-lib unit tests (node:test — no DOM/Electron/SDK)
 npm run lint         # eslint
 npm run format       # prettier --write
 ```
@@ -94,7 +98,8 @@ src/
   main/
     index.ts          thin shell: frameless BrowserWindow + registerAll(ipc) + initPet + initActivity
     agent/            SDK runner — runStreaming() is per-runId & concurrency-safe (+ subtask/usage/sessions/...)
-    ipc/              per-domain IPC handlers (auth, agent, persona, extend, orchestrate, activity, window, pet)
+    ipc/              per-domain IPC handlers (auth, agent, persona, extend, orchestrate, activity, window, pet, workspace)
+    workspace.ts      pure local fs read of a conversation's isolated workspace (backs WorkspaceFiles)
     orchestration.ts  pure data contracts + graph helpers   } the headless-testable
     conductor.ts      plan validation + DAG executor        } orchestration core
     topology.ts routing.ts verifier.ts toolVerifier.ts      } (npm run selftest)
@@ -106,8 +111,9 @@ src/
     index.ts          window.forge bridge       pet.ts  pet-only window.pet bridge
   renderer/src/
     App.tsx           shell + MainShell (sidebar/usage/caps + view routing)
-    components/       chat/ squad/ cost/ extend/ guide/ persona/ palette/ + TitleBar, AuthGate, Md
-    lib/              pure helpers/types (blocks, format, constants, export, ...)
+    components/       chat/ (thin Composer + co-located hooks) squad/ cost/ extend/ guide/ persona/ palette/
+                      + TitleBar, AuthGate, Md, Sidebar, Settings, WorkspaceFiles, ConversationSearch, ShortcutsHelp
+    lib/              pure, tested helpers/types (blocks, format, export, goal, slashCommands, composer, storage, ...)
     styles/           CSS partials (00-core … 08-palette); styles.css is just the @import index
   renderer/pet/       plain-JS pet renderer (no React)
 electron.vite.config.ts

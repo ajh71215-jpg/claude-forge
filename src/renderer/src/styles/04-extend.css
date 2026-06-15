@@ -35,7 +35,7 @@
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .extend-nav-item:hover {
   background: rgba(var(--accent-rgb), 0.06);
@@ -259,7 +259,7 @@
   font-size: 11.5px;
   padding: 6px 11px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .skill-act:hover:not(:disabled) {
   color: var(--text);
@@ -437,7 +437,7 @@ select.hook-select {
   color: var(--muted);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .hook-del:hover {
   color: var(--danger);

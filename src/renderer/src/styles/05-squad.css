@@ -65,7 +65,7 @@
   font-size: 11px;
   padding: 3px 9px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .ad-clear:hover {
   color: var(--danger);

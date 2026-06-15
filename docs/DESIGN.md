@@ -205,7 +205,16 @@ See **Modals** above — `ConfirmDialog.tsx` is the reference implementation (ov
 
 ## 8. Interaction states
 
-**Transitions.** Short and uniform: **`0.12s`** for most state changes (`transition: all 0.12s` on cards/tabs/buttons), `0.15s` for inputs, `0.3s` for bar-fill width animations.
+**Motion tokens** (`00-core.css`, added per the installed `design-taste` skill). Curves are explicit, not the weak CSS built-ins:
+- `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` — enter/press feedback (starts fast = responsive); the default for state changes.
+- `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` — on-screen movement/morph.
+- `--dur-1: 0.12s` (state changes), `--dur-2: 0.2s` (larger transitions).
+
+**Transitions.** Short and uniform: card/tab/button state changes use **`transition: all var(--dur-1) var(--ease-out)`**; `0.15s` for inputs; `0.3s` for bar-fill width animations. Pure *color/hover* fades keep the default `ease` (the skill's decision tree: hover/color → `ease`, enter/press/movement → custom curve) — only escalate to `--ease-out` when a `transform`/lift is involved.
+
+**Reduced motion (mandatory).** A global `@media (prefers-reduced-motion: reduce)` block in `00-core.css` collapses every animation/transition to near-instant (and stops the looping `spin`/`pulse`/`blink`) while preserving comprehension-aiding color/opacity end-states. Every new looping animation is covered automatically by the universal selector — don't reintroduce motion that ignores the OS preference.
+
+**Typography wrapping.** Markdown headings (`.md h1–h4`) use `text-wrap: balance`; prose (`.md p`) uses `text-wrap: pretty` (no orphan words / even ragged edge).
 
 **Hover** — borders brighten one step (`--border` → `--amber-dim` → `--amber`); muted text → `--text` or `--amber-bright`; subtle accent wash `rgba(var(--accent-rgb), 0.08–0.16)` on selectable rows.
 

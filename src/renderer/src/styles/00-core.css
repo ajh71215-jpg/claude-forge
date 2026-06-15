@@ -32,6 +32,16 @@
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 18px 44px rgba(0, 0, 0, 0.6);
+
+  /* Motion — strong custom curves over the weak CSS built-ins, so state
+     changes read as intentional rather than mushy (design-taste skill).
+     --ease-out drives enter/press feedback (starts fast = responsive);
+     --ease-in-out drives on-screen movement. Durations stay short and uniform
+     so the UI feels instant; see the prefers-reduced-motion block below. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-1: 0.12s; /* state changes: hover, press, selection */
+  --dur-2: 0.2s; /* slightly larger transitions */
 }
 
 * {
@@ -273,5 +283,21 @@ button:active:not(:disabled) {
 }
 .brand-mark {
   color: var(--amber);
+}
+
+/* ---- reduced motion (mandatory, design-taste skill) ----
+   Respect the OS "reduce motion" preference: neutralize the looping
+   spin/pulse/blink animations (caret, spinners, running dots, breathing
+   badges) and collapse transitions to near-instant. Comprehension-aiding
+   color/opacity end-states are preserved — only the motion is removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 

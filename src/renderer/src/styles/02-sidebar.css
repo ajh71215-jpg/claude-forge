@@ -51,7 +51,7 @@
   font-size: 11px;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .effort-cell:hover {
   border-color: var(--amber-dim);
@@ -199,7 +199,7 @@
   border: 1px solid var(--border);
   border-radius: 7px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .model-card:hover {
   border-color: var(--amber-dim);
@@ -236,7 +236,7 @@
   border: 1px solid var(--border);
   border-radius: 7px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .perm-card:hover {
   border-color: var(--amber-dim);
@@ -279,7 +279,7 @@
   letter-spacing: 0.06em;
   padding: 3px 8px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .mini-btn:hover {
   border-color: var(--amber);
@@ -563,7 +563,7 @@
   font-size: 11px;
   padding: 4px 9px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .msg-act:hover {
   color: var(--amber-bright);
@@ -799,7 +799,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .persona-mode-btn:hover {
   border-color: var(--amber-dim);
@@ -837,7 +837,7 @@
   font-size: 11px;
   padding: 4px 11px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .persona-chip:hover {
   border-color: var(--amber);
@@ -959,7 +959,7 @@
   padding: 5px 14px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.12s;
+  transition: all var(--dur-1) var(--ease-out);
 }
 .mode-tab .icon {
   width: 1.32em;

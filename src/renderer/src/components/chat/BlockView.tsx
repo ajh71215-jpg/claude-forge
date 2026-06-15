@@ -14,10 +14,13 @@ import Elapsed from './Elapsed'
 // skips re-render on every streaming flush. docs/PERFORMANCE.md lever 3.
 const BlockView = memo(function BlockView({
   block,
-  streaming
+  streaming,
+  nested
 }: {
   block: Block
   streaming: boolean
+  /** True when rendered as a subagent's tool, nested under its parent Task. */
+  nested?: boolean
 }): JSX.Element | null {
   if (block.kind === 'text') {
     if (!block.text && !streaming) return null
@@ -76,7 +79,7 @@ const BlockView = memo(function BlockView({
   const adds = diff ? diff.filter((l) => l.type === 'add').length : 0
   const dels = diff ? diff.filter((l) => l.type === 'del').length : 0
   return (
-    <div className={`tool-card ${block.status}`}>
+    <div className={`tool-card ${block.status}${nested ? ' nested' : ''}`}>
       <div className="tool-row">
         <span className="tool-icon">{toolIcon(block.name)}</span>
         <span className="tool-name">{block.name}</span>

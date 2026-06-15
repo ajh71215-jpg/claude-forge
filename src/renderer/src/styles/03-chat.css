@@ -409,6 +409,39 @@
 .tool-card.error {
   border-color: var(--danger);
 }
+/* Subagent tool nesting — a subagent's inner tools indent under their parent
+   Task with a connecting rail, and can be collapsed. */
+.subagent-nest {
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--amber-dim);
+}
+.subagent-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0;
+  padding: 2px 8px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.subagent-toggle:hover {
+  color: var(--text);
+  border-color: var(--amber-dim);
+}
+.subagent-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tool-card.nested {
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+}
 .tool-row {
   display: flex;
   align-items: center;

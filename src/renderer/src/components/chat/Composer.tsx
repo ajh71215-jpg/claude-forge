@@ -133,7 +133,8 @@ export default function Composer({
   onSetEffort,
   onSetPermission,
   onNewSession,
-  workspaceId
+  workspaceId,
+  isActive = true
 }: {
   model?: string
   permission: Permission
@@ -164,6 +165,10 @@ export default function Composer({
   /** Isolated workspace id for this conversation (per-tab) — keeps concurrent
    * conversations from editing the same files. Threaded into every run. */
   workspaceId?: string
+  /** True when this is the visible tab. All tabs stay mounted (so background
+   * conversations keep streaming), so global side effects (Cmd+F, focus) must be
+   * gated on this to avoid firing in every tab at once. */
+  isActive?: boolean
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [menuIndex, setMenuIndex] = useState(0)
@@ -354,7 +359,9 @@ export default function Composer({
   // Live /compact progress for the progress bar (main streams agent:compact-progress).
   useEffect(() => {
     const unsub = window.forge.agent.onCompactProgress((p) => {
-      setCompactPct(p.pct)
+      // Only this conversation's compact drives this composer's bar — the IPC is
+      // broadcast to every mounted tab, so filter on our session id (H1).
+      if (p.sessionId === sessionIdRef.current) setCompactPct(p.pct)
     })
     return unsub
   }, [])
@@ -758,8 +765,11 @@ export default function Composer({
     return () => clearTimeout(t)
   }, [prompt])
 
-  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it).
+  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it). Only the
+  // visible tab responds — every tab's Composer is mounted, so without this gate
+  // one Cmd+F would toggle search in all of them at once (H2).
   useEffect(() => {
+    if (!isActive) return
     function onKey(e: KeyboardEvent): void {
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault()
@@ -772,7 +782,7 @@ export default function Composer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [searchOpen])
+  }, [searchOpen, isActive])
 
   function onDrop(e: RDragEvent): void {
     e.preventDefault()

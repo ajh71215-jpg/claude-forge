@@ -519,6 +519,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                   costSaver={costSaver}
                   onResult={onResult}
                   workspaceId={t.key}
+                  isActive={t.key === activeKey}
                   sessionId={t.sessionId}
                   sessionKey={t.sessionKey}
                   onSession={(id) => setTabSession(t.key, id)}

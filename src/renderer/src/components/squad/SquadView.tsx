@@ -47,6 +47,11 @@ interface SubMon {
   pass?: boolean
   score?: number
   attempt: number
+  /** 'tool' = objective oracle (typecheck/test/build); 'judge' = haiku rubric. */
+  verifier?: 'tool' | 'judge'
+  /** Per-check evidence lines from the verdict (tooltip on the verdict badge). */
+  evidence?: string[]
+  rationale?: string
 }
 const blankMon = (): SubMon => ({ status: 'idle', samples: [], attempt: 0 })
 
@@ -268,6 +273,10 @@ export default function SquadView(): JSX.Element {
             next.status = 'verifying'
             next.pass = e.verdict?.pass
             next.score = e.verdict?.score
+            const ev = e.verdict?.evidence ?? []
+            next.verifier = ev.includes('verifier=tool') ? 'tool' : 'judge'
+            next.evidence = ev.filter((x) => !x.startsWith('verifier='))
+            next.rationale = e.verdict?.rationale
           } else if (e.type === 'revise') {
             next.status = 'running'
             next.attempt = e.attempt ?? next.attempt
@@ -487,6 +496,26 @@ export default function SquadView(): JSX.Element {
                       <Dropdown value={s.model} options={tierOpts} onChange={(v) => patchSub(s.id, { model: v as ModelTier })} ariaLabel="model" />
                     </label>
                   </div>
+                  <label className="sq-field sq-field-verify">
+                    <span
+                      className="sq-field-l"
+                      title="Objective verification (preferred): semicolon-separated shell commands (typecheck/test/build) run as a TOOL ORACLE instead of an LLM judge. Leave empty to use the haiku rubric judge."
+                    >
+                      verify (tool oracle)
+                    </span>
+                    <input
+                      className="sq-task-verify"
+                      value={(s.verifyCommands ?? []).join(' ; ')}
+                      placeholder="npm run typecheck ; npm test   (optional → uses tool oracle, not judge)"
+                      onChange={(e) => {
+                        const cmds = e.target.value
+                          .split(';')
+                          .map((x) => x.trim())
+                          .filter(Boolean)
+                        patchSub(s.id, { verifyCommands: cmds.length ? cmds : undefined })
+                      }}
+                    />
+                  </label>
                 </div>
               ))}
               <button className="sq-add" onClick={addSub}>
@@ -527,6 +556,20 @@ export default function SquadView(): JSX.Element {
                     </span>
                     <span className="sq-card-status">{STATUS_LABEL[m.status]}</span>
                     {m.samples.length > 0 && <span className="sq-card-samples">{m.samples.length}×</span>}
+                    {m.verifier && (
+                      <span
+                        className={`sq-verifier ${m.verifier}`}
+                        title={
+                          (m.verifier === 'tool'
+                            ? 'Objective tool oracle (typecheck/test/build)'
+                            : 'LLM rubric judge (haiku)') +
+                          (m.evidence?.length ? `\n${m.evidence.join('\n')}` : '') +
+                          (m.rationale ? `\n\n${m.rationale}` : '')
+                        }
+                      >
+                        {m.verifier === 'tool' ? '🔧 tool' : '⚖ judge'}
+                      </span>
+                    )}
                     {m.pass !== undefined && (
                       <span className={`sq-verdict ${m.pass ? 'pass' : 'fail'}`}>
                         {m.pass ? '✓' : '✗'} {m.score !== undefined ? m.score.toFixed(2) : ''}

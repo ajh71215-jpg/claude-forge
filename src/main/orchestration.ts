@@ -21,6 +21,13 @@ export interface Subtask {
   role?: string
   /** Success criteria for the verifier. Empty rubric = unverifiable → rejected. */
   rubric: string
+  /**
+   * Optional objective verification commands (e.g. `npm run typecheck`, `npm test`).
+   * When present, the live verifier runs these as a TOOL ORACLE (no model judge) —
+   * the preferred verifier (docs/SQUAD_ORCHESTRATION.md §3): grounded in a real
+   * toolchain result, so there is no verification gap / reward-hacking surface.
+   */
+  verifyCommands?: string[]
   /** Subtask ids that must complete first (merged with Plan.edges). */
   deps?: string[]
   /** Samples for fanout / self_consistency / debate. */

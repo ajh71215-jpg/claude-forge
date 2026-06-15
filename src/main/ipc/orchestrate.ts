@@ -17,6 +17,8 @@ import { executePlan, validatePlan } from '../conductor'
 import { executeTopology } from '../topology'
 import { runLoop } from '../loop'
 import { runSubtaskQuery } from '../agent/subtaskRunner'
+import { verifyWithTools, execCommandRunner, type ToolCheck } from '../toolVerifier'
+import { workspaceDir } from '../agent/env'
 import { getRole, listRoles, type Role } from '../roles'
 import { detectKeywords, type KeywordMatch } from '../keywords'
 
@@ -147,7 +149,7 @@ function parseJudge(subtaskId: string, text: string, judgeCost: number): Verdict
     // Honest: this is an LLM judge (docs §3 prefers tool oracles WHEN APPLICABLE;
     // read-only text subtasks produce no toolchain artifact to check).
     rationale: `model-judge(haiku): ${text.replace(/\s+/g, ' ').trim().slice(0, 160)}`,
-    evidence: [`judge=haiku`, `judgeCostUsd=${judgeCost.toFixed(4)}`]
+    evidence: [`verifier=judge`, `judge=haiku`, `judgeCostUsd=${judgeCost.toFixed(4)}`]
   }
 }
 
@@ -181,8 +183,37 @@ const liveMakeRun = (send: Send): RunnerFactory => (blackboard) => async (s, ctx
   }
 }
 
-/** Live verifier: a cheap haiku rubric judge whose cost folds into the artifact. */
+/**
+ * Live verifier. PREFERRED PATH (docs §3): when the subtask declares
+ * `verifyCommands`, run them as an objective TOOL ORACLE (typecheck/test/build) in
+ * the workspace — no model, no verification gap, confidence 1. Otherwise fall back
+ * to a cheap haiku rubric judge (read-only text subtasks have no toolchain artifact
+ * to check), whose cost folds into the artifact so the budget governor stays honest.
+ */
 const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
+  const cmds = s.verifyCommands?.map((c) => c.trim()).filter(Boolean) ?? []
+  if (cmds.length) {
+    const checks: ToolCheck[] = cmds.map((command) => ({
+      name: command.split(/\s+/).slice(0, 3).join(' '),
+      command,
+      cwd: workspaceDir()
+    }))
+    try {
+      const verdict = await verifyWithTools(s.id, checks, execCommandRunner)
+      // Tag the verifier kind first so the Blackboard can show tool-vs-judge.
+      verdict.evidence = ['verifier=tool', ...verdict.evidence]
+      return verdict
+    } catch (e) {
+      return {
+        subtaskId: s.id,
+        pass: false,
+        score: 0,
+        confidence: 1,
+        rationale: `tool verifier error: ${e instanceof Error ? e.message : String(e)}`,
+        evidence: ['verifier=tool', 'error']
+      }
+    }
+  }
   const prompt =
     `You are a strict verifier judging whether a subtask's output meets its rubric.\n` +
     `SUBTASK: ${s.instruction}\n` +
@@ -202,7 +233,7 @@ const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
       score: 0,
       confidence: 0.3,
       rationale: `judge error: ${e instanceof Error ? e.message : String(e)}`,
-      evidence: ['judge=haiku', 'error']
+      evidence: ['verifier=judge', 'judge=haiku', 'error']
     }
   }
 }

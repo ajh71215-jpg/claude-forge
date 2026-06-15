@@ -56,6 +56,19 @@ export interface AgentActivity {
   /** Subagent usage from native SDK task_* messages. */
   tokens?: number
   toolUses?: number
+  // ── Per-run token/cache breakdown (kind 'run'), from the SDK result message.
+  //    Captured here so the Cost/Cache dashboard has durable history — these were
+  //    previously streamed on the `result` event but dropped (only costUsd kept).
+  /** Fresh (non-cached) input tokens. */
+  inputTokens?: number
+  /** Output tokens generated. */
+  outputTokens?: number
+  /** cache_read_input_tokens — the cheap (0.1×) cache-hit side. */
+  cacheReadTokens?: number
+  /** cache_creation_input_tokens — the cache-write side. */
+  cacheWriteTokens?: number
+  /** Total context tokens at the end of the run (fresh + cache read + cache write). */
+  contextTokens?: number
 }
 
 export interface ActivitySnapshot {
@@ -332,7 +345,16 @@ export function onActivityEvent(ev: AgentEvent): void {
       break
     }
     case 'result': {
-      if (run) finish(run, ev.ok ? 'ok' : 'error', ev.costUsd)
+      if (run) {
+        // Capture the token/cache breakdown (already streamed) so it persists in
+        // history for the Cost/Cache dashboard — not just the cost.
+        if (ev.inputTokens != null) run.inputTokens = ev.inputTokens
+        if (ev.outputTokens != null) run.outputTokens = ev.outputTokens
+        if (ev.cacheReadTokens != null) run.cacheReadTokens = ev.cacheReadTokens
+        if (ev.cacheWriteTokens != null) run.cacheWriteTokens = ev.cacheWriteTokens
+        if (ev.contextTokens != null) run.contextTokens = ev.contextTokens
+        finish(run, ev.ok ? 'ok' : 'error', ev.costUsd)
+      }
       // Any orphan subagents from this run resolve with the run.
       for (const a of [...live.values()]) {
         if (a.runId === ev.runId && a.kind === 'task') finish(a, ev.ok ? 'ok' : 'error')

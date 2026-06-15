@@ -5,6 +5,7 @@ import TitleBar from './components/TitleBar'
 import ExtendView from './components/extend/ExtendView'
 import Composer from './components/chat/Composer'
 import SquadView from './components/squad/SquadView'
+import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import type {
@@ -91,7 +92,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [maxBudget, setMaxBudget] = useState(0) // 0 = off
   const [autoCompact, setAutoCompact] = useState(false)
   const [costSaver, setCostSaver] = useState(false)
-  const [view, setView] = useState<'chat' | 'squad' | 'extend' | 'guide'>('chat')
+  const [view, setView] = useState<'chat' | 'squad' | 'cost' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
 
@@ -503,6 +504,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             AGENTS
           </button>
           <button
+            className={`mode-tab ${view === 'cost' ? 'on' : ''}`}
+            onClick={() => setView('cost')}
+          >
+            <Icon name="cost" />
+            COST
+          </button>
+          <button
             className={`mode-tab ${view === 'extend' ? 'on' : ''}`}
             onClick={() => setView('extend')}
           >
@@ -541,6 +549,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           </div>
           <div className="view-pane" style={{ display: view === 'squad' ? 'flex' : 'none' }}>
             <SquadView />
+          </div>
+          <div className="view-pane" style={{ display: view === 'cost' ? 'flex' : 'none' }}>
+            <CostView />
           </div>
           <div className="view-pane" style={{ display: view === 'extend' ? 'flex' : 'none' }}>
             <ExtendView

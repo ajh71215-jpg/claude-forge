@@ -71,6 +71,7 @@ export interface SidebarProps {
   onTogglePin: (id: string) => void
   onRenameSession: (id: string, title: string) => void
   onDeleteSession: (id: string) => void
+  onSearchAll: () => void
   onShowPersona: () => void
   onDisconnect: () => void
 }
@@ -111,6 +112,7 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     onTogglePin,
     onRenameSession,
     onDeleteSession,
+    onSearchAll,
     onShowPersona,
     onDisconnect
   } = props
@@ -311,9 +313,14 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
       <div className="selector">
         <div className="selector-head">
           <div className="selector-label">CONVERSATIONS</div>
-          <button className="mini-btn" onClick={onNewSession}>
-            + New
-          </button>
+          <div className="conv-head-actions">
+            <button className="mini-btn" title="Search all conversations" onClick={onSearchAll}>
+              ⌕
+            </button>
+            <button className="mini-btn" onClick={onNewSession}>
+              + New
+            </button>
+          </div>
         </div>
         <div className="conv-list">
           {sessions.length === 0 && <div className="selector-hint">no saved conversations</div>}

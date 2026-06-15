@@ -9,7 +9,8 @@ import type {
   UsageInfo,
   TranscriptItem,
   Persona,
-  QuestionResult
+  QuestionResult,
+  SessionSearchHit
 } from '../main/agent'
 import type {
   SkillMeta,
@@ -64,6 +65,8 @@ const forge = {
       ipcRenderer.invoke('agent:rename-session', sessionId, title),
     deleteSession: (sessionId: string): Promise<void> =>
       ipcRenderer.invoke('agent:delete-session', sessionId),
+    searchSessions: (query: string): Promise<SessionSearchHit[]> =>
+      ipcRenderer.invoke('agent:search-sessions', query),
     /** Subscribe to streaming events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: AgentEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: AgentEvent): void => cb(payload)

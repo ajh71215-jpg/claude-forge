@@ -61,6 +61,64 @@ export async function getTranscript(sessionId: string): Promise<TranscriptItem[]
   }
 }
 
+/** One conversation that matched a cross-conversation search. */
+export interface SessionSearchHit {
+  sessionId: string
+  title: string
+  snippet: string
+  matches: number
+}
+
+/** A short context window around the first match. */
+function snippetAround(text: string, idx: number, len: number): string {
+  const start = Math.max(0, idx - 45)
+  const end = Math.min(text.length, idx + len + 70)
+  const body = text.slice(start, end).replace(/\s+/g, ' ').trim()
+  return (start > 0 ? '…' : '') + body + (end < text.length ? '…' : '')
+}
+
+/**
+ * Search every (Forge-workspace) conversation's transcript for `query`, returning
+ * the matching sessions with a match count + a snippet, most matches first. Reads
+ * the stored transcripts locally (no model, no tokens); capped to the recent
+ * session list so it stays responsive.
+ */
+export async function searchSessions(query: string): Promise<SessionSearchHit[]> {
+  const q = query.trim().toLowerCase()
+  if (q.length < 2) return []
+  const sdk: any = await import('@anthropic-ai/claude-agent-sdk')
+  const sessions = await getSessions()
+  const hits: SessionSearchHit[] = []
+  for (const s of sessions) {
+    try {
+      const msgs: any[] = (await sdk.getSessionMessages(s.sessionId)) ?? []
+      let matches = 0
+      let snippet = ''
+      for (const m of msgs) {
+        const content = m.message?.content
+        const text =
+          typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? content.map((b: any) => (b?.type === 'text' ? (b.text ?? '') : '')).join(' ')
+              : ''
+        if (!text) continue
+        const lc = text.toLowerCase()
+        let idx = lc.indexOf(q)
+        while (idx >= 0) {
+          matches++
+          if (!snippet) snippet = snippetAround(text, idx, q.length)
+          idx = lc.indexOf(q, idx + q.length)
+        }
+      }
+      if (matches > 0) hits.push({ sessionId: s.sessionId, title: s.title, snippet, matches })
+    } catch {
+      /* skip unreadable session */
+    }
+  }
+  return hits.sort((a, b) => b.matches - a.matches)
+}
+
 /** Rename a saved conversation (persists as the SDK customTitle). Best-effort. */
 export async function renameSession(sessionId: string, title: string): Promise<void> {
   const sdk: any = await import('@anthropic-ai/claude-agent-sdk')

@@ -15,6 +15,7 @@ import {
   compactSession,
   renameSession,
   deleteSession,
+  searchSessions,
   type RunOptions
 } from '../agent'
 
@@ -39,4 +40,5 @@ export function register(ipc: IpcMain): void {
     renameSession(sessionId, title)
   )
   ipc.handle('agent:delete-session', (_e, sessionId: string) => deleteSession(sessionId))
+  ipc.handle('agent:search-sessions', (_e, query: string) => searchSessions(query))
 }

@@ -11,6 +11,7 @@ import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
 import ShortcutsHelp from './components/ShortcutsHelp'
+import ConversationSearch from './components/ConversationSearch'
 import { ConfirmProvider, useConfirm } from './components/ConfirmDialog'
 import type {
   AuthMode,
@@ -151,6 +152,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [showPersona, setShowPersona] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [searchAllOpen, setSearchAllOpen] = useState(false)
   const confirm = useConfirm()
   // Pinned conversations (local — sorted first in the sidebar). The SDK owns the
   // title (renameSession) and the transcript (deleteSession); pinning is Forge-only.
@@ -383,6 +385,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       go('Guide', 'guide'),
       { id: 'new', section: 'Session', label: 'New conversation', hint: '/new', run: newSession },
       {
+        id: 'search-all',
+        section: 'Session',
+        label: 'Search all conversations…',
+        keywords: 'find across history transcript',
+        run: () => setSearchAllOpen(true)
+      },
+      {
         id: 'persona',
         section: 'Agent',
         label: 'Customize agent…',
@@ -478,6 +487,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         onTogglePin={togglePin}
         onRenameSession={renameSessionTitle}
         onDeleteSession={deleteSessionAction}
+        onSearchAll={() => setSearchAllOpen(true)}
         onShowPersona={() => setShowPersona(true)}
         onDisconnect={clear}
       />
@@ -608,6 +618,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />
       )}
       {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+      {searchAllOpen && (
+        <ConversationSearch onOpen={resumeSession} onClose={() => setSearchAllOpen(false)} />
+      )}
       {showPersona && (
         <PersonaModal
           initial={persona ?? { enabled: false, mode: 'append', text: '' }}

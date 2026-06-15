@@ -984,3 +984,8 @@
   flex-direction: column;
 }
 
+
+.conv-head-actions {
+  display: flex;
+  gap: 4px;
+}

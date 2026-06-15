@@ -17,6 +17,7 @@ export type ModelInfo = import('../../main/agent').ModelInfo
 export type SlashCommand = import('../../main/agent').SlashCommand
 export type Capabilities = import('../../main/agent').Capabilities
 export type SessionInfo = import('../../main/agent').SessionInfo
+export type SessionSearchHit = import('../../main/agent').SessionSearchHit
 export type UsageInfo = import('../../main/agent').UsageInfo
 export type TranscriptItem = import('../../main/agent').TranscriptItem
 export type Attachment = import('../../main/agent').Attachment

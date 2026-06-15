@@ -10,6 +10,7 @@ import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
+import ShortcutsHelp from './components/ShortcutsHelp'
 import { ConfirmProvider } from './components/ConfirmDialog'
 import type {
   AuthMode,
@@ -149,6 +150,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
@@ -316,6 +318,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault()
         setPaletteOpen((v) => !v)
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault()
+        setShortcutsOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -344,6 +349,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         label: 'Customize agent…',
         keywords: 'persona system prompt',
         run: () => setShowPersona(true)
+      },
+      {
+        id: 'shortcuts',
+        section: 'Help',
+        label: 'Keyboard shortcuts',
+        keywords: 'keys hotkeys help',
+        run: () => setShortcutsOpen(true)
       },
       {
         id: 'saver',
@@ -552,6 +564,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       {paletteOpen && (
         <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />
       )}
+      {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
       {showPersona && (
         <PersonaModal
           initial={persona ?? { enabled: false, mode: 'append', text: '' }}

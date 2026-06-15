@@ -5,6 +5,7 @@ import { registerAll } from './ipc'
 // happen before app `ready`), via a side effect in pet/protocol.ts.
 import { initPet } from './pet'
 import { initActivity } from './agentActivity'
+import { interruptAll } from './agent'
 
 // Optional remote debugging for local verification: set FORGE_CDP=<port>.
 // No effect in normal use (only active when the env var is present).
@@ -64,6 +65,13 @@ app.whenReady().then(() => {
   })
 })
 
+// Interrupt any in-flight runs when the windows go away or the app quits, so a
+// closing window can't leave an SDK subprocess streaming (and billing) in the
+// background — especially on macOS, where closing the last window doesn't quit.
 app.on('window-all-closed', () => {
+  void interruptAll()
   if (process.platform !== 'darwin') app.quit()
+})
+app.on('before-quit', () => {
+  void interruptAll()
 })

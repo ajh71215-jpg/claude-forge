@@ -174,9 +174,20 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       .then(setPersonaState)
       .catch(() => setPersonaState({ enabled: false, mode: 'append', text: '' }))
     // Refresh plan usage on a slow timer instead of every turn (avoids a
-    // /usage subprocess spawn per message).
-    const timer = window.setInterval(refreshUsage, 90_000)
-    return () => window.clearInterval(timer)
+    // /usage subprocess spawn per message). Skip ticks while the window is hidden
+    // — no point spawning a /usage subprocess for a backgrounded window — and
+    // refresh once when it becomes visible again so the panel isn't stale.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshUsage()
+    }, 90_000)
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') refreshUsage()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   const models: ModelInfo[] = caps?.models ?? []

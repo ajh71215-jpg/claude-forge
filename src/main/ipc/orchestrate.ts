@@ -9,7 +9,7 @@
 //     budget governor stays honest.
 
 import type { IpcMain, WebContents } from 'electron'
-import type { Artifact, Plan, Subtask, Verdict } from '../orchestration'
+import type { Artifact, ModelTier, Plan, Subtask, Verdict } from '../orchestration'
 import type { ConductorEvent } from '../conductor'
 import type { SampleRunner, SampleVerifier } from '../topology'
 import type { LoopEvent } from '../loop'
@@ -68,13 +68,46 @@ interface RunResult {
  * engine with the injected per-run runner+verifier, and streams ConductorEvents to
  * the Squad-tab Blackboard monitor. dry-run and live differ only in what they pass.
  */
+/** Rough generate cost per sample by tier (USD). */
+function tierBaseCost(tier: ModelTier): number {
+  switch (tier) {
+    case 'haiku':
+      return 0.03
+    case 'opus':
+      return 0.45
+    case 'cascade':
+      return 0.3
+    default:
+      return 0.12 // sonnet
+  }
+}
+
+/**
+ * Heuristic per-subtask USD projection for the budget governor: base generate
+ * cost by tier × the topology's sample count. fanout / self_consistency fan out
+ * N× (n ?? 3); debate / cascade run up to ~maxSteps (3); single is 1. A small
+ * judge cost is added per sample (the tool-oracle verifier is free). Conservative
+ * on purpose so the governor hard-stops a high-N subtask BEFORE it overruns the
+ * plan budget — the old flat `() => 0.15` ignored the fan-out and could overshoot.
+ */
+function projectSubtaskCost(st: Subtask): number {
+  const n = Math.max(1, st.n ?? 3)
+  const samples =
+    st.topology === 'fanout' || st.topology === 'self_consistency'
+      ? n
+      : st.topology === 'debate' || st.topology === 'cascade'
+        ? 3
+        : 1
+  return samples * (tierBaseCost(st.model) + 0.02)
+}
+
 async function streamExecute(
   sender: WebContents,
   runId: string,
   plan: Plan,
   makeRun: RunnerFactory,
   makeVerify: VerifierFactory,
-  projectCostUsd: () => number,
+  projectCostUsd: (st: Subtask) => number,
   record = false
 ): Promise<RunResult> {
   const send = (ev: Record<string, unknown>): void => {
@@ -274,7 +307,7 @@ function liveRun(sender: WebContents, runId: string, plan: Plan): Promise<RunRes
     plan,
     liveMakeRun(senderFor(sender, runId)),
     liveMakeVerify(),
-    () => 0.15,
+    projectSubtaskCost,
     true
   )
 }
@@ -312,7 +345,12 @@ async function liveLoop(
     },
     {
       maxIterations,
-      projectCostUsd: () => 0.15,
+      // Topology-aware projection so the loop's per-subtask budget pre-check
+      // reflects fan-out, not a flat estimate. loop.ts passes the subtask id.
+      projectCostUsd: (id) => {
+        const st = plan.subtasks.find((s) => s.id === id)
+        return st ? projectSubtaskCost(st) : 0.15
+      },
       onEvent: (event) => send({ kind: 'loop', event })
     }
   )

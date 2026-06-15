@@ -5,6 +5,88 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* ── conversation tabs (concurrent, isolated-workspace conversations) ── */
+.chat-pane {
+  flex-direction: column;
+}
+.chat-pane > .chat-tabs {
+  flex: none; /* override .view-pane > * { flex: 1 } */
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 10px 0;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.chat-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: var(--bg-raised);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chat-tab.on {
+  background: var(--bg);
+  color: var(--amber-bright);
+  border-color: var(--amber-dim);
+}
+.chat-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tab-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+  border-radius: 4px;
+}
+.chat-tab-x:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
+.chat-tab-new {
+  flex: none;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px 11px;
+}
+.chat-tab-new:hover:not(:disabled) {
+  color: var(--amber-bright);
+  border-color: var(--amber-dim);
+}
+.chat-tab-new:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.chat-tab-pane {
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-tab-pane > .work {
+  flex: 1;
+  min-height: 0;
+}
 .work.drag-over {
   outline: 2px dashed var(--amber);
   outline-offset: -6px;

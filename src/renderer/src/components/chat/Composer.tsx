@@ -132,7 +132,8 @@ export default function Composer({
   onSetModel,
   onSetEffort,
   onSetPermission,
-  onNewSession
+  onNewSession,
+  workspaceId
 }: {
   model?: string
   permission: Permission
@@ -160,6 +161,9 @@ export default function Composer({
   onSetEffort: (label: EffortLabel) => void
   onSetPermission: (p: Permission) => void
   onNewSession: () => void
+  /** Isolated workspace id for this conversation (per-tab) — keeps concurrent
+   * conversations from editing the same files. Threaded into every run. */
+  workspaceId?: string
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [menuIndex, setMenuIndex] = useState(0)
@@ -428,6 +432,7 @@ export default function Composer({
     const opts: RunOptions = { permission }
     if (runEffort) opts.effort = runEffort
     if (runModel && runModel !== 'default') opts.model = runModel
+    if (workspaceId) opts.workspaceId = workspaceId
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))

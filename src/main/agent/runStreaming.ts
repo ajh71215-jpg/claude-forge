@@ -34,7 +34,9 @@ export async function runStreaming(
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const env = await buildEnv()
-  const cwd = await ensureWorkspace()
+  // Isolated per-conversation workspace when the renderer supplies a workspaceId,
+  // so concurrent conversations don't edit the same files; else the shared root.
+  const cwd = await ensureWorkspace(opts.workspaceId)
 
   // Phase 0: read the filesystem `.claude/` (skills · commands · agents ·
   // settings · hooks · mcp). Without settingSources the SDK runs hermetic and

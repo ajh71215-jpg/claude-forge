@@ -45,6 +45,31 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
+/** One open conversation tab. `key` is also the isolated workspace id for the
+ * conversation, so concurrent tabs can't edit the same files. */
+interface ChatTab {
+  key: string
+  sessionId: string | null
+  /** Bumped to force the Composer to reset/restore when the tab's session changes. */
+  sessionKey: number
+}
+
+const WS_MAP_KEY = 'forge-session-ws'
+const MAX_TABS = 5
+
+/** Stable workspace id for a resumed session (so it reuses the dir where it did
+ * its file work), or null if this session predates the mapping. */
+function wsKeyForSession(sid: string): string | null {
+  return loadJson<Record<string, string>>(WS_MAP_KEY, {})[sid] ?? null
+}
+/** Remember which workspace a session belongs to, so a later resume reuses it. */
+function rememberSessionWs(sid: string, key: string): void {
+  const m = loadJson<Record<string, string>>(WS_MAP_KEY, {})
+  if (m[sid] === key) return
+  m[sid] = key
+  saveJson(WS_MAP_KEY, m)
+}
+
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
  * -> the (still mostly empty) main shell that later steps fill with the chat,
@@ -96,8 +121,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   })
   const [subUsage, setSubUsage] = useState<UsageInfo | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [sessionKey, setSessionKey] = useState(0)
+  // Open conversation tabs. Each runs concurrently in its own isolated workspace
+  // (tab.key) and keeps streaming when you switch tabs (no interrupt). The active
+  // conversation's sessionId drives the sidebar highlight + usage.
+  const [tabs, setTabs] = useState<ChatTab[]>(() => [{ key: 't0', sessionId: null, sessionKey: 0 }])
+  const [activeKey, setActiveKey] = useState('t0')
+  const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
+  const sessionId = activeTab?.sessionId ?? null
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
   // account default model). Persisted (with the budget/auto-compact LIMITS) so a
@@ -173,13 +203,66 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     refreshSessions()
   }
 
+  // ── Conversation tabs ──
+  /** Open a fresh conversation tab (or focus an existing empty one / the cap). */
   function newSession(): void {
-    setSessionId(null)
-    setSessionKey((k) => k + 1)
+    const empty = tabs.find((t) => t.sessionId === null)
+    if (empty) {
+      setActiveKey(empty.key)
+      return
+    }
+    if (tabs.length >= MAX_TABS) return // at cap — close a tab first
+    const t: ChatTab = { key: crypto.randomUUID(), sessionId: null, sessionKey: 0 }
+    setTabs((prev) => [...prev, t])
+    setActiveKey(t.key)
   }
+  /** Open a saved conversation: focus its tab if open, else load it (reusing the
+   * active empty tab when possible) so it resumes in its original workspace. */
   function resumeSession(id: string): void {
-    setSessionId(id)
-    setSessionKey((k) => k + 1)
+    const open = tabs.find((t) => t.sessionId === id)
+    if (open) {
+      setActiveKey(open.key)
+      return
+    }
+    const wsKey = wsKeyForSession(id) ?? crypto.randomUUID()
+    rememberSessionWs(id, wsKey)
+    const active = tabs.find((t) => t.key === activeKey)
+    if ((active && active.sessionId === null) || tabs.length >= MAX_TABS) {
+      const target = active && active.sessionId === null ? active.key : activeKey
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.key === target ? { key: wsKey, sessionId: id, sessionKey: t.sessionKey + 1 } : t
+        )
+      )
+      setActiveKey(wsKey)
+      return
+    }
+    setTabs((prev) => [...prev, { key: wsKey, sessionId: id, sessionKey: 0 }])
+    setActiveKey(wsKey)
+  }
+  /** Reset a tab to a fresh conversation (the /clear or /new command within it). */
+  function resetTab(key: string): void {
+    setTabs((prev) =>
+      prev.map((t) => (t.key === key ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
+    )
+  }
+  /** A run in `key` established its session id — record it (+ its workspace). */
+  function setTabSession(key: string, sid: string): void {
+    rememberSessionWs(sid, key)
+    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, sessionId: sid } : t)))
+  }
+  /** Close a tab (always keep at least one); focus a neighbor if it was active. */
+  function closeTab(key: string): void {
+    if (tabs.length <= 1) return
+    const idx = tabs.findIndex((t) => t.key === key)
+    const next = tabs.filter((t) => t.key !== key)
+    setTabs(next)
+    if (key === activeKey) setActiveKey(next[Math.max(0, idx - 1)].key)
+  }
+  /** Title for a tab: the saved session's title, else "New chat". */
+  function tabTitle(t: ChatTab): string {
+    if (!t.sessionId) return 'New chat'
+    return sessions.find((s) => s.sessionId === t.sessionId)?.title ?? 'Chat'
   }
   // Manually choosing a model/effort exits cost-saver mode.
   function chooseModel(v: string): void {
@@ -371,26 +454,70 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           </button>
         </div>
         <div className="view-body">
-          <div className="view-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
-            <Composer
-              model={model}
-              permission={permission}
-              effort={effortOption(effort)}
-              commands={commands}
-              models={models}
-              maxTurnsByModel={maxTurnsByModel}
-              maxBudget={maxBudget}
-              autoCompact={autoCompact}
-              costSaver={costSaver}
-              onResult={onResult}
-              sessionId={sessionId}
-              sessionKey={sessionKey}
-              onSession={setSessionId}
-              onSetModel={chooseModel}
-              onSetEffort={chooseEffort}
-              onSetPermission={setPermission}
-              onNewSession={newSession}
-            />
+          <div className="view-pane chat-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
+            <div className="chat-tabs" role="tablist">
+              {tabs.map((t) => (
+                <div
+                  key={t.key}
+                  className={`chat-tab ${t.key === activeKey ? 'on' : ''}`}
+                  onClick={() => setActiveKey(t.key)}
+                  title={tabTitle(t)}
+                >
+                  <span className="chat-tab-title">{tabTitle(t)}</span>
+                  {tabs.length > 1 && (
+                    <button
+                      className="chat-tab-x"
+                      title="Close conversation"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(t.key)
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                className="chat-tab-new"
+                title="New conversation (isolated workspace)"
+                disabled={tabs.length >= MAX_TABS}
+                onClick={newSession}
+              >
+                ＋
+              </button>
+            </div>
+            {/* One Composer per open tab, all kept mounted so background
+                conversations keep streaming when you switch (each runs in its own
+                workspace). Only the active tab is shown. */}
+            {tabs.map((t) => (
+              <div
+                key={t.key}
+                className="chat-tab-pane"
+                style={{ display: t.key === activeKey ? 'flex' : 'none' }}
+              >
+                <Composer
+                  model={model}
+                  permission={permission}
+                  effort={effortOption(effort)}
+                  commands={commands}
+                  models={models}
+                  maxTurnsByModel={maxTurnsByModel}
+                  maxBudget={maxBudget}
+                  autoCompact={autoCompact}
+                  costSaver={costSaver}
+                  onResult={onResult}
+                  workspaceId={t.key}
+                  sessionId={t.sessionId}
+                  sessionKey={t.sessionKey}
+                  onSession={(id) => setTabSession(t.key, id)}
+                  onSetModel={chooseModel}
+                  onSetEffort={chooseEffort}
+                  onSetPermission={setPermission}
+                  onNewSession={() => resetTab(t.key)}
+                />
+              </div>
+            ))}
           </div>
           <div className="view-pane" style={{ display: view === 'squad' ? 'flex' : 'none' }}>
             <SquadView />

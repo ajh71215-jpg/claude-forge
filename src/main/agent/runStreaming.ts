@@ -69,7 +69,7 @@ export async function runStreaming(
   // simple subtasks to a free model via goose. Configuring a provider is the
   // opt-in. The handler can run >60s, so raise the SDK stream-close timeout.
   if ((await enabledProviders()).length) {
-    mcpServers.forge = buildDelegateServer(cwd) as unknown as Record<string, unknown>
+    mcpServers.forge = buildDelegateServer(cwd, runId) as unknown as Record<string, unknown>
     if (!env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT) env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '600000'
   }
 

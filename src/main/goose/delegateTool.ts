@@ -11,10 +11,14 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { enabledProviders } from '../providers'
 import { pickProvider, type DelegateTier } from '../routing'
 import { getRole } from '../roles'
+import { gooseSubtaskFinish, gooseSubtaskStart, gooseSubtaskTool } from '../agentActivity'
 import { runGooseSubtask } from './runGooseSubtask'
 
-/** Build the delegate MCP server, bound to a conversation's workspace cwd. */
-export function buildDelegateServer(cwd: string) {
+/**
+ * Build the delegate MCP server, bound to a conversation's workspace cwd + the
+ * main run's id (so delegated subtasks nest under that run in the Agents tab).
+ */
+export function buildDelegateServer(cwd: string, runId: string) {
   const delegate = tool(
     'delegate',
     'Delegate a self-contained, low-stakes subtask (summarize, draft, classify, ' +
@@ -62,19 +66,29 @@ export function buildDelegateServer(cwd: string) {
       }
       const provider = providers.find((p) => p.id === pickedId)!
       const role = getRole(args.role)
+      const activityId = gooseSubtaskStart(
+        runId,
+        `🪿 ${provider.gooseProvider}${args.role ? ` · ${args.role}` : ''}`,
+        args.instruction
+      )
       try {
         const res = await runGooseSubtask({
           instruction: args.instruction,
           provider,
           systemAppend: role?.systemAppend,
           writeCapable: args.writeCapable ?? role?.writeCapable ?? false,
-          cwd
+          cwd,
+          onEvent: (ev) => {
+            if (ev.kind === 'tool') gooseSubtaskTool(activityId, ev.tool, ev.target, ev.status)
+          }
         })
+        gooseSubtaskFinish(activityId, 'ok', { tokensUsed: res.tokensUsed })
         const text = res.output || '(the sub-agent returned no text)'
         return {
           content: [{ type: 'text' as const, text: `[delegated → ${res.model}]\n\n${text}` }]
         }
       } catch (e) {
+        gooseSubtaskFinish(activityId, 'error', { detail: String(e).slice(0, 120) })
         return {
           content: [
             {

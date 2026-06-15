@@ -409,6 +409,78 @@ export function recordOrchestration(entry: {
   finish(cur, entry.status, entry.costUsd)
 }
 
+// ── Delegated goose subtasks (docs/GOOSE_INTEGRATION.md) ──
+// A delegate(...) call runs a subtask on a free model via goose. It surfaces as a
+// 'task' card nested under the main run (same runId), with a tool timeline built
+// from goose's session/update notifications — same shape as a native subagent, so
+// the dashboard renders it with no new UI. Zero extra model cost.
+
+/** Start a delegated-subtask card; returns its entry id. */
+export function gooseSubtaskStart(runId: string, name: string, detail?: string): string {
+  loadHistory()
+  const id = `goose:${runId}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`
+  live.set(id, {
+    id,
+    kind: 'task',
+    runId,
+    name,
+    detail: detail && detail.length > 90 ? detail.slice(0, 90) + '…' : detail,
+    status: 'running',
+    startedAt: Date.now()
+  })
+  broadcast()
+  return id
+}
+
+/** Record/append a tool the delegated sub-agent used (Read/Bash/Write/…). */
+export function gooseSubtaskTool(
+  id: string,
+  name: string,
+  arg?: string,
+  status?: string
+): void {
+  const e = live.get(id)
+  if (!e) return
+  e.tools = e.tools ?? []
+  const done = status === 'completed' || status === 'success' || status === 'failed'
+  // Update the most recent running tool of the same name, else push a new one.
+  const open = [...e.tools].reverse().find((t) => t.name === name && t.status === 'running')
+  if (open) {
+    if (arg && !open.arg) open.arg = arg
+    if (done) {
+      open.status = status === 'failed' ? 'error' : 'ok'
+      open.endedAt = Date.now()
+    }
+  } else {
+    e.tools.push({
+      id: `${id}:t${e.tools.length}`,
+      name,
+      arg,
+      status: done ? (status === 'failed' ? 'error' : 'ok') : 'running',
+      startedAt: Date.now(),
+      endedAt: done ? Date.now() : undefined
+    })
+    if (e.tools.length > TOOLS_CAP) e.tools.splice(0, e.tools.length - TOOLS_CAP)
+  }
+  e.detail = `${name}…`
+  broadcast()
+}
+
+/** Finalize a delegated-subtask card. */
+export function gooseSubtaskFinish(
+  id: string,
+  status: ActivityStatus,
+  opts?: { tokensUsed?: number; costUsd?: number; detail?: string }
+): void {
+  const e = live.get(id)
+  if (!e) return
+  if (opts?.tokensUsed != null) e.tokens = opts.tokensUsed
+  if (opts?.detail) e.detail = opts.detail
+  // Close any tools still marked running.
+  for (const t of e.tools ?? []) if (t.status === 'running') { t.status = 'ok'; t.endedAt = Date.now() }
+  finish(e, status, opts?.costUsd ?? 0)
+}
+
 /** Clear persisted + live history (dashboard "clear" button). */
 export function clearHistory(): void {
   history = []

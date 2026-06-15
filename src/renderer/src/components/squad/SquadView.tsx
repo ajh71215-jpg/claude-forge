@@ -1,586 +1,184 @@
-// Squad view = subagent ORCHESTRATION monitor (docs/SQUAD_ORCHESTRATION.md §12).
-// The Squad tab is a hybrid plan editor (AI-delegated or hand-specified subtasks)
-// + a live Blackboard monitor showing each subtask's work-rate, tier and verdict.
+// Squad tab = AGENT ACTIVITY DASHBOARD (redesign). The old manual plan editor was
+// removed: orchestration modes (live / ralph / loop) now run when requested from
+// chat or chosen by the model itself, and this tab is a read-only observatory of
+// what agents are doing and which agents you've used.
 //
-// The legacy MANUAL parallel fan-out ("run N independent agents") was removed —
-// Squad is orchestration-only. Hand-assignment lives on as the "Manual assign"
-// toggle (vs AI-delegate) within this view.
-//
-// Layout: a DASHBOARD — command bar, a KPI stat strip, then a two-pane grid
-// (plan editor + live blackboard). All form controls are CUSTOM (no native
-// <select>/<checkbox>) so the surface renders identically across OSes.
-import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import type { Plan, Subtask, Topology, ModelTier } from '../../types'
+// Data comes from the MAIN-process activity store (src/main/agentActivity.ts),
+// which taps the agent event bus so it captures every run / Task subagent /
+// orchestration subtask regardless of the focused tab, and persists history to a
+// Forge-private json. We pull a snapshot on mount and subscribe to live updates.
+import { useEffect, useState, type JSX } from 'react'
+import type { AgentActivity, ActivitySnapshot } from '../../types'
 
-const TOPOLOGIES: Topology[] = ['single', 'fanout', 'self_consistency', 'debate', 'cascade']
-const TIERS: ModelTier[] = ['cascade', 'haiku', 'sonnet', 'opus']
-
-interface RoleInfo {
-  name: string
-  description: string
-  tier: string
-  writeCapable: boolean
-  systemAppend: string
+const KIND_LABEL: Record<AgentActivity['kind'], string> = {
+  run: 'main',
+  task: 'subagent',
+  orchestration: 'orchestrated'
+}
+const KIND_ICON: Record<AgentActivity['kind'], string> = {
+  run: '⚒',
+  task: '◆',
+  orchestration: '⇉'
 }
 
-interface KeywordMatch {
-  name: string
-  action: string
-  priority: number
-  role?: string
-  topology?: string
-  matched: string
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)}s`
+  const m = Math.floor(s / 60)
+  return `${m}m ${String(Math.floor(s % 60)).padStart(2, '0')}s`
 }
 
-const ACTION_ICON: Record<string, string> = {
-  loop: '↻',
-  parallel: '⇉',
-  reason: '✸',
-  role: '◆',
-  cancel: '⊘'
-}
-
-type SubStatus = 'idle' | 'running' | 'verifying' | 'done' | 'failed' | 'stopped'
-interface SubMon {
-  status: SubStatus
-  samples: { sample: number; tier: string }[]
-  pass?: boolean
-  score?: number
-  attempt: number
-  /** 'tool' = objective oracle (typecheck/test/build); 'judge' = haiku rubric. */
-  verifier?: 'tool' | 'judge'
-  /** Per-check evidence lines from the verdict (tooltip on the verdict badge). */
-  evidence?: string[]
-  rationale?: string
-}
-const blankMon = (): SubMon => ({ status: 'idle', samples: [], attempt: 0 })
-
-const STATUS_LABEL: Record<SubStatus, string> = {
-  idle: 'idle',
-  running: 'running',
-  verifying: 'verifying',
-  done: 'done',
-  failed: 'failed',
-  stopped: 'stopped'
-}
-
-function seedPlan(): Plan {
-  return {
-    goal: 'Fix the flagged bug and cover it with a test',
-    budgetUsd: 5,
-    subtasks: [
-      { id: 'scan', instruction: 'Scan the module for the correctness bug', topology: 'single', model: 'sonnet', role: 'explore', tools: [], rubric: 'bug located with file:line' },
-      { id: 'fix', instruction: 'Apply the fix to the flagged function', topology: 'cascade', model: 'cascade', role: 'executor', tools: [], rubric: 'typecheck + build pass' },
-      { id: 'test', instruction: 'Write tests covering the fix', topology: 'fanout', model: 'opus', role: 'test-engineer', tools: [], rubric: 'tests fail before, pass after', n: 2 }
-    ],
-    edges: [
-      ['scan', 'fix'],
-      ['fix', 'test']
-    ]
-  }
-}
-
-/* ---- custom dropdown (replaces native <select>) ---- */
-interface Opt {
-  value: string
-  label: string
-  hint?: string
-  icon?: ReactNode
-}
-function Dropdown({
-  value,
-  options,
-  onChange,
-  ariaLabel,
-  title
-}: {
-  value: string
-  options: Opt[]
-  onChange: (v: string) => void
-  ariaLabel?: string
-  title?: string
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const cur = options.find((o) => o.value === value)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  return (
-    <div className={`sq-dd ${open ? 'open' : ''}`} ref={ref}>
-      <button
-        type="button"
-        className="sq-dd-btn"
-        aria-label={ariaLabel}
-        title={title}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="sq-dd-val">
-          {cur?.icon}
-          {cur?.label ?? value}
-        </span>
-        <svg className="sq-dd-caret" viewBox="0 0 10 6" width="10" height="6" aria-hidden>
-          <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && (
-        <div className="sq-dd-menu" role="listbox">
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              role="option"
-              aria-selected={o.value === value}
-              className={`sq-dd-opt ${o.value === value ? 'sel' : ''}`}
-              onClick={() => {
-                onChange(o.value)
-                setOpen(false)
-              }}
-            >
-              <span className="sq-dd-opt-main">
-                {o.icon}
-                {o.label}
-              </span>
-              {o.hint && <span className="sq-dd-opt-hint">{o.hint}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ---- custom toggle (replaces native checkbox) ---- */
-function Toggle({
-  on,
-  onChange,
-  onLabel,
-  offLabel
-}: {
-  on: boolean
-  onChange: (v: boolean) => void
-  onLabel: string
-  offLabel: string
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      className={`sq-toggle ${on ? 'on' : ''}`}
-      onClick={() => onChange(!on)}
-    >
-      <span className="sq-toggle-track">
-        <span className="sq-toggle-thumb" />
-      </span>
-      <span className="sq-toggle-label">{on ? onLabel : offLabel}</span>
-    </button>
-  )
-}
-
-/* ---- KPI stat tile ---- */
-function Stat({
-  label,
-  value,
-  sub,
-  tone,
-  bar
-}: {
-  label: string
-  value: ReactNode
-  sub?: ReactNode
-  tone?: 'ok' | 'live' | 'warn'
-  bar?: number
-}): JSX.Element {
-  return (
-    <div className={`sq-stat ${tone ?? ''}`}>
-      <span className="sq-stat-label">{label}</span>
-      <span className="sq-stat-value">{value}</span>
-      {sub !== undefined && <span className="sq-stat-sub">{sub}</span>}
-      {bar !== undefined && (
-        <span className="sq-stat-bar">
-          <span className="sq-stat-bar-fill" style={{ width: `${Math.max(0, Math.min(100, bar))}%` }} />
-        </span>
-      )}
-    </div>
-  )
+function relTime(ts: number, now: number): string {
+  const d = Math.max(0, now - ts)
+  if (d < 60_000) return 'just now'
+  if (d < 3_600_000) return `${Math.floor(d / 60_000)}m ago`
+  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`
+  return `${Math.floor(d / 86_400_000)}d ago`
 }
 
 export default function SquadView(): JSX.Element {
-  const [plan, setPlan] = useState<Plan>(seedPlan)
-  const [aiDelegate, setAiDelegate] = useState(true)
-  const [mon, setMon] = useState<Record<string, SubMon>>({})
-  const [running, setRunning] = useState(false)
-  const [summary, setSummary] = useState<{ spentUsd: number; stopped?: string } | null>(null)
-  const [roles, setRoles] = useState<RoleInfo[]>([])
-  const [loop, setLoop] = useState<{ iteration: number; passed: number; total: number; goalPass?: boolean } | null>(null)
-  const [keywords, setKeywords] = useState<KeywordMatch[]>([])
+  const [live, setLive] = useState<AgentActivity[]>([])
+  const [history, setHistory] = useState<AgentActivity[]>([])
+  const [now, setNow] = useState(Date.now())
 
+  // Initial snapshot + live subscription.
   useEffect(() => {
-    window.forge.orchestrate.roles().then(setRoles).catch(() => setRoles([]))
-  }, [])
-
-  // Native magic-keyword auto-detect: scan the goal for OMC mode triggers
-  // (ralph/autopilot/ultrawork/code-review/…) and surface the matched modes so
-  // the operator can run the suggested loop. Debounced so typing stays smooth.
-  useEffect(() => {
-    const goal = plan.goal
-    const t = setTimeout(() => {
-      window.forge.orchestrate
-        .detectKeywords(goal)
-        .then((m) => setKeywords(m as KeywordMatch[]))
-        .catch(() => setKeywords([]))
-    }, 250)
-    return () => clearTimeout(t)
-  }, [plan.goal])
-
-  const loopSuggested = keywords.some((k) => k.action === 'loop')
-
-  useEffect(() => {
-    return window.forge.orchestrate.onEvent((ev) => {
-      if (ev.kind === 'sample') {
-        setMon((m) => {
-          const cur = m[ev.subtaskId] ?? blankMon()
-          return {
-            ...m,
-            [ev.subtaskId]: { ...cur, status: 'running', samples: [...cur.samples, { sample: ev.sample, tier: ev.tier }] }
-          }
-        })
-      } else if (ev.kind === 'conductor') {
-        const e = ev.event
-        if (!e.subtaskId) return
-        const id = e.subtaskId
-        setMon((m) => {
-          const next = { ...(m[id] ?? blankMon()) }
-          if (e.type === 'subtask-start') {
-            next.status = 'running'
-            next.attempt = e.attempt ?? 0
-          } else if (e.type === 'verify') {
-            next.status = 'verifying'
-            next.pass = e.verdict?.pass
-            next.score = e.verdict?.score
-            const ev = e.verdict?.evidence ?? []
-            next.verifier = ev.includes('verifier=tool') ? 'tool' : 'judge'
-            next.evidence = ev.filter((x) => !x.startsWith('verifier='))
-            next.rationale = e.verdict?.rationale
-          } else if (e.type === 'revise') {
-            next.status = 'running'
-            next.attempt = e.attempt ?? next.attempt
-          } else if (e.type === 'checkpoint') {
-            next.status = e.verdict?.pass ? 'done' : 'failed'
-          } else if (e.type === 'stopped') {
-            next.status = 'stopped'
-          }
-          return { ...m, [id]: next }
-        })
-      } else if (ev.kind === 'loop') {
-        const e = ev.event
-        setLoop({
-          iteration: (e.iteration ?? 0) + 1,
-          passed: e.passed ?? 0,
-          total: e.total ?? plan.subtasks.length,
-          goalPass: e.goalPass
-        })
-      } else if (ev.kind === 'done') {
-        setRunning(false)
-        setSummary({ spentUsd: ev.spentUsd, stopped: ev.stopped })
-      }
+    let active = true
+    window.forge.activity
+      .snapshot()
+      .then((s: ActivitySnapshot) => {
+        if (!active) return
+        setLive(s.live)
+        setHistory(s.history)
+      })
+      .catch(() => {})
+    const unsub = window.forge.activity.onUpdate((s: ActivitySnapshot) => {
+      setLive(s.live)
+      setHistory(s.history)
     })
+    return () => {
+      active = false
+      unsub()
+    }
   }, [])
 
-  function resetMonitor(): void {
-    const fresh: Record<string, SubMon> = {}
-    for (const s of plan.subtasks) fresh[s.id] = blankMon()
-    setMon(fresh)
-    setSummary(null)
-    setLoop(null)
-    setRunning(true)
-  }
+  // Tick once a second to advance the live elapsed clocks (only while something runs).
+  useEffect(() => {
+    if (live.length === 0) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [live.length])
 
-  function dryRun(): void {
-    resetMonitor()
-    window.forge.orchestrate.dryRun(crypto.randomUUID(), plan).catch(() => setRunning(false))
+  async function clearHistory(): Promise<void> {
+    const s = await window.forge.activity.clear()
+    setLive(s.live)
+    setHistory(s.history)
   }
-
-  function runLive(): void {
-    resetMonitor()
-    window.forge.orchestrate.run(crypto.randomUUID(), plan).catch(() => setRunning(false))
-  }
-
-  function runLoop(): void {
-    resetMonitor()
-    window.forge.orchestrate.runLoop(crypto.randomUUID(), plan, 3).catch(() => setRunning(false))
-  }
-
-  function patchSub(id: string, patch: Partial<Subtask>): void {
-    setPlan((p) => ({ ...p, subtasks: p.subtasks.map((s) => (s.id === id ? { ...s, ...patch } : s)) }))
-  }
-  function addSub(): void {
-    setPlan((p) => ({
-      ...p,
-      subtasks: [
-        ...p.subtasks,
-        { id: `s${p.subtasks.length + 1}`, instruction: '', topology: 'single', model: 'cascade', tools: [], rubric: 'criteria' }
-      ]
-    }))
-  }
-  function removeSub(id: string): void {
-    setPlan((p) => ({
-      ...p,
-      subtasks: p.subtasks.filter((s) => s.id !== id),
-      edges: p.edges.filter(([a, b]) => a !== id && b !== id)
-    }))
-  }
-
-  const done = Object.values(mon).filter((s) => s.status === 'done').length
-  const active = Object.values(mon).filter((s) => s.status === 'running' || s.status === 'verifying').length
-  const failed = Object.values(mon).filter((s) => s.status === 'failed' || s.status === 'stopped').length
-  const total = plan.subtasks.length
-  const pct = total ? Math.round((done / total) * 100) : 0
-  const spent = summary?.spentUsd ?? 0
-  const budget = plan.budgetUsd ?? 0
-
-  const phase = running ? 'running' : summary ? (summary.stopped ? 'stopped' : 'complete') : 'ready'
-
-  const roleOpts: Opt[] = [
-    { value: '', label: 'no role', icon: <span className="sq-roledot" /> },
-    ...roles.map((r) => ({
-      value: r.name,
-      label: r.name,
-      hint: r.writeCapable ? 'write' : 'read',
-      icon: <span className={`sq-roledot ${r.writeCapable ? 'w' : 'r'}`} />
-    }))
-  ]
-  const topoOpts: Opt[] = TOPOLOGIES.map((t) => ({ value: t, label: t }))
-  const tierOpts: Opt[] = TIERS.map((t) => ({ value: t, label: t }))
 
   return (
-    <div className="squad orch-only">
-      <div className="sq">
-        {/* ---- command bar ---- */}
-        <header className="sq-head">
-          <div className="sq-head-main">
-            <div className="sq-head-titlerow">
-              <h2 className="sq-title">Squad</h2>
-              <span className={`sq-phase ${phase}`}>
-                <span className="sq-phase-dot" />
-                {phase}
-              </span>
-            </div>
-            <div className="sq-goal-wrap">
-              <textarea
-                className="sq-goal"
-                rows={2}
-                placeholder="What should the squad accomplish?"
-                value={plan.goal}
-                onChange={(e) => setPlan((p) => ({ ...p, goal: e.target.value }))}
-              />
-            </div>
-          </div>
-          <div className="sq-actions">
-            <Toggle on={aiDelegate} onChange={setAiDelegate} onLabel="AI delegates" offLabel="Manual assign" />
-            <div className="sq-run-group">
-              <button className="sq-btn solid" onClick={dryRun} disabled={running}>
-                {running ? (
-                  <>
-                    <span className="sq-spin" /> running
-                  </>
-                ) : (
-                  <>▶ Dry run</>
-                )}
-              </button>
-              <button className="sq-btn ghost" onClick={runLive} disabled={running} title="Live run: real read-only SDK calls routed by tier + haiku rubric judge">
-                ▶ Live
-              </button>
-              <button
-                className={`sq-btn ghost ${loopSuggested ? 'suggested' : ''}`}
-                onClick={runLoop}
-                disabled={running}
-                title={
-                  loopSuggested
-                    ? 'Magic keyword detected in goal — Ralph loop suggested'
-                    : 'Ralph loop: re-run until every subtask verifies (cap 3 iterations / budget)'
-                }
-              >
-                ↻ Ralph
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {/* ---- magic-keyword auto-detect (OMC native port) ---- */}
-        {keywords.length > 0 && (
-          <div className="sq-keywords">
-            <span className="sq-keywords-l">magic keywords</span>
-            {keywords.map((k) => (
-              <span
-                className={`sq-kw ${k.action}`}
-                key={k.name}
-                title={`${k.action}${k.role ? ` · role: ${k.role}` : ''}${k.topology ? ` · topology: ${k.topology}` : ''} — matched “${k.matched}”`}
-              >
-                <span className="sq-kw-icon">{ACTION_ICON[k.action] ?? '•'}</span>
-                {k.name}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* ---- KPI strip ---- */}
-        <div className="sq-stats">
-          <Stat label="Subtasks" value={total} sub={`${plan.edges.length} edges`} />
-          <Stat label="Verified" value={`${done}/${total}`} sub={`${pct}%`} tone={total > 0 && done === total ? 'ok' : undefined} bar={pct} />
-          <Stat label="Active" value={active} sub={failed > 0 ? `${failed} failed` : running ? 'in flight' : 'idle'} tone={active > 0 ? 'live' : failed > 0 ? 'warn' : undefined} />
-          <Stat label="Spend" value={`$${spent.toFixed(2)}`} sub={budget ? `of $${budget.toFixed(0)} cap` : 'no cap'} bar={budget ? (spent / budget) * 100 : undefined} tone={budget && spent > budget ? 'warn' : undefined} />
+    <div className="ad-root">
+      <div className="ad-bar">
+        <div className="ad-bar-title">
+          <span className="ad-bar-mark">⚒</span> Agent Activity
         </div>
-
-        {loop && (
-          <div className={`sq-loop ${loop.goalPass ? 'done' : ''}`}>
-            <span className="sq-loop-icon">↻</span>
-            <span className="sq-loop-text">
-              iteration {loop.iteration} · {loop.passed}/{loop.total} verified
-              {loop.goalPass ? ' · goal complete' : ''}
+        <div className="ad-bar-meta">
+          {live.length > 0 ? (
+            <span className="ad-live-count">
+              <span className="ad-live-dot" /> {live.length} active
             </span>
-            {loop.goalPass && <span className="sq-loop-check">✓</span>}
-          </div>
-        )}
+          ) : (
+            <span className="ad-idle">idle</span>
+          )}
+          {history.length > 0 && (
+            <button className="ad-clear" onClick={clearHistory} title="Clear agent history">
+              clear history
+            </button>
+          )}
+        </div>
+      </div>
 
-        {/* ---- two-pane body ---- */}
-        <div className="sq-body">
-          {/* PLAN editor */}
-          <section className="sq-pane">
-            <div className="sq-pane-head">
-              <span className="sq-pane-title">Plan</span>
-              <span className="sq-pane-meta">{total} subtasks</span>
+      <div className="ad-scroll">
+        {/* LIVE */}
+        <section className="ad-section">
+          <div className="ad-section-head">
+            <span className="ad-section-title">Live</span>
+            <span className="ad-section-sub">running now</span>
+          </div>
+          {live.length === 0 ? (
+            <div className="ad-empty">
+              <div className="ad-empty-mark">⚒</div>
+              <div className="ad-empty-title">No agents running</div>
+              <div className="ad-empty-text">
+                Agents appear here automatically when the assistant delegates work (Task
+                subagents) or runs an orchestration mode (live / ralph / loop) — triggered from
+                chat or by the model itself.
+              </div>
             </div>
-            <div className="sq-pane-scroll">
-              {plan.subtasks.map((s, i) => (
-                <div className="sq-task" key={s.id}>
-                  <div className="sq-task-top">
-                    <span className="sq-task-idx">{String(i + 1).padStart(2, '0')}</span>
-                    <span className="sq-task-id">{s.id}</span>
-                    <input
-                      className="sq-task-instr"
-                      value={s.instruction}
-                      placeholder="describe the subtask…"
-                      onChange={(e) => patchSub(s.id, { instruction: e.target.value })}
-                    />
-                    <button className="sq-task-del" title="Remove subtask" onClick={() => removeSub(s.id)}>
-                      ✕
-                    </button>
-                  </div>
-                  <div className="sq-task-controls">
-                    <label className="sq-field">
-                      <span className="sq-field-l">role</span>
-                      <Dropdown value={s.role ?? ''} options={roleOpts} onChange={(v) => patchSub(s.id, { role: v || undefined })} ariaLabel="role" title="Agent role: persona + read-only/builder tool gate" />
-                    </label>
-                    <label className="sq-field">
-                      <span className="sq-field-l">topology</span>
-                      <Dropdown value={s.topology} options={topoOpts} onChange={(v) => patchSub(s.id, { topology: v as Topology })} ariaLabel="topology" />
-                    </label>
-                    <label className="sq-field">
-                      <span className="sq-field-l">model</span>
-                      <Dropdown value={s.model} options={tierOpts} onChange={(v) => patchSub(s.id, { model: v as ModelTier })} ariaLabel="model" />
-                    </label>
-                  </div>
-                  <label className="sq-field sq-field-verify">
-                    <span
-                      className="sq-field-l"
-                      title="Objective verification (preferred): semicolon-separated shell commands (typecheck/test/build) run as a TOOL ORACLE instead of an LLM judge. Leave empty to use the haiku rubric judge."
-                    >
-                      verify (tool oracle)
-                    </span>
-                    <input
-                      className="sq-task-verify"
-                      value={(s.verifyCommands ?? []).join(' ; ')}
-                      placeholder="npm run typecheck ; npm test   (optional → uses tool oracle, not judge)"
-                      onChange={(e) => {
-                        const cmds = e.target.value
-                          .split(';')
-                          .map((x) => x.trim())
-                          .filter(Boolean)
-                        patchSub(s.id, { verifyCommands: cmds.length ? cmds : undefined })
-                      }}
-                    />
-                  </label>
+          ) : (
+            <div className="ad-cards">
+              {live.map((a) => (
+                <div className={`ad-card ${a.kind}`} key={a.id}>
+                  <span className="ad-spinner" aria-hidden />
+                  <span className="ad-kind">
+                    {KIND_ICON[a.kind]} {KIND_LABEL[a.kind]}
+                  </span>
+                  <span className="ad-name">{a.name}</span>
+                  {a.detail && <span className="ad-detail">{a.detail}</span>}
+                  <span className="ad-elapsed">{fmtDuration(now - a.startedAt)}</span>
                 </div>
               ))}
-              <button className="sq-add" onClick={addSub}>
-                <span className="sq-add-plus">+</span> add subtask
-              </button>
             </div>
-          </section>
+          )}
+        </section>
 
-          {/* BLACKBOARD monitor */}
-          <section className="sq-pane">
-            <div className="sq-pane-head">
-              <span className="sq-pane-title">Blackboard</span>
-              <span className="sq-pane-meta">
-                {done}/{total} done
-                {summary && (
-                  <span className="sq-pane-cost">
-                    {' · '}${summary.spentUsd.toFixed(2)} · {summary.stopped ? `stopped: ${summary.stopped}` : 'complete'}
-                  </span>
-                )}
-              </span>
+        {/* HISTORY */}
+        <section className="ad-section">
+          <div className="ad-section-head">
+            <span className="ad-section-title">History</span>
+            <span className="ad-section-sub">{history.length} agents used</span>
+          </div>
+          {history.length === 0 ? (
+            <div className="ad-empty small">
+              <div className="ad-empty-text">Agents you’ve used will be listed here.</div>
             </div>
-            <div className="sq-pane-scroll">
-              {plan.subtasks.map((s) => {
-                const m = mon[s.id] ?? blankMon()
-                const tiers = [...new Set(m.samples.map((x) => x.tier))]
+          ) : (
+            <div className="ad-history">
+              {history.map((a) => {
+                const ok = a.status === 'ok'
+                const dur = a.endedAt ? fmtDuration(a.endedAt - a.startedAt) : ''
                 return (
-                  <div className={`sq-card ${m.status}`} key={s.id}>
-                    <span className={`sq-dot ${m.status}`} />
-                    <span className="sq-card-id">{s.id}</span>
-                    {s.role && <span className="sq-card-role">{s.role}</span>}
-                    <span className="sq-card-topo">{s.topology}</span>
-                    <span className="sq-card-tiers">
-                      {tiers.map((t) => (
-                        <span className="sq-tier" key={t}>
-                          {t}
-                        </span>
-                      ))}
-                    </span>
-                    <span className="sq-card-status">{STATUS_LABEL[m.status]}</span>
-                    {m.samples.length > 0 && <span className="sq-card-samples">{m.samples.length}×</span>}
-                    {m.verifier && (
+                  <div className={`ad-row ${a.status}`} key={`${a.id}-${a.startedAt}`}>
+                    <span className={`ad-status ${a.status}`}>{ok ? '✓' : '✗'}</span>
+                    <span className={`ad-kind ${a.kind}`}>{KIND_LABEL[a.kind]}</span>
+                    <span className="ad-name">{a.name}</span>
+                    {a.detail && <span className="ad-detail">{a.detail}</span>}
+                    {a.verifier && (
                       <span
-                        className={`sq-verifier ${m.verifier}`}
+                        className={`ad-verifier ${a.verifier}`}
                         title={
-                          (m.verifier === 'tool'
-                            ? 'Objective tool oracle (typecheck/test/build)'
-                            : 'LLM rubric judge (haiku)') +
-                          (m.evidence?.length ? `\n${m.evidence.join('\n')}` : '') +
-                          (m.rationale ? `\n\n${m.rationale}` : '')
+                          a.verifier === 'tool'
+                            ? 'Verified by an objective tool oracle (typecheck/test/build)'
+                            : 'Verified by an LLM rubric judge'
                         }
                       >
-                        {m.verifier === 'tool' ? '🔧 tool' : '⚖ judge'}
+                        {a.verifier === 'tool' ? '🔧' : '⚖'}
                       </span>
                     )}
-                    {m.pass !== undefined && (
-                      <span className={`sq-verdict ${m.pass ? 'pass' : 'fail'}`}>
-                        {m.pass ? '✓' : '✗'} {m.score !== undefined ? m.score.toFixed(2) : ''}
-                      </span>
+                    {a.kind === 'orchestration' && a.score !== undefined && (
+                      <span className="ad-score">{a.score.toFixed(2)}</span>
                     )}
+                    {typeof a.costUsd === 'number' && a.costUsd > 0 && (
+                      <span className="ad-cost">${a.costUsd.toFixed(4)}</span>
+                    )}
+                    {dur && <span className="ad-dur">{dur}</span>}
+                    <span className="ad-time">{relTime(a.endedAt ?? a.startedAt, now)}</span>
                   </div>
                 )
               })}
             </div>
-          </section>
-        </div>
+          )}
+        </section>
       </div>
     </div>
   )

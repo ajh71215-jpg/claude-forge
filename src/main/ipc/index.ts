@@ -8,6 +8,7 @@ import { register as registerAgent } from './agent'
 import { register as registerPersona } from './persona'
 import { register as registerExtend } from './extend'
 import { register as registerOrchestrate } from './orchestrate'
+import { register as registerActivity } from './activity'
 import { register as registerWindow } from './window'
 import { register as registerPet } from './pet'
 
@@ -18,6 +19,7 @@ export function registerAll(ipc: IpcMain): void {
   registerPersona(ipc)
   registerExtend(ipc)
   registerOrchestrate(ipc)
+  registerActivity(ipc)
   registerWindow(ipc)
   registerPet(ipc)
 }

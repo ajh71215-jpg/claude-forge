@@ -34,6 +34,7 @@ import type {
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
 import type { Plan } from '../main/orchestration'
 import type { OrchestrateEvent } from '../main/ipc/orchestrate'
+import type { ActivitySnapshot } from '../main/agentActivity'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -168,6 +169,18 @@ const forge = {
     setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('pet:set-enabled', on),
     /** Toggle the pet; resolves to the new enabled state. */
     toggle: (): Promise<boolean> => ipcRenderer.invoke('pet:toggle')
+  },
+  activity: {
+    /** Current live + persisted agent activity for the Squad dashboard. */
+    snapshot: (): Promise<ActivitySnapshot> => ipcRenderer.invoke('activity:snapshot'),
+    /** Clear persisted agent history; resolves to the fresh snapshot. */
+    clear: (): Promise<ActivitySnapshot> => ipcRenderer.invoke('activity:clear'),
+    /** Subscribe to live activity updates. Returns an unsubscribe fn. */
+    onUpdate: (cb: (snap: ActivitySnapshot) => void): (() => void) => {
+      const listener = (_e: IpcRendererEvent, payload: ActivitySnapshot): void => cb(payload)
+      ipcRenderer.on('activity:update', listener)
+      return () => ipcRenderer.removeListener('activity:update', listener)
+    }
   }
 }
 

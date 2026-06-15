@@ -21,6 +21,29 @@ import { verifyWithTools, execCommandRunner, type ToolCheck } from '../toolVerif
 import { workspaceDir } from '../agent/env'
 import { getRole, listRoles, type Role } from '../roles'
 import { detectKeywords, type KeywordMatch } from '../keywords'
+import { recordOrchestration } from '../agentActivity'
+
+/** Mirror a conductor event into the agent-activity dashboard (live + history). */
+function recordConductor(runId: string, plan: Plan, e: ConductorEvent): void {
+  if (!e.subtaskId) return
+  const st = plan.subtasks.find((s) => s.id === e.subtaskId)
+  const name = st?.role ? `${st.role} · ${e.subtaskId}` : e.subtaskId
+  if (e.type === 'subtask-start') {
+    recordOrchestration({ runId, subtaskId: e.subtaskId, name, detail: st?.instruction, status: 'running' })
+  } else if (e.type === 'checkpoint') {
+    const ev = e.verdict?.evidence ?? []
+    recordOrchestration({
+      runId,
+      subtaskId: e.subtaskId,
+      name,
+      detail: st?.instruction,
+      status: e.verdict && e.verdict.pass === false ? 'error' : 'ok',
+      pass: e.verdict?.pass,
+      score: e.verdict?.score,
+      verifier: ev.includes('verifier=tool') ? 'tool' : ev.length ? 'judge' : undefined
+    })
+  }
+}
 
 export type OrchestrateEvent =
   | { runId: string; kind: 'conductor'; event: ConductorEvent }
@@ -51,7 +74,8 @@ async function streamExecute(
   plan: Plan,
   makeRun: RunnerFactory,
   makeVerify: VerifierFactory,
-  projectCostUsd: () => number
+  projectCostUsd: () => number,
+  record = false
 ): Promise<RunResult> {
   const send = (ev: Record<string, unknown>): void => {
     if (!sender.isDestroyed()) sender.send('orchestrate:event', { runId, ...ev })
@@ -66,7 +90,10 @@ async function streamExecute(
   const result = await executePlan(plan, {
     maxRevisions: 1,
     projectCostUsd,
-    onEvent: (event) => send({ kind: 'conductor', event }),
+    onEvent: (event) => {
+      send({ kind: 'conductor', event })
+      if (record) recordConductor(runId, plan, event)
+    },
     // Each subtask runs its declared topology; the topology engine fans the
     // run/verify out per sample. The blackboard is closed over so live runs can
     // feed prior outputs in as read-only context.
@@ -241,7 +268,15 @@ const liveMakeVerify = (): VerifierFactory => () => async (s, art) => {
 function liveRun(sender: WebContents, runId: string, plan: Plan): Promise<RunResult> {
   // Live calls cost real money; project a per-subtask estimate so the budget
   // governor can hard-stop BEFORE overrunning plan.budgetUsd.
-  return streamExecute(sender, runId, plan, liveMakeRun(senderFor(sender, runId)), liveMakeVerify(), () => 0.15)
+  return streamExecute(
+    sender,
+    runId,
+    plan,
+    liveMakeRun(senderFor(sender, runId)),
+    liveMakeVerify(),
+    () => 0.15,
+    true
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +305,10 @@ async function liveLoop(
       },
       verify: async (st, art) =>
         art.verdict ?? { subtaskId: st.id, pass: true, score: 1, confidence: 1, rationale: 'ok', evidence: [] },
-      onEvent: (event) => send({ kind: 'conductor', event })
+      onEvent: (event) => {
+        send({ kind: 'conductor', event })
+        recordConductor(runId, plan, event)
+      }
     },
     {
       maxIterations,

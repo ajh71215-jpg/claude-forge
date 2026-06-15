@@ -499,7 +499,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             onClick={() => setView('squad')}
           >
             <Icon name="squad" />
-            SQUAD
+            AGENTS
           </button>
           <button
             className={`mode-tab ${view === 'extend' ? 'on' : ''}`}

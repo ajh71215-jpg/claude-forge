@@ -54,6 +54,10 @@ interface ChatTab {
   sessionId: string | null
   /** Bumped to force the Composer to reset/restore when the tab's session changes. */
   sessionKey: number
+  /** Per-conversation model override (set via /model); falls back to the global. */
+  model?: string
+  /** Per-conversation persona override (set via /persona); falls back to global. */
+  persona?: string
 }
 
 const WS_MAP_KEY = 'forge-session-ws'
@@ -304,6 +308,19 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   function setTabSession(key: string, sid: string): void {
     rememberSessionWs(sid, key)
     setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, sessionId: sid } : t)))
+  }
+  /** Set/clear a tab's per-conversation model override (via /model). 'global'
+   * clears it back to the sidebar default. */
+  function setTabModel(key: string, value: string): void {
+    setCostSaver(false)
+    const model = value === 'global' || value === '' ? undefined : value
+    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, model } : t)))
+  }
+  /** Set/clear a tab's per-conversation persona override (via /persona). */
+  function setTabPersona(key: string, persona: string | null): void {
+    setTabs((prev) =>
+      prev.map((t) => (t.key === key ? { ...t, persona: persona || undefined } : t))
+    )
   }
   /** Close a tab (always keep at least one); focus a neighbor if it was active. */
   function closeTab(key: string): void {
@@ -573,7 +590,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                 style={{ display: t.key === activeKey ? 'flex' : 'none' }}
               >
                 <Composer
-                  model={model}
+                  model={t.model ?? model}
                   permission={permission}
                   effort={effortOption(effort)}
                   commands={commands}
@@ -585,10 +602,12 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                   onResult={onResult}
                   workspaceId={t.key}
                   isActive={t.key === activeKey}
+                  convPersona={t.persona}
                   sessionId={t.sessionId}
                   sessionKey={t.sessionKey}
                   onSession={(id) => setTabSession(t.key, id)}
-                  onSetModel={chooseModel}
+                  onSetModel={(id) => setTabModel(t.key, id)}
+                  onSetConvPersona={(text) => setTabPersona(t.key, text)}
                   onSetEffort={chooseEffort}
                   onSetPermission={setPermission}
                   onNewSession={() => resetTab(t.key)}

@@ -130,11 +130,13 @@ export default function Composer({
   sessionKey,
   onSession,
   onSetModel,
+  onSetConvPersona,
   onSetEffort,
   onSetPermission,
   onNewSession,
   workspaceId,
-  isActive = true
+  isActive = true,
+  convPersona
 }: {
   model?: string
   permission: Permission
@@ -158,7 +160,10 @@ export default function Composer({
   sessionId: string | null
   sessionKey: number
   onSession: (id: string) => void
+  /** Set this conversation's model override (via /model). */
   onSetModel: (value: string) => void
+  /** Set/clear this conversation's persona override (via /persona). */
+  onSetConvPersona: (text: string | null) => void
   onSetEffort: (label: EffortLabel) => void
   onSetPermission: (p: Permission) => void
   onNewSession: () => void
@@ -169,6 +174,9 @@ export default function Composer({
    * conversations keep streaming), so global side effects (Cmd+F, focus) must be
    * gated on this to avoid firing in every tab at once. */
   isActive?: boolean
+  /** This conversation's persona override (set via /persona); when set it's sent
+   * as the run's systemPrompt (replace), overriding the global persona. */
+  convPersona?: string
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [menuIndex, setMenuIndex] = useState(0)
@@ -440,6 +448,10 @@ export default function Composer({
     if (runEffort) opts.effort = runEffort
     if (runModel && runModel !== 'default') opts.model = runModel
     if (workspaceId) opts.workspaceId = workspaceId
+    // Per-conversation persona override (set via /persona) — a stable systemPrompt
+    // for THIS conversation, so it doesn't bust the cache (constant across turns)
+    // and overrides the global persona resolved in the main process.
+    if (convPersona && convPersona.trim()) opts.systemPrompt = convPersona
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))
@@ -643,7 +655,9 @@ export default function Composer({
       if (!arg) {
         pushNotice(
           raw,
-          `Models: ${models.map((x) => x.value).join(', ')} — or any model ID, e.g. /model claude-opus-4-6`
+          `Sets the model for THIS conversation. Models: ${models
+            .map((x) => x.value)
+            .join(', ')} — or any model ID (e.g. /model claude-opus-4-6), or /model global to use the sidebar default.`
         )
         setPrompt('')
         return true
@@ -688,6 +702,27 @@ export default function Composer({
         pushNotice(raw, `✓ Permission → ${arg.toLowerCase()}`)
       } else {
         pushNotice(raw, 'Permission: plan, ask, auto-edit, yolo')
+      }
+      setPrompt('')
+      return true
+    }
+    // /persona — set THIS conversation's persona (overrides the global agent for
+    // this chat only). Stored on the tab; sent as a stable systemPrompt.
+    if (cmd === 'persona') {
+      const a = arg.toLowerCase()
+      if (!arg) {
+        pushNotice(
+          raw,
+          convPersona
+            ? `This conversation's persona:\n\n${convPersona}\n\nType /persona clear to remove it.`
+            : 'No conversation persona set. /persona <instructions> gives THIS chat a custom persona (overrides the global agent); /persona clear removes it.'
+        )
+      } else if (a === 'clear' || a === 'off' || a === 'none') {
+        onSetConvPersona(null)
+        pushNotice(raw, '✓ Conversation persona cleared — using the global agent.')
+      } else {
+        onSetConvPersona(arg)
+        pushNotice(raw, `✓ Conversation persona set for this chat:\n\n${arg}`)
       }
       setPrompt('')
       return true
@@ -929,6 +964,14 @@ export default function Composer({
           <span className="wh-item">{permission}</span>
           <span className="wh-sep">·</span>
           <span className="wh-item">effort {costSaver ? 'auto' : effort ?? 'auto'}</span>
+          {convPersona && (
+            <>
+              <span className="wh-sep">·</span>
+              <span className="wh-item route-preview" title={convPersona}>
+                ✦ persona
+              </span>
+            </>
+          )}
           {routePreview && prompt.trim() && (
             <>
               <span className="wh-sep">·</span>

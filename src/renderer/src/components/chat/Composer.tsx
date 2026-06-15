@@ -2,7 +2,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving. The streaming event
 // subscription (rAF-coalesced) and near-bottom autoscroll are docs/PERFORMANCE.md
 // levers 2 & 4 — do not change without re-profiling.
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type DragEvent as RDragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   Permission,
   Effort,
@@ -22,9 +22,11 @@ import { ctxWindow, resolveMaxTurns } from '../../lib/format'
 import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
 import { conversationToJson, conversationToMarkdown } from '../../lib/export'
-import { activityLabel, turnText, INTERACTIVE_ONLY } from '../../lib/composer'
+import { activityLabel, INTERACTIVE_ONLY } from '../../lib/composer'
 import { goalAchieved, goalDirective, GOAL_MAX_USD, type GoalState } from '../../lib/goal'
 import { useAgentEvents } from './useAgentEvents'
+import { useImageAttachments } from './useImageAttachments'
+import { useTranscriptSearch } from './useTranscriptSearch'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
 import TodoBar from './TodoBar'
@@ -103,15 +105,10 @@ export default function Composer({
   const [compacting, setCompacting] = useState(false)
   const [compactPct, setCompactPct] = useState(0)
   const [history, setHistory] = useState<TranscriptItem[]>([])
-  const [attachments, setAttachments] = useState<
-    { id: string; mediaType: string; base64: string; preview: string; name: string }[]
-  >([])
-  // Drag-and-drop image attach overlay + transcript search box.
-  const [dragOver, setDragOver] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [search, setSearch] = useState('')
+  // Image attachments (drag-drop / picker / paste) — own hook.
+  const { attachments, setAttachments, dragOver, setDragOver, fileRef, addFiles, onDrop } =
+    useImageAttachments()
   const [exportOpen, setExportOpen] = useState(false)
-  const searchRef = useRef<HTMLInputElement>(null)
   // Magic-keyword modes detected in the current draft (shown as chips so the
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
@@ -142,7 +139,6 @@ export default function Composer({
     }
   }, [stickBottom])
   const promptHistRef = useRef<string[]>([])
-  const fileRef = useRef<HTMLInputElement>(null)
   const runIdRef = useRef<string | null>(null)
   const ownedRef = useRef<Set<string>>(new Set())
   const onResultRef = useRef(onResult)
@@ -185,6 +181,10 @@ export default function Composer({
     reliability,
     setReliability
   } = useAgentEvents({ ownedRef, runIdRef, onSessionRef, onResultRef, taRef })
+
+  // Transcript search (Cmd/Ctrl+F) — owns its state + the active-tab keydown.
+  const { search, setSearch, searchOpen, setSearchOpen, searchRef, q, shownTurns } =
+    useTranscriptSearch(turns, isActive)
 
   // Keep the transcript pinned to the bottom as content streams in — but only
   // when the user is already near the bottom (don't yank them down if they
@@ -718,48 +718,6 @@ export default function Composer({
     return () => clearTimeout(t)
   }, [prompt])
 
-  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it). Only the
-  // visible tab responds — every tab's Composer is mounted, so without this gate
-  // one Cmd+F would toggle search in all of them at once (H2).
-  useEffect(() => {
-    if (!isActive) return
-    function onKey(e: KeyboardEvent): void {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault()
-        setSearchOpen(true)
-        requestAnimationFrame(() => searchRef.current?.focus())
-      } else if (e.key === 'Escape' && searchOpen) {
-        setSearchOpen(false)
-        setSearch('')
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [searchOpen, isActive])
-
-  function onDrop(e: RDragEvent): void {
-    e.preventDefault()
-    setDragOver(false)
-    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
-  }
-
-  function addFiles(files: FileList | null): void {
-    if (!files) return
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = String(reader.result)
-        const base64 = dataUrl.split(',')[1] ?? ''
-        setAttachments((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), mediaType: file.type, base64, preview: dataUrl, name: file.name }
-        ])
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
   // Slash-command autocomplete: active while typing "/name" (before any space).
   const slashQuery =
     prompt.startsWith('/') && !prompt.includes(' ') ? prompt.slice(1).toLowerCase() : null
@@ -848,9 +806,6 @@ export default function Composer({
     contextTokens > 0
       ? Math.min(100, Math.round((contextTokens / ctxWindow(contextModel)) * 100))
       : 0
-
-  const q = search.trim().toLowerCase()
-  const shownTurns = q ? turns.filter((t) => turnText(t).includes(q)) : turns
 
   return (
     <div

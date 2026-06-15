@@ -26,6 +26,8 @@
     "src/main/efficiency/compress.ts",
     "src/main/memory/bm25.ts",
     "src/main/memory/retrieve.ts",
-    "src/main/memory/observe.ts"
+    "src/main/memory/observe.ts",
+    "src/main/repomap/parse.ts",
+    "src/main/repomap/build.ts"
   ]
 }

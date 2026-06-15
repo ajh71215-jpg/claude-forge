@@ -39,6 +39,7 @@ import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
 import type { WorkspaceFile } from '../main/workspace'
 import type { MemoryEntry } from '../main/memory'
+import type { RepoMapResult } from '../main/repomap'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -164,7 +165,9 @@ const forge = {
     list: (id: string): Promise<WorkspaceFile[]> => ipcRenderer.invoke('workspace:list', id),
     /** Read one workspace file's contents (capped). */
     read: (id: string, rel: string): Promise<string> =>
-      ipcRenderer.invoke('workspace:read', id, rel)
+      ipcRenderer.invoke('workspace:read', id, rel),
+    /** Structural repo map of the conversation's workspace (Understand-Anything). */
+    repoMap: (id: string): Promise<RepoMapResult> => ipcRenderer.invoke('workspace:repo-map', id)
   },
   memory: {
     /** Browse auto-captured project memory (newest first). */

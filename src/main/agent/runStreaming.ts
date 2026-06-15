@@ -20,6 +20,7 @@ import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers
 import { active, pendingDialogs, pendingPerms } from './state'
 import { emitAgentEvent } from '../pet/bus'
 import { buildMemoryInjection, noteRunWorkspace } from '../memory'
+import { buildRepoMapInjection } from '../repomap'
 import type { ActiveQuery, AgentEvent, AgentEventBody, QuestionResult, RunOptions } from './types'
 
 export async function runStreaming(
@@ -143,8 +144,15 @@ export async function runStreaming(
   noteRunWorkspace(runId, opts.workspaceId)
   let effectivePrompt = prompt
   if (!opts.resume) {
+    // Both are no-ops until there's something to inject (empty memory / empty
+    // workspace), and both are budget-bounded + compressed. Repo map first
+    // (stable structure), then recalled memory (query-relevant facts).
+    const blocks: string[] = []
+    const repo = await buildRepoMapInjection(cwd)
+    if (repo.text) blocks.push(repo.text)
     const mem = await buildMemoryInjection(prompt, { workspaceId: opts.workspaceId })
-    if (mem.text) effectivePrompt = `${mem.text}\n\n${prompt}`
+    if (mem.text) blocks.push(mem.text)
+    if (blocks.length) effectivePrompt = `${blocks.join('\n\n')}\n\n${prompt}`
   }
 
   const q: any = query({ prompt: singlePrompt(effectivePrompt, opts.attachments), options } as any)

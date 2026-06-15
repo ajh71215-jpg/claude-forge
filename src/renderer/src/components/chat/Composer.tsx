@@ -22,8 +22,9 @@ import { ctxWindow, resolveMaxTurns } from '../../lib/format'
 import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
 import { conversationToJson, conversationToMarkdown } from '../../lib/export'
-import { activityLabel, INTERACTIVE_ONLY } from '../../lib/composer'
+import { activityLabel } from '../../lib/composer'
 import { goalDirective } from '../../lib/goal'
+import { handleSlashCommand } from '../../lib/slashCommands'
 import { useAgentEvents } from './useAgentEvents'
 import { useImageAttachments } from './useImageAttachments'
 import { useTranscriptSearch } from './useTranscriptSearch'
@@ -476,156 +477,23 @@ export default function Composer({
     ])
   }
 
-  /**
-   * Handle GUI-side slash commands that the headless SDK can't run
-   * (/model, /effort, /permission, /clear, /help). Returns true if consumed.
-   */
+  /** GUI-side slash commands the headless SDK can't run (dispatcher in lib). */
   function handleClientCommand(raw: string): boolean {
-    const m = raw.match(/^\/(\S+)\s*(.*)$/)
-    if (!m) return false
-    const cmd = m[1].toLowerCase()
-    const arg = m[2].trim()
-    if (cmd === 'clear' || cmd === 'new') {
-      onNewSession()
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'help') {
-      setShowHelp(true)
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'model') {
-      if (!arg) {
-        pushNotice(
-          raw,
-          `Sets the model for THIS conversation. Models: ${models
-            .map((x) => x.value)
-            .join(', ')} — or any model ID (e.g. /model claude-opus-4-6), or /model global to use the sidebar default.`
-        )
-        setPrompt('')
-        return true
-      }
-      const a = arg.toLowerCase()
-      const found = models.find(
-        (x) => x.value.toLowerCase() === a || x.displayName.toLowerCase().includes(a)
-      )
-      // Accept arbitrary model IDs (like the CLI). Resolve known aliases for a
-      // friendlier label; otherwise pass the raw id straight to the SDK.
-      const value = found ? found.value : arg
-      onSetModel(value)
-      pushNotice(
-        raw,
-        found ? `✓ Model → ${found.displayName} (${found.value})` : `✓ Model → ${value} (custom id)`
-      )
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'effort') {
-      const lvl = arg.toUpperCase()
-      if (['AUTO', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX'].includes(lvl)) {
-        onSetEffort(lvl as EffortLabel)
-        pushNotice(raw, `✓ Effort → ${lvl}`)
-      } else {
-        pushNotice(raw, 'Effort: auto, low, medium, high, xhigh, max')
-      }
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'permission' || cmd === 'perm') {
-      const map: Record<string, Permission> = {
-        plan: 'plan',
-        ask: 'ask',
-        'auto-edit': 'acceptEdits',
-        autoedit: 'acceptEdits',
-        yolo: 'bypassPermissions'
-      }
-      const p = map[arg.toLowerCase()]
-      if (p) {
-        onSetPermission(p)
-        pushNotice(raw, `✓ Permission → ${arg.toLowerCase()}`)
-      } else {
-        pushNotice(raw, 'Permission: plan, ask, auto-edit, yolo')
-      }
-      setPrompt('')
-      return true
-    }
-    // /persona — set THIS conversation's persona (overrides the global agent for
-    // this chat only). Stored on the tab; sent as a stable systemPrompt.
-    if (cmd === 'persona') {
-      const a = arg.toLowerCase()
-      if (!arg) {
-        pushNotice(
-          raw,
-          convPersona
-            ? `This conversation's persona:\n\n${convPersona}\n\nType /persona clear to remove it.`
-            : 'No conversation persona set. /persona <instructions> gives THIS chat a custom persona (overrides the global agent); /persona clear removes it.'
-        )
-      } else if (a === 'clear' || a === 'off' || a === 'none') {
-        onSetConvPersona(null)
-        pushNotice(raw, '✓ Conversation persona cleared — using the global agent.')
-      } else {
-        onSetConvPersona(arg)
-        pushNotice(raw, `✓ Conversation persona set for this chat:\n\n${arg}`)
-      }
-      setPrompt('')
-      return true
-    }
-    // /goal <objective> — Forge's headless analog of the interactive Claude Code
-    // /goal: loop the resumed session until the agent reports GOAL_ACHIEVED.
-    if (cmd === 'goal') {
-      if (running) {
-        pushNotice(raw, 'Finish or stop the current run before starting a goal.')
-        setPrompt('')
-        return true
-      }
-      if (!arg) {
-        pushNotice(
-          raw,
-          'Usage: /goal [maxIterations] <objective> — runs autonomously until the' +
-            ' objective is met (or the cap). Example: /goal 15 add a dark-mode toggle with tests.'
-        )
-        setPrompt('')
-        return true
-      }
-      let max = 25
-      let objective = arg
-      const mm = arg.match(/^(\d{1,3})\s+([\s\S]+)$/)
-      if (mm) {
-        max = Math.min(100, Math.max(1, Number(mm[1])))
-        objective = mm[2].trim()
-      }
-      setPrompt('')
-      startGoal(objective, max)
-      return true
-    }
-    // Interactive-only CLI commands: tell the user instead of silently no-op'ing.
-    if (INTERACTIVE_ONLY.has(cmd)) {
-      pushNotice(
-        raw,
-        `/${cmd} is an interactive CLI command and isn't available in Forge's GUI.`
-      )
-      setPrompt('')
-      return true
-    }
-    // Unknown slash command: if it's not a real SDK/skill command either, don't
-    // silently forward it to the model as literal "/foo" text (which only
-    // confuses it). Tell the user — the same way the CLI rejects unknown commands.
-    const known = new Set(
-      [
-        ...CLIENT_COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]),
-        ...commands.flatMap((c) => [c.name, ...(c.aliases ?? [])])
-      ].map((s) => s.toLowerCase())
-    )
-    if (!known.has(cmd)) {
-      pushNotice(
-        raw,
-        `Unknown command /${cmd}. Type “/” to browse available commands, or remove the leading “/” to send this as a normal message.`
-      )
-      setPrompt('')
-      return true
-    }
-    return false
+    return handleSlashCommand(raw, {
+      models,
+      commands,
+      convPersona,
+      running,
+      setPrompt,
+      pushNotice,
+      onNewSession,
+      showHelp: () => setShowHelp(true),
+      onSetModel,
+      onSetEffort,
+      onSetPermission,
+      onSetConvPersona,
+      startGoal
+    })
   }
 
   // Live magic-keyword detection on the draft → mode chips (debounced).

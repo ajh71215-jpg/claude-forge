@@ -9,10 +9,16 @@
 import { z } from 'zod'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { enabledProviders } from '../providers'
-import { pickProvider, type DelegateTier } from '../routing'
+import { orderProviders, type DelegateTier } from '../routing'
 import { getRole } from '../roles'
 import { gooseSubtaskFinish, gooseSubtaskStart, gooseSubtaskTool } from '../agentActivity'
 import { runGooseSubtask } from './runGooseSubtask'
+import { isProviderCoolingDown, noteProviderResult } from './quota'
+
+/** A graceful tool-error result so Claude falls back to doing the task itself. */
+function errResult(text: string) {
+  return { content: [{ type: 'text' as const, text }], isError: true as const }
+}
 
 /**
  * Build the delegate MCP server, bound to a conversation's workspace cwd + the
@@ -45,61 +51,69 @@ export function buildDelegateServer(cwd: string, runId: string) {
     async (args) => {
       const tier: DelegateTier = args.tier ?? 'auto'
       const providers = await enabledProviders()
-      const pickedId = pickProvider(
+      // Ordered candidates (free first); skip any cooling down from a recent 429/quota.
+      const order = orderProviders(
         tier,
         args.instruction,
         providers.map((p) => ({ id: p.id, free: p.free }))
       )
-      if (!pickedId) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text:
-                providers.length === 0
-                  ? 'No free provider is configured. Do this task yourself.'
-                  : 'This task is not a good fit for a free model. Do it yourself.'
-            }
-          ],
-          isError: true
-        }
+      if (!order.length) {
+        return errResult(
+          providers.length === 0
+            ? 'No free provider is configured. Do this task yourself.'
+            : 'This task is not a good fit for a free model. Do it yourself.'
+        )
       }
-      const provider = providers.find((p) => p.id === pickedId)!
+      const candidates = order.filter((id) => !isProviderCoolingDown(id))
+      if (!candidates.length) {
+        return errResult(
+          'All free providers are rate-limited / cooling down right now. Do this task yourself.'
+        )
+      }
+
       const role = getRole(args.role)
-      const activityId = gooseSubtaskStart(
-        runId,
-        `🪿 ${provider.gooseProvider}${args.role ? ` · ${args.role}` : ''}`,
-        args.instruction
-      )
-      try {
-        const res = await runGooseSubtask({
-          instruction: args.instruction,
-          provider,
-          systemAppend: role?.systemAppend,
-          writeCapable: args.writeCapable ?? role?.writeCapable ?? false,
-          cwd,
+      const writeCapable = args.writeCapable ?? role?.writeCapable ?? false
+      let lastError = ''
+
+      // Quota/429 fallback: try each provider in turn; a provider-side failure
+      // (rate/quota/auth/unavailable) cools it down and falls through to the next;
+      // a task-level error stops the loop (don't burn other providers' quota).
+      for (const id of candidates) {
+        const provider = providers.find((p) => p.id === id)!
+        const activityId = gooseSubtaskStart(
           runId,
-          onEvent: (ev) => {
-            if (ev.kind === 'tool') gooseSubtaskTool(activityId, ev.tool, ev.target, ev.status)
-          }
-        })
-        gooseSubtaskFinish(activityId, 'ok', { tokensUsed: res.tokensUsed })
-        const text = res.output || '(the sub-agent returned no text)'
-        return {
-          content: [{ type: 'text' as const, text: `[delegated → ${res.model}]\n\n${text}` }]
-        }
-      } catch (e) {
-        gooseSubtaskFinish(activityId, 'error', { detail: String(e).slice(0, 120) })
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `Delegation failed (${String(e)}). Do this task yourself.`
+          `🪿 ${provider.gooseProvider}${args.role ? ` · ${args.role}` : ''}`,
+          args.instruction
+        )
+        try {
+          const res = await runGooseSubtask({
+            instruction: args.instruction,
+            provider,
+            systemAppend: role?.systemAppend,
+            writeCapable,
+            cwd,
+            runId,
+            onEvent: (ev) => {
+              if (ev.kind === 'tool') gooseSubtaskTool(activityId, ev.tool, ev.target, ev.status)
             }
-          ],
-          isError: true
+          })
+          noteProviderResult(id, true)
+          gooseSubtaskFinish(activityId, 'ok', { tokensUsed: res.tokensUsed })
+          const text = res.output || '(the sub-agent returned no text)'
+          return {
+            content: [{ type: 'text' as const, text: `[delegated → ${res.model}]\n\n${text}` }]
+          }
+        } catch (e) {
+          const msg = String(e)
+          lastError = msg
+          const cls = noteProviderResult(id, false, msg)
+          gooseSubtaskFinish(activityId, 'error', { detail: `${cls.kind}: ${msg.slice(0, 100)}` })
+          if (!cls.retriable) break // task-level error → other providers won't help
         }
       }
+      return errResult(
+        `Delegation failed across free providers (${lastError.slice(0, 160)}). Do this task yourself.`
+      )
     }
   )
 

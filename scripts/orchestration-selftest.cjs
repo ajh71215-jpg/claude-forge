@@ -14,7 +14,7 @@ const base = path.join(__dirname, '..', 'out-selftest')
 
 const { topoSort } = require(path.join(base, 'orchestration.js'))
 const { validatePlan, executePlan, projectPlanCost } = require(path.join(base, 'conductor.js'))
-const { route, classifyDifficulty, escalate, resolveModelId, pickProvider } = require(path.join(base, 'routing.js'))
+const { route, classifyDifficulty, escalate, resolveModelId, pickProvider, orderProviders } = require(path.join(base, 'routing.js'))
 const { aggregateVotes, shouldEarlyStop, pairwiseWithSwap, debateConverged } = require(
   path.join(base, 'verifier.js')
 )
@@ -83,6 +83,11 @@ async function main() {
   check('pickProvider: auto + trivial → delegates', pickProvider('auto', 'fix a typo', PROV) === 'openrouter-free')
   check('pickProvider: auto + hard → undefined (Claude keeps it)', pickProvider('auto', 'design a distributed consensus algorithm', PROV) === undefined)
   check('pickProvider: cheap ignores difficulty', pickProvider('cheap', 'design a distributed consensus algorithm', PROV) === 'openrouter-free')
+  // orderProviders — quota/429 fallback ordering (free first, then paid)
+  check('orderProviders: free-first then paid', JSON.stringify(orderProviders('cheap', 'x', PROV)) === JSON.stringify(['openrouter-free', 'groq']))
+  check('orderProviders: free tier excludes paid', JSON.stringify(orderProviders('free', 'x', PROV)) === JSON.stringify(['openrouter-free']))
+  check('orderProviders: auto + hard → empty', orderProviders('auto', 'design a distributed consensus algorithm', PROV).length === 0)
+  check('orderProviders: no providers → empty', orderProviders('auto', 'x', []).length === 0)
 
   // ============ VERIFIER (debate / voting / bias) ============
   group('verifier.ts — voting, early-stop, order-swap, debate')

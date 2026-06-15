@@ -126,14 +126,29 @@ export function pickProvider(
   instruction: string,
   enabled: { id: string; free: boolean }[]
 ): string | undefined {
-  if (!enabled.length) return undefined
-  const freeFirst = enabled.find((p) => p.free) ?? enabled[0]
-  if (tier === 'cheap') return freeFirst.id
-  if (tier === 'free') return (enabled.find((p) => p.free) ?? enabled[0]).id
-  // 'auto': gate on difficulty.
-  const difficulty = classifyDifficulty(instruction)
-  if (difficulty === 'hard') return undefined
-  return freeFirst.id
+  return orderProviders(tier, instruction, enabled)[0]
+}
+
+/**
+ * Ordered provider-id candidate list for a delegated subtask (free providers
+ * first), for the quota/429 fallback loop: try each in turn until one succeeds.
+ * Same gating as pickProvider. Pure → selftest-able.
+ *  - no providers → [].
+ *  - tier 'free'  → only free providers (strict; may be empty).
+ *  - tier 'auto' + a 'hard' instruction → [] (Claude keeps hard work itself).
+ *  - else → free providers first, then the rest (paid) as last-resort fallback.
+ */
+export function orderProviders(
+  tier: DelegateTier,
+  instruction: string,
+  enabled: { id: string; free: boolean }[]
+): string[] {
+  if (!enabled.length) return []
+  const free = enabled.filter((p) => p.free).map((p) => p.id)
+  if (tier === 'free') return free
+  if (tier === 'auto' && classifyDifficulty(instruction) === 'hard') return []
+  const rest = enabled.filter((p) => !p.free).map((p) => p.id)
+  return [...free, ...rest]
 }
 
 /**

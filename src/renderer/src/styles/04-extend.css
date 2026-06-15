@@ -218,7 +218,7 @@
 }
 .skill-switch.on .skill-knob {
   transform: translateX(16px);
-  background: #1c1813;
+  background: var(--on-accent);
 }
 .skill-main {
   flex: 1;
@@ -496,25 +496,25 @@ select.hook-select {
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  border: 1px solid var(--line, #2a2521);
-  color: var(--muted, #b9ad9c);
-  background: rgba(232, 147, 42, 0.06);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: rgba(var(--accent-rgb), 0.06);
   white-space: nowrap;
 }
 .mem-semantic {
-  color: var(--amber, #e8932a);
-  border-color: rgba(232, 147, 42, 0.4);
+  color: var(--amber);
+  border-color: rgba(var(--accent-rgb), 0.4);
 }
 .mem-procedural {
-  color: #7fb2d8;
-  border-color: rgba(127, 178, 216, 0.4);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
 }
 
 /* ---- Skills starter pack (mattpocock/skills absorption) ---- */
 .skills-pack {
   margin-top: 22px;
   padding-top: 16px;
-  border-top: 1px solid var(--line, #2a2521);
+  border-top: 1px solid var(--border);
 }
 .skills-pack-head {
   display: flex;
@@ -526,9 +526,9 @@ select.hook-select {
   font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--amber, #e8932a);
+  color: var(--amber);
 }
 .skills-pack-sub {
   font-size: 12px;
-  color: var(--muted, #b9ad9c);
+  color: var(--muted);
 }

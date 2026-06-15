@@ -403,14 +403,14 @@
   background: var(--muted);
 }
 .mcp-dot.ok {
-  background: #4ccb6a;
-  box-shadow: 0 0 6px rgba(76, 203, 106, 0.6);
+  background: var(--ok-bright);
+  box-shadow: 0 0 6px rgba(87, 207, 131, 0.5);
 }
 .mcp-dot.pending {
   background: var(--amber);
 }
 .mcp-dot.warn {
-  background: #d8923c;
+  background: var(--warn);
 }
 .mcp-dot.err {
   background: var(--danger);
@@ -646,7 +646,7 @@
   transition: background 0.15s;
 }
 .stop:hover {
-  background: rgba(212, 102, 58, 0.12);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 /* Permission modal */
@@ -661,11 +661,11 @@
 .modal {
   width: 440px;
   max-width: 90vw;
-  background: var(--bg-card);
+  background: var(--bg-float);
   border: 1px solid var(--amber-dim);
-  border-radius: 12px;
+  border-radius: var(--r-5);
   padding: 22px 24px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-modal), var(--edge-light);
 }
 .modal-title {
   font-size: 11px;
@@ -724,7 +724,7 @@
   background: var(--danger);
 }
 .primary.danger:hover:not(:disabled) {
-  background: #e09177;
+  background: var(--danger-bright);
 }
 
 /* ---- AGENT persona (sidebar card) ---- */
@@ -755,8 +755,8 @@
   background: var(--muted);
 }
 .persona-dot.on {
-  background: #4ccb6a;
-  box-shadow: 0 0 6px rgba(76, 203, 106, 0.6);
+  background: var(--ok-bright);
+  box-shadow: 0 0 6px rgba(87, 207, 131, 0.5);
 }
 .persona-state {
   font-size: 12px;
@@ -976,6 +976,7 @@
   color: var(--amber-bright);
   background: var(--bg-card);
   border-color: var(--border-strong);
+  box-shadow: var(--edge-light);
 }
 .view-body {
   flex: 1;

@@ -10,10 +10,10 @@
 .gate-card {
   width: 440px;
   padding: 36px 32px;
-  background: var(--bg-card);
+  background: var(--bg-float);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-modal), var(--edge-light);
 }
 .gate-lead {
   color: var(--muted);
@@ -160,8 +160,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #4ccb6a;
-  box-shadow: 0 0 8px rgba(76, 203, 106, 0.6);
+  background: var(--ok-bright);
+  box-shadow: 0 0 8px rgba(87, 207, 131, 0.5);
   flex: none;
 }
 .conn-label {
@@ -189,9 +189,10 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--r-3);
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  box-shadow: var(--edge-light);
+  transition: background var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out);
 }
 .primary:hover:not(:disabled) {
   background: var(--amber-bright);

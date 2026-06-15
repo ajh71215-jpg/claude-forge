@@ -117,7 +117,7 @@
   border-left-color: var(--amber-bright);
 }
 .ad-card.orchestration {
-  border-left-color: #6aa9ff;
+  border-left-color: var(--info);
 }
 .ad-card-row {
   display: flex;
@@ -214,8 +214,8 @@
   white-space: nowrap;
 }
 .ad-kind.orchestration {
-  color: #6aa9ff;
-  border-color: color-mix(in srgb, #6aa9ff 40%, transparent);
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 45%, transparent);
 }
 .ad-kind.task {
   color: var(--text);

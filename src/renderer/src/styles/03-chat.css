@@ -200,9 +200,9 @@
   min-width: 150px;
   padding: 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-radius: var(--r-3);
+  background: var(--bg-float);
+  box-shadow: var(--shadow-pop);
 }
 .export-item {
   text-align: left;
@@ -599,7 +599,7 @@
   color: var(--muted);
 }
 .tool-badge.ok {
-  color: #4ccb6a;
+  color: var(--ok-bright);
 }
 .tool-badge.error {
   color: var(--danger);
@@ -632,7 +632,7 @@
   letter-spacing: 0.04em;
 }
 .diff-stat-add {
-  color: #4ccb6a;
+  color: var(--ok-bright);
 }
 .diff-stat-del {
   color: var(--danger);
@@ -715,6 +715,7 @@
   padding: 18px 24px 20px;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
+  box-shadow: var(--edge-light);
 }
 .composer-input {
   flex: 1;
@@ -777,10 +778,10 @@
   bottom: 92px;
   max-height: 280px;
   overflow-y: auto;
-  background: var(--bg-card);
+  background: var(--bg-float);
   border: 1px solid var(--amber-dim);
-  border-radius: 10px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-pop), var(--edge-light);
   z-index: 20;
   padding: 6px;
 }
@@ -1118,7 +1119,7 @@
   color: var(--muted);
 }
 .todo-item.completed .todo-check {
-  color: #4ccb6a;
+  color: var(--ok-bright);
 }
 .todo-item.in_progress .todo-check {
   color: var(--amber);

@@ -5,7 +5,7 @@
 // the relevant tab.
 import type { JSX, ReactNode } from 'react'
 
-type View = 'chat' | 'squad' | 'extend' | 'guide'
+type View = 'chat' | 'squad' | 'cost' | 'extend' | 'guide'
 
 const KEYWORDS: { name: string; kind: string; desc: string }[] = [
   { name: 'ralph', kind: 'loop', desc: 'Work the goal iteratively, self-verifying, until it is fully met.' },
@@ -98,12 +98,38 @@ export default function GuideView({ onGoto }: { onGoto: (v: View) => void }): JS
           </p>
         </Section>
 
-        <Section title="Slash commands">
+        <Section title="Cost & cache dashboard">
+          <p className="gd-p">
+            The <button className="gd-link" onClick={() => onGoto('cost')}>COST</button> tab
+            aggregates every run’s spend, token counts and{' '}
+            <strong>prompt-cache hit rate</strong> — with a per-run breakdown table. A high cache
+            hit rate is the headline cost lever (cache reads bill at ~10% of fresh input), so it’s
+            worth watching. It’s captured for free from data the SDK already returns — no extra
+            tokens.
+          </p>
+        </Section>
+
+        <Section title="Slash commands & /goal">
           <p className="gd-p">
             Type <code>/</code> in the composer for the command menu. Built-ins like{' '}
             <code>/usage</code> and <code>/context</code> run on the model; client-side ones like{' '}
             <code>/model &lt;id&gt;</code>, <code>/effort</code>, <code>/permission</code> and{' '}
-            <code>/clear</code> are handled instantly by Forge.
+            <code>/clear</code> are handled instantly by Forge. Unknown commands are flagged rather
+            than silently sent as text.
+          </p>
+          <p className="gd-note">
+            <code>/goal [max] &lt;objective&gt;</code> runs <strong>autonomously</strong>: it loops
+            the conversation, resuming the session each turn, until the agent reports the objective
+            complete (or hits the iteration cap). A banner over the composer tracks progress — stop
+            it any time.
+          </p>
+        </Section>
+
+        <Section title="Command palette">
+          <p className="gd-p">
+            Press <code>Ctrl/Cmd+K</code> anywhere to open the command palette — a keyboard-first
+            launcher to switch tabs, start or resume a conversation, change model / effort /
+            permission, toggle cost-saver, and more.
           </p>
         </Section>
 
@@ -120,6 +146,14 @@ export default function GuideView({ onGoto }: { onGoto: (v: View) => void }): JS
             <li>
               <strong>Compact:</strong> the <code>⟲ compact</code> button summarizes older context
               to free up tokens; a live bar shows progress.
+            </li>
+            <li>
+              <strong>Export:</strong> the <code>⭳ export</code> button saves the whole
+              conversation (restored history + current turns) as Markdown or JSON.
+            </li>
+            <li>
+              <strong>Nested subagents:</strong> when the agent delegates to a Task subagent, that
+              subagent’s tools nest under it in the transcript — indented and collapsible.
             </li>
           </ul>
         </Section>

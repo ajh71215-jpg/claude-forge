@@ -11,7 +11,7 @@ import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
 import ShortcutsHelp from './components/ShortcutsHelp'
-import { ConfirmProvider } from './components/ConfirmDialog'
+import { ConfirmProvider, useConfirm } from './components/ConfirmDialog'
 import type {
   AuthMode,
   AuthStatus,
@@ -151,6 +151,45 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [showPersona, setShowPersona] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const confirm = useConfirm()
+  // Pinned conversations (local — sorted first in the sidebar). The SDK owns the
+  // title (renameSession) and the transcript (deleteSession); pinning is Forge-only.
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set(loadJson<string[]>('forge-pinned', [])))
+  useEffect(() => saveJson('forge-pinned', [...pinned]), [pinned])
+  function togglePin(id: string): void {
+    setPinned((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  async function renameSessionTitle(id: string, title: string): Promise<void> {
+    const t = title.trim()
+    if (!t) return
+    await window.forge.agent.renameSession(id, t)
+    refreshSessions()
+  }
+  async function deleteSessionAction(id: string): Promise<void> {
+    const ok = await confirm({
+      message: 'Delete this conversation? Its saved transcript is permanently removed.',
+      danger: true,
+      confirmLabel: 'Delete'
+    })
+    if (!ok) return
+    await window.forge.agent.deleteSession(id)
+    setPinned((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    // Reset any open tab showing the deleted conversation to a fresh one.
+    setTabs((prev) =>
+      prev.map((t) => (t.sessionId === id ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
+    )
+    refreshSessions()
+  }
 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
@@ -435,6 +474,10 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         onRefreshUsage={refreshUsage}
         onNewSession={newSession}
         onResumeSession={resumeSession}
+        pinned={pinned}
+        onTogglePin={togglePin}
+        onRenameSession={renameSessionTitle}
+        onDeleteSession={deleteSessionAction}
         onShowPersona={() => setShowPersona(true)}
         onDisconnect={clear}
       />

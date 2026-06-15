@@ -297,28 +297,90 @@
   gap: 4px;
 }
 .conv-row {
-  text-align: left;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 7px 10px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.conv-row:hover {
+  border-color: var(--amber-dim);
+}
+.conv-row.on {
+  border-color: var(--amber);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.conv-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
   color: var(--muted);
   font-size: 11.5px;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: all 0.12s;
 }
-.conv-row:hover {
+.conv-row:hover .conv-title {
   color: var(--text);
-  border-color: var(--amber-dim);
 }
-.conv-row.on {
+.conv-row.on .conv-title {
   color: var(--amber-bright);
-  border-color: var(--amber);
-  background: rgba(var(--accent-rgb), 0.08);
+}
+.conv-pin-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+.conv-actions {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  padding-right: 5px;
+  flex: none;
+}
+.conv-row:hover .conv-actions {
+  display: flex;
+}
+.conv-act {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 4px;
+  border-radius: 4px;
+}
+.conv-act:hover {
+  color: var(--text);
+  background: var(--bg-card);
+}
+.conv-act.on {
+  color: var(--amber);
+}
+.conv-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 3px 6px;
+  padding: 4px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--amber);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11.5px;
+  outline: none;
+  font-family: inherit;
 }
 
 /* MCP server rows */

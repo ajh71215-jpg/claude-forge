@@ -61,6 +61,28 @@ export async function getTranscript(sessionId: string): Promise<TranscriptItem[]
   }
 }
 
+/** Rename a saved conversation (persists as the SDK customTitle). Best-effort. */
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const sdk: any = await import('@anthropic-ai/claude-agent-sdk')
+  // dir omitted → the SDK searches every project dir, so this finds the session
+  // regardless of which isolated workspace (ws/<id>) it lives in.
+  try {
+    await sdk.renameSession(sessionId, title)
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Permanently delete a saved conversation's stored transcript. Best-effort. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  const sdk: any = await import('@anthropic-ai/claude-agent-sdk')
+  try {
+    await sdk.deleteSession(sessionId)
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Recent conversations for this project (cwd), newest first. */
 export async function getSessions(): Promise<SessionInfo[]> {
   const sdk: any = await import('@anthropic-ai/claude-agent-sdk')

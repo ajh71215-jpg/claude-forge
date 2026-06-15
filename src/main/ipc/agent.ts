@@ -13,6 +13,8 @@ import {
   getUsage,
   getTranscript,
   compactSession,
+  renameSession,
+  deleteSession,
   type RunOptions
 } from '../agent'
 
@@ -33,4 +35,8 @@ export function register(ipc: IpcMain): void {
   ipc.handle('agent:usage', () => getUsage())
   ipc.handle('agent:transcript', (_e, sessionId: string) => getTranscript(sessionId))
   ipc.handle('agent:compact', (e, sessionId: string) => compactSession(sessionId, e.sender))
+  ipc.handle('agent:rename-session', (_e, sessionId: string, title: string) =>
+    renameSession(sessionId, title)
+  )
+  ipc.handle('agent:delete-session', (_e, sessionId: string) => deleteSession(sessionId))
 }

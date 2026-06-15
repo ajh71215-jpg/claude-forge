@@ -60,6 +60,10 @@ const forge = {
       ipcRenderer.invoke('agent:transcript', sessionId),
     compact: (sessionId: string): Promise<{ ok: boolean; sessionId: string; error?: string }> =>
       ipcRenderer.invoke('agent:compact', sessionId),
+    renameSession: (sessionId: string, title: string): Promise<void> =>
+      ipcRenderer.invoke('agent:rename-session', sessionId, title),
+    deleteSession: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke('agent:delete-session', sessionId),
     /** Subscribe to streaming events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: AgentEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: AgentEvent): void => cb(payload)

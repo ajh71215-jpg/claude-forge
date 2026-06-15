@@ -3,6 +3,7 @@
 // the AgentEditor modal travel WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
+import { useConfirm } from '../ConfirmDialog'
 import type { AgentMeta } from '../../types'
 import { SKILL_NAME_RE } from './shared'
 
@@ -22,6 +23,7 @@ const AGENT_TEMPLATE = `You are a focused subagent. State your role and how you 
 
 /** Reusable subagent manager — `.claude/agents/<name>.md`. */
 export default function AgentsPanel(): JSX.Element {
+  const confirm = useConfirm()
   const [agents, setAgents] = useState<AgentMeta[] | null>(null)
   const [editing, setEditing] = useState<AgentDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -50,7 +52,7 @@ export default function AgentsPanel(): JSX.Element {
     setEditing({ name: '', description: '', tools: '', model: '', body: AGENT_TEMPLATE })
   }
   async function remove(a: AgentMeta): Promise<void> {
-    if (!window.confirm(`Delete agent "${a.name}"? This removes its file.`)) return
+    if (!(await confirm({ message: `Delete agent "${a.name}"? This removes its file.`, danger: true, confirmLabel: 'Delete' }))) return
     setBusy(true)
     try {
       setAgents(await window.forge.agents.delete(a.name))

@@ -3,6 +3,7 @@
 // the SkillEditor modal travel WITH the panel (file-private).
 import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
+import { useConfirm } from '../ConfirmDialog'
 import type { SkillMeta } from '../../types'
 import { SKILL_NAME_RE } from './shared'
 
@@ -27,6 +28,7 @@ Describe what this skill does and the steps the agent should follow.
 
 /** Skills manager — list / toggle / create / edit / delete `.claude/skills`. */
 export default function SkillsPanel(): JSX.Element {
+  const confirm = useConfirm()
   const [skills, setSkills] = useState<SkillMeta[] | null>(null)
   const [editing, setEditing] = useState<SkillDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -56,7 +58,7 @@ export default function SkillsPanel(): JSX.Element {
     setEditing({ name: '', description: '', body: SKILL_TEMPLATE })
   }
   async function remove(s: SkillMeta): Promise<void> {
-    if (!window.confirm(`Delete skill "${s.name}"? This permanently removes its files.`)) return
+    if (!(await confirm({ message: `Delete skill "${s.name}"? This permanently removes its files.`, danger: true, confirmLabel: 'Delete' }))) return
     setBusy(true)
     try {
       setSkills(await window.forge.skills.delete(s.name))

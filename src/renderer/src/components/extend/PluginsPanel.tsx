@@ -2,10 +2,12 @@
 // verbatim from App.tsx — behavior-preserving.
 import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
+import { useConfirm } from '../ConfirmDialog'
 import type { PluginEntry } from '../../types'
 
 /** Local plugin bundles passed to the SDK `plugins` option. */
 export default function PluginsPanel({ onChanged }: { onChanged?: () => void }): JSX.Element {
+  const confirm = useConfirm()
   const [plugins, setPlugins] = useState<PluginEntry[] | null>(null)
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +47,7 @@ export default function PluginsPanel({ onChanged }: { onChanged?: () => void }):
     }
   }
   async function remove(p: PluginEntry): Promise<void> {
-    if (!window.confirm(`Unregister plugin?\n${p.path}`)) return
+    if (!(await confirm({ message: `Unregister plugin?\n${p.path}`, danger: true, confirmLabel: 'Unregister' }))) return
     setBusy(true)
     try {
       setPlugins(await window.forge.plugins.remove(p.path))

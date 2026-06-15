@@ -10,6 +10,7 @@ import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
+import { ConfirmProvider } from './components/ConfirmDialog'
 import type {
   AuthMode,
   AuthStatus,
@@ -41,18 +42,20 @@ export default function App(): JSX.Element {
   }, [])
 
   return (
-    <div className="app">
-      <TitleBar />
-      <div className="app-body">
-        {status === null ? (
-          <div className="boot">heating the forge…</div>
-        ) : status.mode === null ? (
-          <AuthGate hasExistingLogin={status.hasExistingLogin} onAuthed={refresh} />
-        ) : (
-          <MainShell mode={status.mode} onClear={refresh} />
-        )}
+    <ConfirmProvider>
+      <div className="app">
+        <TitleBar />
+        <div className="app-body">
+          {status === null ? (
+            <div className="boot">heating the forge…</div>
+          ) : status.mode === null ? (
+            <AuthGate hasExistingLogin={status.hasExistingLogin} onAuthed={refresh} />
+          ) : (
+            <MainShell mode={status.mode} onClear={refresh} />
+          )}
+        </div>
       </div>
-    </div>
+    </ConfirmProvider>
   )
 }
 

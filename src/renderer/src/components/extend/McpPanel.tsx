@@ -3,6 +3,7 @@
 // McpEditor modal travel WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
+import { useConfirm } from '../ConfirmDialog'
 import type { McpServer, McpServerEntry, McpTransport } from '../../types'
 import { mcpStatusClass } from '../../lib/format'
 
@@ -42,6 +43,7 @@ export default function McpPanel({
   status: McpServer[]
   onChanged?: () => void
 }): JSX.Element {
+  const confirm = useConfirm()
   const [servers, setServers] = useState<McpServerEntry[] | null>(null)
   const [editing, setEditing] = useState<McpDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -57,7 +59,7 @@ export default function McpPanel({
   const statusByName = new Map(status.map((s) => [s.name, s.status]))
 
   async function remove(name: string): Promise<void> {
-    if (!window.confirm(`Remove MCP server "${name}"?`)) return
+    if (!(await confirm({ message: `Remove MCP server "${name}"?`, danger: true, confirmLabel: 'Remove' }))) return
     setBusy(true)
     try {
       setServers(await window.forge.mcp.delete(name))

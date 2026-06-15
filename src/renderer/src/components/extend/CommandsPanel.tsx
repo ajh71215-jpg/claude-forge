@@ -3,6 +3,7 @@
 // COMMAND_TEMPLATE and the CommandEditor modal travel WITH the panel.
 import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
+import { useConfirm } from '../ConfirmDialog'
 import type { CommandMeta } from '../../types'
 import { SKILL_NAME_RE } from './shared'
 
@@ -21,6 +22,7 @@ User input: $ARGUMENTS
 
 /** Custom slash-command manager — `.claude/commands/<name>.md`. */
 export default function CommandsPanel({ onChanged }: { onChanged?: () => void }): JSX.Element {
+  const confirm = useConfirm()
   const [commands, setCommands] = useState<CommandMeta[] | null>(null)
   const [editing, setEditing] = useState<CommandDraft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -48,7 +50,7 @@ export default function CommandsPanel({ onChanged }: { onChanged?: () => void })
     setEditing({ name: '', description: '', argumentHint: '', body: COMMAND_TEMPLATE })
   }
   async function remove(c: CommandMeta): Promise<void> {
-    if (!window.confirm(`Delete command "/${c.name}"? This removes its file.`)) return
+    if (!(await confirm({ message: `Delete command "/${c.name}"? This removes its file.`, danger: true, confirmLabel: 'Delete' }))) return
     setBusy(true)
     try {
       setCommands(await window.forge.commands.delete(c.name))

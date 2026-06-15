@@ -20,6 +20,8 @@
     "test/**/*.ts",
     "src/renderer/src/lib/export.ts",
     "src/renderer/src/lib/blocks.ts",
-    "src/renderer/src/lib/format.ts"
+    "src/renderer/src/lib/format.ts",
+    "src/renderer/src/lib/goal.ts",
+    "src/renderer/src/lib/slashCommands.ts"
   ]
 }

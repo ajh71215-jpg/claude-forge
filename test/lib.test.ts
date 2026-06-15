@@ -15,6 +15,7 @@ import {
   fmtTokens
 } from '../src/renderer/src/lib/format'
 import { goalAchieved, goalDirective } from '../src/renderer/src/lib/goal'
+import { handleSlashCommand, type SlashCommandContext } from '../src/renderer/src/lib/slashCommands'
 import type { AgentEvent, Block, Turn } from '../src/renderer/src/types'
 
 // ── format.ts ──────────────────────────────────────────────────────────────
@@ -161,6 +162,77 @@ test('goalDirective: embeds objective + both status tokens', () => {
   assert.match(d, /ship the feature/)
   assert.match(d, /GOAL_ACHIEVED/)
   assert.match(d, /GOAL_CONTINUE/)
+})
+
+// ── slashCommands.ts ─────────────────────────────────────────────────────────
+function makeCtx(over: Partial<SlashCommandContext> = {}): {
+  ctx: SlashCommandContext
+  calls: Record<string, unknown[]>
+} {
+  const calls: Record<string, unknown[]> = {}
+  const rec =
+    (name: string) =>
+    (...a: unknown[]): void => {
+      calls[name] = a
+    }
+  const ctx: SlashCommandContext = {
+    models: [{ value: 'claude-opus-4-8', displayName: 'Opus 4.8' }],
+    commands: [{ name: 'usage' }],
+    running: false,
+    setPrompt: rec('setPrompt'),
+    pushNotice: rec('pushNotice'),
+    onNewSession: rec('onNewSession'),
+    showHelp: rec('showHelp'),
+    onSetModel: rec('onSetModel'),
+    onSetEffort: rec('onSetEffort'),
+    onSetPermission: rec('onSetPermission'),
+    onSetConvPersona: rec('onSetConvPersona'),
+    startGoal: rec('startGoal'),
+    ...over
+  }
+  return { ctx, calls }
+}
+
+test('handleSlashCommand: non-slash text is not consumed', () => {
+  const { ctx } = makeCtx()
+  assert.equal(handleSlashCommand('hello world', ctx), false)
+})
+
+test('handleSlashCommand: /clear and /new trigger a new session', () => {
+  for (const cmd of ['/clear', '/new']) {
+    const { ctx, calls } = makeCtx()
+    assert.equal(handleSlashCommand(cmd, ctx), true)
+    assert.ok(calls.onNewSession)
+  }
+})
+
+test('handleSlashCommand: /model sets the conversation model', () => {
+  const { ctx, calls } = makeCtx()
+  assert.equal(handleSlashCommand('/model claude-opus-4-8', ctx), true)
+  assert.deepEqual(calls.onSetModel, ['claude-opus-4-8'])
+})
+
+test('handleSlashCommand: /persona clear removes the override', () => {
+  const { ctx, calls } = makeCtx({ convPersona: 'be terse' })
+  assert.equal(handleSlashCommand('/persona clear', ctx), true)
+  assert.deepEqual(calls.onSetConvPersona, [null])
+})
+
+test('handleSlashCommand: /goal parses optional max + objective', () => {
+  const { ctx, calls } = makeCtx()
+  assert.equal(handleSlashCommand('/goal 12 build the thing', ctx), true)
+  assert.deepEqual(calls.startGoal, ['build the thing', 12])
+})
+
+test('handleSlashCommand: unknown command is consumed with a notice (not sent)', () => {
+  const { ctx, calls } = makeCtx()
+  assert.equal(handleSlashCommand('/definitelynotacommand', ctx), true)
+  assert.ok(calls.pushNotice)
+})
+
+test('handleSlashCommand: a real SDK command is NOT consumed (forwarded)', () => {
+  const { ctx } = makeCtx()
+  assert.equal(handleSlashCommand('/usage', ctx), false)
 })
 
 test('conversationToJson: round-trips to a structured object', () => {

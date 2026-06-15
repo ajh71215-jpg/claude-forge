@@ -29,54 +29,8 @@ import type {
 } from './types'
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
 import { resolveMaxTurns } from './lib/format'
-
-/** Read a JSON value from localStorage, falling back to a default on any error. */
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw === null ? fallback : (JSON.parse(raw) as T)
-  } catch {
-    return fallback
-  }
-}
-
-/** Persist a JSON value to localStorage (best-effort). */
-function saveJson(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* ignore quota / serialization errors */
-  }
-}
-
-/** One open conversation tab. `key` is also the isolated workspace id for the
- * conversation, so concurrent tabs can't edit the same files. */
-interface ChatTab {
-  key: string
-  sessionId: string | null
-  /** Bumped to force the Composer to reset/restore when the tab's session changes. */
-  sessionKey: number
-  /** Per-conversation model override (set via /model); falls back to the global. */
-  model?: string
-  /** Per-conversation persona override (set via /persona); falls back to global. */
-  persona?: string
-}
-
-const WS_MAP_KEY = 'forge-session-ws'
-const MAX_TABS = 5
-
-/** Stable workspace id for a resumed session (so it reuses the dir where it did
- * its file work), or null if this session predates the mapping. */
-function wsKeyForSession(sid: string): string | null {
-  return loadJson<Record<string, string>>(WS_MAP_KEY, {})[sid] ?? null
-}
-/** Remember which workspace a session belongs to, so a later resume reuses it. */
-function rememberSessionWs(sid: string, key: string): void {
-  const m = loadJson<Record<string, string>>(WS_MAP_KEY, {})
-  if (m[sid] === key) return
-  m[sid] = key
-  saveJson(WS_MAP_KEY, m)
-}
+import { loadJson, saveJson } from './lib/storage'
+import { useChatTabs, MAX_TABS } from './components/chat/useChatTabs'
 
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
@@ -132,10 +86,22 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   // Open conversation tabs. Each runs concurrently in its own isolated workspace
   // (tab.key) and keeps streaming when you switch tabs (no interrupt). The active
   // conversation's sessionId drives the sidebar highlight + usage.
-  const [tabs, setTabs] = useState<ChatTab[]>(() => [{ key: 't0', sessionId: null, sessionKey: 0 }])
-  const [activeKey, setActiveKey] = useState('t0')
-  const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
-  const sessionId = activeTab?.sessionId ?? null
+  const {
+    tabs,
+    activeKey,
+    activeTab,
+    sessionId,
+    setActiveKey,
+    newSession,
+    resumeSession,
+    resetTab,
+    setTabSession,
+    setTabModel,
+    setTabPersona,
+    closeTab,
+    tabTitle,
+    clearTabsForSession
+  } = useChatTabs({ sessions, onExitCostSaver: () => setCostSaver(false) })
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
   // account default model). Persisted (with the budget/auto-compact LIMITS) so a
@@ -195,9 +161,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       return next
     })
     // Reset any open tab showing the deleted conversation to a fresh one.
-    setTabs((prev) =>
-      prev.map((t) => (t.sessionId === id ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
-    )
+    clearTabsForSession(id)
     refreshSessions()
   }
 
@@ -265,80 +229,6 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     refreshSessions()
   }
 
-  // ── Conversation tabs ──
-  /** Open a fresh conversation tab (or focus an existing empty one / the cap). */
-  function newSession(): void {
-    const empty = tabs.find((t) => t.sessionId === null)
-    if (empty) {
-      setActiveKey(empty.key)
-      return
-    }
-    if (tabs.length >= MAX_TABS) return // at cap — close a tab first
-    const t: ChatTab = { key: crypto.randomUUID(), sessionId: null, sessionKey: 0 }
-    setTabs((prev) => [...prev, t])
-    setActiveKey(t.key)
-  }
-  /** Open a saved conversation: focus its tab if open, else load it (reusing the
-   * active empty tab when possible) so it resumes in its original workspace. */
-  function resumeSession(id: string): void {
-    const open = tabs.find((t) => t.sessionId === id)
-    if (open) {
-      setActiveKey(open.key)
-      return
-    }
-    const wsKey = wsKeyForSession(id) ?? crypto.randomUUID()
-    rememberSessionWs(id, wsKey)
-    const active = tabs.find((t) => t.key === activeKey)
-    if ((active && active.sessionId === null) || tabs.length >= MAX_TABS) {
-      const target = active && active.sessionId === null ? active.key : activeKey
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.key === target ? { key: wsKey, sessionId: id, sessionKey: t.sessionKey + 1 } : t
-        )
-      )
-      setActiveKey(wsKey)
-      return
-    }
-    setTabs((prev) => [...prev, { key: wsKey, sessionId: id, sessionKey: 0 }])
-    setActiveKey(wsKey)
-  }
-  /** Reset a tab to a fresh conversation (the /clear or /new command within it). */
-  function resetTab(key: string): void {
-    setTabs((prev) =>
-      prev.map((t) => (t.key === key ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
-    )
-  }
-  /** A run in `key` established its session id — record it (+ its workspace). */
-  function setTabSession(key: string, sid: string): void {
-    rememberSessionWs(sid, key)
-    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, sessionId: sid } : t)))
-  }
-  /** Set/clear a tab's per-conversation model override (via /model). 'global'
-   * clears it back to the sidebar default. */
-  function setTabModel(key: string, value: string): void {
-    setCostSaver(false)
-    const model = value === 'global' || value === '' ? undefined : value
-    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, model } : t)))
-  }
-  /** Set/clear a tab's per-conversation persona override (via /persona). */
-  function setTabPersona(key: string, persona: string | null): void {
-    setTabs((prev) =>
-      prev.map((t) => (t.key === key ? { ...t, persona: persona || undefined } : t))
-    )
-  }
-  /** Close a tab (always keep at least one); focus a neighbor if it was active. */
-  function closeTab(key: string): void {
-    if (tabs.length <= 1) return
-    const idx = tabs.findIndex((t) => t.key === key)
-    const next = tabs.filter((t) => t.key !== key)
-    setTabs(next)
-    if (key === activeKey) setActiveKey(next[Math.max(0, idx - 1)].key)
-  }
-  /** Title for a tab: the saved session's title, else "New chat". */
-  function tabTitle(t: ChatTab): string {
-    if (!t.sessionId) return 'New chat'
-    return sessions.find((s) => s.sessionId === t.sessionId)?.title ?? 'Chat'
-  }
   // Manually choosing a model/effort exits cost-saver mode.
   function chooseModel(v: string): void {
     setModel(v)

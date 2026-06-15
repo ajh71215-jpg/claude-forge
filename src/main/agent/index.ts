@@ -26,6 +26,13 @@ export { workspaceDir } from './env'
 export { respondPermission, respondDialog, interruptRun, interruptAll } from './control'
 export { getCapabilities } from './capabilities'
 export { getUsage } from './usage'
-export { getSessions, getTranscript } from './sessions'
+export {
+  getSessions,
+  getTranscript,
+  renameSession,
+  deleteSession,
+  searchSessions,
+  type SessionSearchHit
+} from './sessions'
 export { compactSession } from './compact'
 export { runStreaming } from './runStreaming'

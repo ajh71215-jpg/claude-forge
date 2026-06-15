@@ -2,7 +2,7 @@
 // Extracted verbatim from App.tsx — behavior-preserving. The streaming event
 // subscription (rAF-coalesced) and near-bottom autoscroll are docs/PERFORMANCE.md
 // levers 2 & 4 — do not change without re-profiling.
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type DragEvent as RDragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   Permission,
   Effort,
@@ -14,7 +14,7 @@ import type {
   RunOptions
 } from '../../types'
 import { CLIENT_COMMANDS } from '../../lib/constants'
-import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
+import { ctxWindow, resolveMaxTurns } from '../../lib/format'
 // Shared model router (docs/TOKEN_OPTIMIZATION.md §3 lever 4 ∩ SQUAD §4): the
 // cost-saver classifies each prompt's difficulty and routes to the cheapest tier
 // that fits, instead of a flat "always Sonnet". Single owner — the conductor's
@@ -22,98 +22,23 @@ import { ctxWindow, resolveMaxTurns, toolArg, toolIcon } from '../../lib/format'
 import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
 import { conversationToJson, conversationToMarkdown } from '../../lib/export'
+import { activityLabel } from '../../lib/composer'
+import { goalDirective } from '../../lib/goal'
+import { handleSlashCommand } from '../../lib/slashCommands'
 import { useAgentEvents } from './useAgentEvents'
+import { useImageAttachments } from './useImageAttachments'
+import { useTranscriptSearch } from './useTranscriptSearch'
+import { useGoalLoop } from './useGoalLoop'
+import { useCompaction } from './useCompaction'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
 import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
+import ReliabilityBanner from './ReliabilityBanner'
+import WorkHeader from './WorkHeader'
 import Elapsed from './Elapsed'
-import type { Turn, KeywordMatch } from '../../types'
-
-/** Plain-language description of what the agent is doing right now, derived from
- * the active turn's latest block — so the pinned live strip says e.g. "Read
- * src/main/agent.ts" or "thinking…" instead of an opaque "running". */
-function activityLabel(turn: Turn | null): { icon: string; text: string } {
-  const b = turn?.blocks[turn.blocks.length - 1]
-  if (!b) return { icon: '✦', text: 'thinking…' }
-  if (b.kind === 'thinking') return { icon: '✦', text: 'thinking…' }
-  if (b.kind === 'text') return { icon: '✎', text: 'writing response…' }
-  // tool block
-  if (b.status === 'running') {
-    const arg = toolArg(b.inputRaw)
-    return { icon: toolIcon(b.name), text: arg ? `${b.name} ${arg}` : `${b.name}…` }
-  }
-  return { icon: '⚒', text: 'working…' }
-}
-
-/** Live state for the autonomous /goal loop (Forge's headless analog of the
- * interactive Claude Code /goal: re-run the resumed session until the model
- * signals GOAL_ACHIEVED, an error, the iteration cap, or the cumulative budget). */
-interface GoalState {
-  objective: string
-  iter: number
-  max: number
-  /** USD spent across all iterations so far (sum of per-run result costs). */
-  spent: number
-  /** Cumulative USD cap — the loop hard-stops once `spent` reaches it. This is the
-   * runaway guard the per-run maxBudgetUsd can't provide (it resets each run). */
-  budget: number
-}
-
-/** Default cumulative USD ceiling for a /goal loop, used unless the user has set a
- * higher LIMITS "max $/run" (then that value is the goal's total budget). */
-const GOAL_MAX_USD = 10
-
-/** Directive that turns one run into a goal-loop step. Injected as a prefix on the
- * user message (not the system prompt) so it doesn't bust the prompt cache; the
- * agent keeps all its real tools + the user's permission mode. */
-function goalDirective(objective: string): string {
-  return [
-    'GOAL MODE — autonomous objective loop.',
-    `Objective: ${objective}`,
-    'Work toward this objective using your available tools. This runs in a loop:' +
-      ' after each turn you are automatically prompted to continue, so you need not' +
-      ' finish everything at once — make concrete, verifiable progress each turn.',
-    'At the VERY END of every response, output exactly one status token on its own line:',
-    '- GOAL_ACHIEVED — only when the objective is fully complete AND verified' +
-      ' (prefer running tests / build / typecheck to confirm before declaring done).',
-    '- GOAL_CONTINUE — when more work remains; briefly state the next concrete step.',
-    'Do not output GOAL_ACHIEVED prematurely.'
-  ].join('\n')
-}
-
-/** Did the assistant's response declare the goal complete? Last token wins so a
- * response that discusses GOAL_CONTINUE earlier but ends with GOAL_ACHIEVED
- * still resolves correctly (and vice-versa). */
-function goalAchieved(text: string): boolean {
-  const ach = text.lastIndexOf('GOAL_ACHIEVED')
-  if (ach < 0) return false
-  return ach > text.lastIndexOf('GOAL_CONTINUE')
-}
-
-/** Interactive-only CLI commands with no headless behavior — surfaced with a
- * clear note instead of being silently forwarded to the SDK (where they no-op). */
-const INTERACTIVE_ONLY = new Set([
-  'login',
-  'logout',
-  'agents',
-  'ide',
-  'bug',
-  'vim',
-  'terminal-setup',
-  'install-github-app'
-])
-
-/** Flatten a turn's searchable text (prompt + every block) for transcript search. */
-function turnText(t: Turn): string {
-  const parts = [t.prompt]
-  for (const b of t.blocks) {
-    if (b.kind === 'text' || b.kind === 'thinking') parts.push(b.text)
-    else if (b.kind === 'tool') parts.push(b.name, b.inputRaw, b.result ?? '')
-  }
-  return parts.join(' ').toLowerCase()
-}
+import type { KeywordMatch } from '../../types'
 
 export default function Composer({
   model,
@@ -130,10 +55,13 @@ export default function Composer({
   sessionKey,
   onSession,
   onSetModel,
+  onSetConvPersona,
   onSetEffort,
   onSetPermission,
   onNewSession,
-  workspaceId
+  workspaceId,
+  isActive = true,
+  convPersona
 }: {
   model?: string
   permission: Permission
@@ -157,43 +85,37 @@ export default function Composer({
   sessionId: string | null
   sessionKey: number
   onSession: (id: string) => void
+  /** Set this conversation's model override (via /model). */
   onSetModel: (value: string) => void
+  /** Set/clear this conversation's persona override (via /persona). */
+  onSetConvPersona: (text: string | null) => void
   onSetEffort: (label: EffortLabel) => void
   onSetPermission: (p: Permission) => void
   onNewSession: () => void
   /** Isolated workspace id for this conversation (per-tab) — keeps concurrent
    * conversations from editing the same files. Threaded into every run. */
   workspaceId?: string
+  /** True when this is the visible tab. All tabs stay mounted (so background
+   * conversations keep streaming), so global side effects (Cmd+F, focus) must be
+   * gated on this to avoid firing in every tab at once. */
+  isActive?: boolean
+  /** This conversation's persona override (set via /persona); when set it's sent
+   * as the run's systemPrompt (replace), overriding the global persona. */
+  convPersona?: string
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [menuIndex, setMenuIndex] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
-  const [compacting, setCompacting] = useState(false)
-  const [compactPct, setCompactPct] = useState(0)
   const [history, setHistory] = useState<TranscriptItem[]>([])
-  const [attachments, setAttachments] = useState<
-    { id: string; mediaType: string; base64: string; preview: string; name: string }[]
-  >([])
-  // Drag-and-drop image attach overlay + transcript search box.
-  const [dragOver, setDragOver] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [search, setSearch] = useState('')
+  // Image attachments (drag-drop / picker / paste) — own hook.
+  const { attachments, setAttachments, dragOver, setDragOver, fileRef, addFiles, onDrop } =
+    useImageAttachments()
   const [exportOpen, setExportOpen] = useState(false)
-  const searchRef = useRef<HTMLInputElement>(null)
   // Magic-keyword modes detected in the current draft (shown as chips so the
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
-  // /goal autonomous loop. goalRef mirrors the state synchronously so send() and
-  // the loop-driving effect see the current goal without waiting for a re-render.
-  const [goal, setGoalState] = useState<GoalState | null>(null)
-  const goalRef = useRef<GoalState | null>(null)
-  const setGoal = useCallback((g: GoalState | null): void => {
-    goalRef.current = g
-    setGoalState(g)
-  }, [])
-  const processedTurnRef = useRef<string | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
   const [stickBottom, setStickBottom] = useState<boolean>(() => {
@@ -211,7 +133,6 @@ export default function Composer({
     }
   }, [stickBottom])
   const promptHistRef = useRef<string[]>([])
-  const fileRef = useRef<HTMLInputElement>(null)
   const runIdRef = useRef<string | null>(null)
   const ownedRef = useRef<Set<string>>(new Set())
   const onResultRef = useRef(onResult)
@@ -254,6 +175,36 @@ export default function Composer({
     reliability,
     setReliability
   } = useAgentEvents({ ownedRef, runIdRef, onSessionRef, onResultRef, taRef })
+
+  // Transcript search (Cmd/Ctrl+F) — owns its state + the active-tab keydown.
+  const searchState = useTranscriptSearch(turns, isActive)
+  const { search, setSearch, searchOpen, setSearchOpen, searchRef, q, shownTurns } = searchState
+
+  const running = turns.some((t) => t.running)
+  const activeTurn = turns.find((t) => t.running) ?? null
+
+  // The autonomous /goal loop — owns the goal state + the loop driver. send()
+  // reads goalRef to prefix the directive; the loop drives send() via sendRef.
+  const { goal, goalRef, startGoal, stopGoal, resetGoal } = useGoalLoop({
+    turns,
+    running,
+    runIdRef,
+    maxBudget,
+    sendRef,
+    pushNotice
+  })
+
+  // Context compaction: manual /compact + live progress bar + auto-compact at 80%.
+  const compaction = useCompaction({
+    sessionIdRef,
+    onSessionRef,
+    pushNotice,
+    setContextTokens,
+    autoCompact,
+    running,
+    contextTokens,
+    contextModel
+  })
 
   // Keep the transcript pinned to the bottom as content streams in — but only
   // when the user is already near the bottom (don't yank them down if they
@@ -298,8 +249,7 @@ export default function Composer({
     setContextTokens(0)
     setContextModel('')
     runIdRef.current = null
-    setGoal(null) // switching conversations abandons any in-flight goal loop
-    processedTurnRef.current = null
+    resetGoal() // switching conversations abandons any in-flight goal loop
     const sid = sessionIdRef.current
     if (sid) {
       window.forge.agent
@@ -327,9 +277,6 @@ export default function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey])
 
-  const running = turns.some((t) => t.running)
-  const activeTurn = turns.find((t) => t.running) ?? null
-
   // Task progress for the pinned bar above the composer. Models track work via
   // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
   // fall back to TodoWrite for any agent that still uses it.
@@ -350,22 +297,6 @@ export default function Composer({
       }
     }
   }
-
-  // Live /compact progress for the progress bar (main streams agent:compact-progress).
-  useEffect(() => {
-    const unsub = window.forge.agent.onCompactProgress((p) => {
-      setCompactPct(p.pct)
-    })
-    return unsub
-  }, [])
-
-  // Auto-compact when context crosses 80% (opt-in via the LIMITS toggle).
-  useEffect(() => {
-    if (!autoCompact || compacting || running || !sessionIdRef.current || contextTokens <= 0) return
-    const pct = (contextTokens / ctxWindow(contextModel)) * 100
-    if (pct >= 80) compact()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextTokens])
 
   // Cost-saver routing (lever 4): classify the prompt's difficulty and pick the
   // cheapest tier that fits, resolving the tier alias to a concrete model id from
@@ -433,6 +364,10 @@ export default function Composer({
     if (runEffort) opts.effort = runEffort
     if (runModel && runModel !== 'default') opts.model = runModel
     if (workspaceId) opts.workspaceId = workspaceId
+    // Per-conversation persona override (set via /persona) — a stable systemPrompt
+    // for THIS conversation, so it doesn't bust the cache (constant across turns)
+    // and overrides the global persona resolved in the main process.
+    if (convPersona && convPersona.trim()) opts.systemPrompt = convPersona
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))
@@ -483,106 +418,8 @@ export default function Composer({
   }
 
   async function stop(): Promise<void> {
-    setGoal(null) // a manual STOP also ends any running goal loop
+    resetGoal() // a manual STOP also ends any running goal loop
     if (runIdRef.current) await window.forge.agent.interrupt(runIdRef.current)
-  }
-
-  /** Enter /goal mode and kick off the first run. */
-  function startGoal(objective: string, max: number): void {
-    // Cumulative budget: the user's "max $/run" if set (treated as the goal total),
-    // else a conservative default. This is the dollar runaway guard.
-    const budget = Math.max(GOAL_MAX_USD, maxBudget)
-    setGoal({ objective, iter: 1, max, spent: 0, budget })
-    processedTurnRef.current = null
-    pushNotice(
-      '🎯 /goal',
-      `Goal set — running autonomously until complete (max ${max} iteration${max === 1 ? '' : 's'} · budget $${budget.toFixed(0)}).\n\nObjective: ${objective}`
-    )
-    void send(objective)
-  }
-
-  function stopGoal(): void {
-    const g = goalRef.current
-    setGoal(null)
-    if (runIdRef.current) void window.forge.agent.interrupt(runIdRef.current)
-    if (g) pushNotice('🎯 /goal', `Goal stopped after ${g.iter} iteration${g.iter === 1 ? '' : 's'}.`)
-  }
-
-  // Drive the /goal loop: when a goal run finishes, read the assistant's status
-  // token and either stop (achieved / error / cap) or auto-send a continuation
-  // that resumes the same session (so context + progress carry over).
-  useEffect(() => {
-    const g = goalRef.current
-    if (!g || running) return
-    const last = turns[turns.length - 1]
-    if (!last || last.running) return
-    if (processedTurnRef.current === last.id) return
-    processedTurnRef.current = last.id
-
-    // Accumulate the cost of the run that just finished (runaway-budget guard).
-    const spent = g.spent + (last.meta?.costUsd ?? 0)
-
-    if (last.meta?.error) {
-      setGoal(null)
-      pushNotice('🎯 /goal', `Goal stopped — the last run errored: ${last.meta.error}`)
-      return
-    }
-    const answer = last.blocks
-      .filter((b): b is Extract<typeof b, { kind: 'text' }> => b.kind === 'text')
-      .map((b) => b.text)
-      .join('\n')
-    if (goalAchieved(answer)) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `✓ Goal achieved in ${g.iter} iteration${g.iter === 1 ? '' : 's'} ($${spent.toFixed(2)}).`
-      )
-      return
-    }
-    if (spent >= g.budget) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `Reached the $${g.budget.toFixed(0)} budget ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — raise "max $/run" in LIMITS and run /goal again to continue.`
-      )
-      return
-    }
-    if (g.iter >= g.max) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `Reached the ${g.max}-iteration cap ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — run /goal again to keep going.`
-      )
-      return
-    }
-    setGoal({ ...g, iter: g.iter + 1, spent })
-    void send(
-      'Continue working toward the goal. Make concrete progress, verify it, and remember to end with GOAL_ACHIEVED or GOAL_CONTINUE on its own line.'
-    )
-    // send / setGoal / pushNotice are stable enough for this effect; re-running it
-    // only when the transcript or running flag changes is exactly what we want.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns, running])
-
-  async function compact(): Promise<void> {
-    const sid = sessionIdRef.current
-    if (!sid || compacting || running) return
-    setCompacting(true)
-    setCompactPct(0)
-    try {
-      const r = await window.forge.agent.compact(sid)
-      if (r.ok) {
-        onSessionRef.current(r.sessionId)
-        pushNotice('⟲ /compact', '✓ Context compacted — older messages summarized.')
-        setContextTokens(0)
-      } else {
-        pushNotice('⟲ /compact', `Compact failed${r.error ? ': ' + r.error : ''}`)
-      }
-    } finally {
-      setCompacting(false)
-      // Brief settle so the bar visibly reaches 100% before it disappears.
-      setTimeout(() => setCompactPct(0), 600)
-    }
   }
 
   /** Download the current conversation (restored history + live turns) as md/json. */
@@ -613,133 +450,23 @@ export default function Composer({
     ])
   }
 
-  /**
-   * Handle GUI-side slash commands that the headless SDK can't run
-   * (/model, /effort, /permission, /clear, /help). Returns true if consumed.
-   */
+  /** GUI-side slash commands the headless SDK can't run (dispatcher in lib). */
   function handleClientCommand(raw: string): boolean {
-    const m = raw.match(/^\/(\S+)\s*(.*)$/)
-    if (!m) return false
-    const cmd = m[1].toLowerCase()
-    const arg = m[2].trim()
-    if (cmd === 'clear' || cmd === 'new') {
-      onNewSession()
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'help') {
-      setShowHelp(true)
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'model') {
-      if (!arg) {
-        pushNotice(
-          raw,
-          `Models: ${models.map((x) => x.value).join(', ')} — or any model ID, e.g. /model claude-opus-4-6`
-        )
-        setPrompt('')
-        return true
-      }
-      const a = arg.toLowerCase()
-      const found = models.find(
-        (x) => x.value.toLowerCase() === a || x.displayName.toLowerCase().includes(a)
-      )
-      // Accept arbitrary model IDs (like the CLI). Resolve known aliases for a
-      // friendlier label; otherwise pass the raw id straight to the SDK.
-      const value = found ? found.value : arg
-      onSetModel(value)
-      pushNotice(
-        raw,
-        found ? `✓ Model → ${found.displayName} (${found.value})` : `✓ Model → ${value} (custom id)`
-      )
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'effort') {
-      const lvl = arg.toUpperCase()
-      if (['AUTO', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX'].includes(lvl)) {
-        onSetEffort(lvl as EffortLabel)
-        pushNotice(raw, `✓ Effort → ${lvl}`)
-      } else {
-        pushNotice(raw, 'Effort: auto, low, medium, high, xhigh, max')
-      }
-      setPrompt('')
-      return true
-    }
-    if (cmd === 'permission' || cmd === 'perm') {
-      const map: Record<string, Permission> = {
-        plan: 'plan',
-        ask: 'ask',
-        'auto-edit': 'acceptEdits',
-        autoedit: 'acceptEdits',
-        yolo: 'bypassPermissions'
-      }
-      const p = map[arg.toLowerCase()]
-      if (p) {
-        onSetPermission(p)
-        pushNotice(raw, `✓ Permission → ${arg.toLowerCase()}`)
-      } else {
-        pushNotice(raw, 'Permission: plan, ask, auto-edit, yolo')
-      }
-      setPrompt('')
-      return true
-    }
-    // /goal <objective> — Forge's headless analog of the interactive Claude Code
-    // /goal: loop the resumed session until the agent reports GOAL_ACHIEVED.
-    if (cmd === 'goal') {
-      if (running) {
-        pushNotice(raw, 'Finish or stop the current run before starting a goal.')
-        setPrompt('')
-        return true
-      }
-      if (!arg) {
-        pushNotice(
-          raw,
-          'Usage: /goal [maxIterations] <objective> — runs autonomously until the' +
-            ' objective is met (or the cap). Example: /goal 15 add a dark-mode toggle with tests.'
-        )
-        setPrompt('')
-        return true
-      }
-      let max = 25
-      let objective = arg
-      const mm = arg.match(/^(\d{1,3})\s+([\s\S]+)$/)
-      if (mm) {
-        max = Math.min(100, Math.max(1, Number(mm[1])))
-        objective = mm[2].trim()
-      }
-      setPrompt('')
-      startGoal(objective, max)
-      return true
-    }
-    // Interactive-only CLI commands: tell the user instead of silently no-op'ing.
-    if (INTERACTIVE_ONLY.has(cmd)) {
-      pushNotice(
-        raw,
-        `/${cmd} is an interactive CLI command and isn't available in Forge's GUI.`
-      )
-      setPrompt('')
-      return true
-    }
-    // Unknown slash command: if it's not a real SDK/skill command either, don't
-    // silently forward it to the model as literal "/foo" text (which only
-    // confuses it). Tell the user — the same way the CLI rejects unknown commands.
-    const known = new Set(
-      [
-        ...CLIENT_COMMANDS.flatMap((c) => [c.name, ...(c.aliases ?? [])]),
-        ...commands.flatMap((c) => [c.name, ...(c.aliases ?? [])])
-      ].map((s) => s.toLowerCase())
-    )
-    if (!known.has(cmd)) {
-      pushNotice(
-        raw,
-        `Unknown command /${cmd}. Type “/” to browse available commands, or remove the leading “/” to send this as a normal message.`
-      )
-      setPrompt('')
-      return true
-    }
-    return false
+    return handleSlashCommand(raw, {
+      models,
+      commands,
+      convPersona,
+      running,
+      setPrompt,
+      pushNotice,
+      onNewSession,
+      showHelp: () => setShowHelp(true),
+      onSetModel,
+      onSetEffort,
+      onSetPermission,
+      onSetConvPersona,
+      startGoal
+    })
   }
 
   // Live magic-keyword detection on the draft → mode chips (debounced).
@@ -757,45 +484,6 @@ export default function Composer({
     }, 250)
     return () => clearTimeout(t)
   }, [prompt])
-
-  // Cmd/Ctrl+F toggles the transcript search box (Escape closes it).
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault()
-        setSearchOpen(true)
-        requestAnimationFrame(() => searchRef.current?.focus())
-      } else if (e.key === 'Escape' && searchOpen) {
-        setSearchOpen(false)
-        setSearch('')
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [searchOpen])
-
-  function onDrop(e: RDragEvent): void {
-    e.preventDefault()
-    setDragOver(false)
-    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
-  }
-
-  function addFiles(files: FileList | null): void {
-    if (!files) return
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = String(reader.result)
-        const base64 = dataUrl.split(',')[1] ?? ''
-        setAttachments((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), mediaType: file.type, base64, preview: dataUrl, name: file.name }
-        ])
-      }
-      reader.readAsDataURL(file)
-    }
-  }
 
   // Slash-command autocomplete: active while typing "/name" (before any space).
   const slashQuery =
@@ -886,9 +574,6 @@ export default function Composer({
       ? Math.min(100, Math.round((contextTokens / ctxWindow(contextModel)) * 100))
       : 0
 
-  const q = search.trim().toLowerCase()
-  const shownTurns = q ? turns.filter((t) => turnText(t).includes(q)) : turns
-
   return (
     <div
       className={`work${dragOver ? ' drag-over' : ''}`}
@@ -910,102 +595,27 @@ export default function Composer({
           </div>
         </div>
       )}
-      <div className="work-header">
-        <div className="wh-left">
-          <span className="wh-item">
-            <span className="brand-mark">⚒</span> {costSaver ? 'cost-saver' : model ?? 'default'}
-          </span>
-          <span className="wh-sep">·</span>
-          <span className="wh-item">{permission}</span>
-          <span className="wh-sep">·</span>
-          <span className="wh-item">effort {costSaver ? 'auto' : effort ?? 'auto'}</span>
-          {routePreview && prompt.trim() && (
-            <>
-              <span className="wh-sep">·</span>
-              <span
-                className="wh-item route-preview"
-                title="Cost-saver routes this task to the cheapest tier that fits its difficulty"
-              >
-                → {routePreview.model} ({routePreview.difficulty})
-              </span>
-            </>
-          )}
-        </div>
-        <div className="wh-right">
-          {(turns.length > 0 || history.length > 0) && (
-            <div className="export-wrap">
-              <button
-                className={`mini-btn${exportOpen ? ' on' : ''}`}
-                title="Export this conversation"
-                onClick={() => setExportOpen((v) => !v)}
-              >
-                ⭳ export
-              </button>
-              {exportOpen && (
-                <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
-                  <button className="export-item" onClick={() => doExport('md')}>
-                    Markdown (.md)
-                  </button>
-                  <button className="export-item" onClick={() => doExport('json')}>
-                    JSON (.json)
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {turns.length > 0 && (
-            <button
-              className={`mini-btn${searchOpen ? ' on' : ''}`}
-              title="Search this conversation (Ctrl/Cmd+F)"
-              onClick={() => {
-                const next = !searchOpen
-                setSearchOpen(next)
-                if (next) requestAnimationFrame(() => searchRef.current?.focus())
-                else setSearch('')
-              }}
-            >
-              ⌕ find
-            </button>
-          )}
-          {contextTokens > 0 && (
-            <div
-              className={`ctx-gauge ${ctxPct >= 70 ? 'hot' : ''}`}
-              title={`${contextTokens.toLocaleString()} context tokens of ${ctxWindow(contextModel).toLocaleString()}`}
-            >
-              ctx {ctxPct}%
-              <div className="ctx-bar">
-                <div className="ctx-fill" style={{ width: ctxPct + '%' }} />
-              </div>
-            </div>
-          )}
-          {compacting || compactPct > 0 ? (
-            <div
-              className="compact-progress"
-              title={`Compacting context… ${compactPct}%`}
-              role="progressbar"
-              aria-valuenow={compactPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <span className="compact-progress-label">⟲ compacting… {compactPct}%</span>
-              <div className="compact-bar">
-                <div className="compact-fill" style={{ width: compactPct + '%' }} />
-              </div>
-            </div>
-          ) : (
-            sessionId && (
-              <button
-                className="mini-btn"
-                onClick={compact}
-                disabled={running}
-                title="Summarize older context to free tokens"
-              >
-                ⟲ compact
-              </button>
-            )
-          )}
-        </div>
-      </div>
+      <WorkHeader
+        model={model}
+        permission={permission}
+        effort={effort}
+        costSaver={costSaver}
+        convPersona={convPersona}
+        routePreview={routePreview}
+        promptHasText={!!prompt.trim()}
+        hasTurns={turns.length > 0}
+        hasHistory={history.length > 0}
+        exportOpen={exportOpen}
+        setExportOpen={setExportOpen}
+        doExport={doExport}
+        search={searchState}
+        contextTokens={contextTokens}
+        ctxPct={ctxPct}
+        contextModel={contextModel}
+        compaction={compaction}
+        sessionId={sessionId}
+        running={running}
+      />
       {running &&
         (() => {
           const act = activityLabel(activeTurn)
@@ -1018,49 +628,10 @@ export default function Composer({
             </div>
           )
         })()}
-      {reliability && (reliability.retry || reliability.rate || reliability.compact) && (
-        <div className="reliability">
-          {reliability.retry && (
-            <div className="rb-item retry">
-              <span className="rb-spin" aria-hidden /> Retrying
-              {reliability.retry.status ? ` (${reliability.retry.status})` : ''} — attempt{' '}
-              {reliability.retry.attempt}/{reliability.retry.max}…
-            </div>
-          )}
-          {reliability.rate && (
-            <div className={`rb-item rate ${reliability.rate.status}`}>
-              ⚠ Rate limit{reliability.rate.rateLimitType ? ` (${reliability.rate.rateLimitType})` : ''}
-              {typeof reliability.rate.utilization === 'number'
-                ? ` — ${Math.round(reliability.rate.utilization * 100)}% used`
-                : ''}
-              {reliability.rate.resetsAt
-                ? ` · resets ${new Date(
-                    reliability.rate.resetsAt > 1e12
-                      ? reliability.rate.resetsAt
-                      : reliability.rate.resetsAt * 1000
-                  ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : ''}
-            </div>
-          )}
-          {reliability.compact && (
-            <div className="rb-item compact">
-              ✦ Context {reliability.compact.trigger === 'auto' ? 'auto-' : ''}compacted
-              {reliability.compact.pre
-                ? ` — ${Math.round(reliability.compact.pre / 1000)}k→${
-                    reliability.compact.post ? Math.round(reliability.compact.post / 1000) + 'k' : '…'
-                  } tokens`
-                : ''}
-              <button
-                className="rb-x"
-                title="Dismiss"
-                onClick={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <ReliabilityBanner
+        reliability={reliability}
+        onDismissCompact={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
+      />
       {searchOpen && (
         <div className="transcript-search">
           <span className="ts-icon">⌕</span>

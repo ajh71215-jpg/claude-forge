@@ -23,6 +23,11 @@ export const CLIENT_COMMANDS: SlashCommand[] = [
     argumentHint: '<name|id>'
   },
   { name: 'effort', description: 'Set reasoning effort', argumentHint: '<auto|low|medium|high|xhigh|max>' },
+  {
+    name: 'persona',
+    description: "Set this conversation's persona (overrides the global agent)",
+    argumentHint: '<instructions|clear>'
+  },
   { name: 'permission', description: 'Set permission mode', argumentHint: '<plan|ask|auto-edit|yolo>' },
   {
     name: 'goal',

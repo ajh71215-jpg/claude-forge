@@ -1,7 +1,7 @@
 // The left-hand control rail, extracted from App.tsx's MainShell for readability
 // (docs/MAINTAINABILITY.md). Behavior-preserving: the JSX is unchanged; the
 // shell's state/handlers are now passed in as props instead of closed over.
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import Icon from './Icon'
 import type {
   AuthMode,
@@ -66,7 +66,14 @@ export interface SidebarProps {
   onRefreshUsage: () => void
   onNewSession: () => void
   onResumeSession: (id: string) => void
+  /** Pinned conversation ids (sorted first). */
+  pinned: Set<string>
+  onTogglePin: (id: string) => void
+  onRenameSession: (id: string, title: string) => void
+  onDeleteSession: (id: string) => void
+  onSearchAll: () => void
   onShowPersona: () => void
+  onOpenSettings: () => void
   onDisconnect: () => void
 }
 
@@ -102,15 +109,39 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     onRefreshUsage,
     onNewSession,
     onResumeSession,
+    pinned,
+    onTogglePin,
+    onRenameSession,
+    onDeleteSession,
+    onSearchAll,
     onShowPersona,
+    onOpenSettings,
     onDisconnect
   } = props
   const cacheHitPct = cacheHitPercent(usage.input, usage.cacheRead, usage.cacheWrite) ?? 0
+  // Inline rename state for the conversations list.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
+  function startRename(id: string, current: string): void {
+    setRenamingId(id)
+    setRenameText(current)
+  }
+  function submitRename(): void {
+    if (renamingId) onRenameSession(renamingId, renameText)
+    setRenamingId(null)
+  }
+  // Pinned conversations sort to the top; otherwise preserve recency order.
+  const sortedSessions = [...sessions].sort(
+    (a, b) => (pinned.has(b.sessionId) ? 1 : 0) - (pinned.has(a.sessionId) ? 1 : 0)
+  )
 
   return (
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark">⚒</span> FORGE
+        <button className="brand-settings" title="Settings" onClick={onOpenSettings}>
+          ⚙
+        </button>
       </div>
 
       <div className="conn">
@@ -287,22 +318,74 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
       <div className="selector">
         <div className="selector-head">
           <div className="selector-label">CONVERSATIONS</div>
-          <button className="mini-btn" onClick={onNewSession}>
-            + New
-          </button>
+          <div className="conv-head-actions">
+            <button className="mini-btn" title="Search all conversations" onClick={onSearchAll}>
+              ⌕
+            </button>
+            <button className="mini-btn" onClick={onNewSession}>
+              + New
+            </button>
+          </div>
         </div>
         <div className="conv-list">
           {sessions.length === 0 && <div className="selector-hint">no saved conversations</div>}
-          {sessions.slice(0, 12).map((s) => (
-            <button
-              key={s.sessionId}
-              className={`conv-row ${sessionId === s.sessionId ? 'on' : ''}`}
-              title={s.firstPrompt ?? s.title}
-              onClick={() => onResumeSession(s.sessionId)}
-            >
-              {s.title}
-            </button>
-          ))}
+          {sortedSessions.slice(0, 15).map((s) => {
+            const isPinned = pinned.has(s.sessionId)
+            return (
+              <div
+                key={s.sessionId}
+                className={`conv-row ${sessionId === s.sessionId ? 'on' : ''} ${isPinned ? 'pinned' : ''}`}
+              >
+                {renamingId === s.sessionId ? (
+                  <input
+                    className="conv-rename"
+                    autoFocus
+                    value={renameText}
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onBlur={submitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitRename()
+                      else if (e.key === 'Escape') setRenamingId(null)
+                    }}
+                  />
+                ) : (
+                  <>
+                    <button
+                      className="conv-title"
+                      title={s.firstPrompt ?? s.title}
+                      onClick={() => onResumeSession(s.sessionId)}
+                    >
+                      {isPinned && <span className="conv-pin-dot" aria-hidden />}
+                      {s.title}
+                    </button>
+                    <div className="conv-actions">
+                      <button
+                        className={`conv-act ${isPinned ? 'on' : ''}`}
+                        title={isPinned ? 'Unpin' : 'Pin'}
+                        onClick={() => onTogglePin(s.sessionId)}
+                      >
+                        {isPinned ? '★' : '☆'}
+                      </button>
+                      <button
+                        className="conv-act"
+                        title="Rename"
+                        onClick={() => startRename(s.sessionId, s.title)}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="conv-act"
+                        title="Delete"
+                        onClick={() => onDeleteSession(s.sessionId)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

@@ -10,7 +10,11 @@ import CostView from './components/cost/CostView'
 import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import CommandPalette, { type PaletteAction } from './components/palette/CommandPalette'
-import { ConfirmProvider } from './components/ConfirmDialog'
+import ShortcutsHelp from './components/ShortcutsHelp'
+import ConversationSearch from './components/ConversationSearch'
+import WorkspaceFiles from './components/WorkspaceFiles'
+import Settings from './components/Settings'
+import { ConfirmProvider, useConfirm } from './components/ConfirmDialog'
 import type {
   AuthMode,
   AuthStatus,
@@ -25,50 +29,8 @@ import type {
 } from './types'
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
 import { resolveMaxTurns } from './lib/format'
-
-/** Read a JSON value from localStorage, falling back to a default on any error. */
-function loadJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw === null ? fallback : (JSON.parse(raw) as T)
-  } catch {
-    return fallback
-  }
-}
-
-/** Persist a JSON value to localStorage (best-effort). */
-function saveJson(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* ignore quota / serialization errors */
-  }
-}
-
-/** One open conversation tab. `key` is also the isolated workspace id for the
- * conversation, so concurrent tabs can't edit the same files. */
-interface ChatTab {
-  key: string
-  sessionId: string | null
-  /** Bumped to force the Composer to reset/restore when the tab's session changes. */
-  sessionKey: number
-}
-
-const WS_MAP_KEY = 'forge-session-ws'
-const MAX_TABS = 5
-
-/** Stable workspace id for a resumed session (so it reuses the dir where it did
- * its file work), or null if this session predates the mapping. */
-function wsKeyForSession(sid: string): string | null {
-  return loadJson<Record<string, string>>(WS_MAP_KEY, {})[sid] ?? null
-}
-/** Remember which workspace a session belongs to, so a later resume reuses it. */
-function rememberSessionWs(sid: string, key: string): void {
-  const m = loadJson<Record<string, string>>(WS_MAP_KEY, {})
-  if (m[sid] === key) return
-  m[sid] = key
-  saveJson(WS_MAP_KEY, m)
-}
+import { loadJson, saveJson } from './lib/storage'
+import { useChatTabs, MAX_TABS } from './components/chat/useChatTabs'
 
 /**
  * Step 1+: probe auth status. Not configured -> the auth-method gate. Configured
@@ -124,10 +86,22 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   // Open conversation tabs. Each runs concurrently in its own isolated workspace
   // (tab.key) and keeps streaming when you switch tabs (no interrupt). The active
   // conversation's sessionId drives the sidebar highlight + usage.
-  const [tabs, setTabs] = useState<ChatTab[]>(() => [{ key: 't0', sessionId: null, sessionKey: 0 }])
-  const [activeKey, setActiveKey] = useState('t0')
-  const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
-  const sessionId = activeTab?.sessionId ?? null
+  const {
+    tabs,
+    activeKey,
+    activeTab,
+    sessionId,
+    setActiveKey,
+    newSession,
+    resumeSession,
+    resetTab,
+    setTabSession,
+    setTabModel,
+    setTabPersona,
+    closeTab,
+    tabTitle,
+    clearTabsForSession
+  } = useChatTabs({ sessions, onExitCostSaver: () => setCostSaver(false) })
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
   // account default model). Persisted (with the budget/auto-compact LIMITS) so a
@@ -149,6 +123,47 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [searchAllOpen, setSearchAllOpen] = useState(false)
+  const [wsFilesOpen, setWsFilesOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const confirm = useConfirm()
+  // Pinned conversations (local — sorted first in the sidebar). The SDK owns the
+  // title (renameSession) and the transcript (deleteSession); pinning is Forge-only.
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set(loadJson<string[]>('forge-pinned', [])))
+  useEffect(() => saveJson('forge-pinned', [...pinned]), [pinned])
+  function togglePin(id: string): void {
+    setPinned((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  async function renameSessionTitle(id: string, title: string): Promise<void> {
+    const t = title.trim()
+    if (!t) return
+    await window.forge.agent.renameSession(id, t)
+    refreshSessions()
+  }
+  async function deleteSessionAction(id: string): Promise<void> {
+    const ok = await confirm({
+      message: 'Delete this conversation? Its saved transcript is permanently removed.',
+      danger: true,
+      confirmLabel: 'Delete'
+    })
+    if (!ok) return
+    await window.forge.agent.deleteSession(id)
+    setPinned((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    // Reset any open tab showing the deleted conversation to a fresh one.
+    clearTabsForSession(id)
+    refreshSessions()
+  }
 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
@@ -214,67 +229,6 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     refreshSessions()
   }
 
-  // ── Conversation tabs ──
-  /** Open a fresh conversation tab (or focus an existing empty one / the cap). */
-  function newSession(): void {
-    const empty = tabs.find((t) => t.sessionId === null)
-    if (empty) {
-      setActiveKey(empty.key)
-      return
-    }
-    if (tabs.length >= MAX_TABS) return // at cap — close a tab first
-    const t: ChatTab = { key: crypto.randomUUID(), sessionId: null, sessionKey: 0 }
-    setTabs((prev) => [...prev, t])
-    setActiveKey(t.key)
-  }
-  /** Open a saved conversation: focus its tab if open, else load it (reusing the
-   * active empty tab when possible) so it resumes in its original workspace. */
-  function resumeSession(id: string): void {
-    const open = tabs.find((t) => t.sessionId === id)
-    if (open) {
-      setActiveKey(open.key)
-      return
-    }
-    const wsKey = wsKeyForSession(id) ?? crypto.randomUUID()
-    rememberSessionWs(id, wsKey)
-    const active = tabs.find((t) => t.key === activeKey)
-    if ((active && active.sessionId === null) || tabs.length >= MAX_TABS) {
-      const target = active && active.sessionId === null ? active.key : activeKey
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.key === target ? { key: wsKey, sessionId: id, sessionKey: t.sessionKey + 1 } : t
-        )
-      )
-      setActiveKey(wsKey)
-      return
-    }
-    setTabs((prev) => [...prev, { key: wsKey, sessionId: id, sessionKey: 0 }])
-    setActiveKey(wsKey)
-  }
-  /** Reset a tab to a fresh conversation (the /clear or /new command within it). */
-  function resetTab(key: string): void {
-    setTabs((prev) =>
-      prev.map((t) => (t.key === key ? { ...t, sessionId: null, sessionKey: t.sessionKey + 1 } : t))
-    )
-  }
-  /** A run in `key` established its session id — record it (+ its workspace). */
-  function setTabSession(key: string, sid: string): void {
-    rememberSessionWs(sid, key)
-    setTabs((prev) => prev.map((t) => (t.key === key ? { ...t, sessionId: sid } : t)))
-  }
-  /** Close a tab (always keep at least one); focus a neighbor if it was active. */
-  function closeTab(key: string): void {
-    if (tabs.length <= 1) return
-    const idx = tabs.findIndex((t) => t.key === key)
-    const next = tabs.filter((t) => t.key !== key)
-    setTabs(next)
-    if (key === activeKey) setActiveKey(next[Math.max(0, idx - 1)].key)
-  }
-  /** Title for a tab: the saved session's title, else "New chat". */
-  function tabTitle(t: ChatTab): string {
-    if (!t.sessionId) return 'New chat'
-    return sessions.find((s) => s.sessionId === t.sessionId)?.title ?? 'Chat'
-  }
   // Manually choosing a model/effort exits cost-saver mode.
   function chooseModel(v: string): void {
     setModel(v)
@@ -316,6 +270,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault()
         setPaletteOpen((v) => !v)
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault()
+        setShortcutsOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -339,11 +296,39 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       go('Guide', 'guide'),
       { id: 'new', section: 'Session', label: 'New conversation', hint: '/new', run: newSession },
       {
+        id: 'search-all',
+        section: 'Session',
+        label: 'Search all conversations…',
+        keywords: 'find across history transcript',
+        run: () => setSearchAllOpen(true)
+      },
+      {
+        id: 'workspace-files',
+        section: 'Session',
+        label: 'Workspace files (this conversation)…',
+        keywords: 'edits diff files changed',
+        run: () => setWsFilesOpen(true)
+      },
+      {
         id: 'persona',
         section: 'Agent',
         label: 'Customize agent…',
         keywords: 'persona system prompt',
         run: () => setShowPersona(true)
+      },
+      {
+        id: 'shortcuts',
+        section: 'Help',
+        label: 'Keyboard shortcuts',
+        keywords: 'keys hotkeys help',
+        run: () => setShortcutsOpen(true)
+      },
+      {
+        id: 'settings',
+        section: 'Help',
+        label: 'Settings…',
+        keywords: 'preferences limits pet data',
+        run: () => setSettingsOpen(true)
       },
       {
         id: 'saver',
@@ -423,7 +408,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         onRefreshUsage={refreshUsage}
         onNewSession={newSession}
         onResumeSession={resumeSession}
+        pinned={pinned}
+        onTogglePin={togglePin}
+        onRenameSession={renameSessionTitle}
+        onDeleteSession={deleteSessionAction}
+        onSearchAll={() => setSearchAllOpen(true)}
         onShowPersona={() => setShowPersona(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onDisconnect={clear}
       />
       <main className="main main-work">
@@ -497,6 +488,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               >
                 ＋
               </button>
+              <button
+                className="chat-tab-new"
+                title="Workspace files edited in this conversation"
+                onClick={() => setWsFilesOpen(true)}
+              >
+                ⌗
+              </button>
             </div>
             {/* One Composer per open tab, all kept mounted so background
                 conversations keep streaming when you switch (each runs in its own
@@ -508,7 +506,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                 style={{ display: t.key === activeKey ? 'flex' : 'none' }}
               >
                 <Composer
-                  model={model}
+                  model={t.model ?? model}
                   permission={permission}
                   effort={effortOption(effort)}
                   commands={commands}
@@ -519,10 +517,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                   costSaver={costSaver}
                   onResult={onResult}
                   workspaceId={t.key}
+                  isActive={t.key === activeKey}
+                  convPersona={t.persona}
                   sessionId={t.sessionId}
                   sessionKey={t.sessionKey}
                   onSession={(id) => setTabSession(t.key, id)}
-                  onSetModel={chooseModel}
+                  onSetModel={(id) => setTabModel(t.key, id)}
+                  onSetConvPersona={(text) => setTabPersona(t.key, text)}
                   onSetEffort={chooseEffort}
                   onSetPermission={setPermission}
                   onNewSession={() => resetTab(t.key)}
@@ -550,6 +551,22 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       </main>
       {paletteOpen && (
         <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />
+      )}
+      {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+      {searchAllOpen && (
+        <ConversationSearch onOpen={resumeSession} onClose={() => setSearchAllOpen(false)} />
+      )}
+      {wsFilesOpen && activeTab && (
+        <WorkspaceFiles workspaceId={activeTab.key} onClose={() => setWsFilesOpen(false)} />
+      )}
+      {settingsOpen && (
+        <Settings
+          maxBudget={maxBudget}
+          onSetMaxBudget={setMaxBudget}
+          autoCompact={autoCompact}
+          onSetAutoCompact={setAutoCompact}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
       {showPersona && (
         <PersonaModal

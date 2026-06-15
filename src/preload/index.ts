@@ -9,7 +9,8 @@ import type {
   UsageInfo,
   TranscriptItem,
   Persona,
-  QuestionResult
+  QuestionResult,
+  SessionSearchHit
 } from '../main/agent'
 import type {
   SkillMeta,
@@ -32,10 +33,9 @@ import type {
   AgentWriteResult
 } from '../main/agents'
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
-import type { Plan } from '../main/orchestration'
-import type { OrchestrateEvent } from '../main/ipc/orchestrate'
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
+import type { WorkspaceFile } from '../main/workspace'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -62,6 +62,12 @@ const forge = {
       ipcRenderer.invoke('agent:transcript', sessionId),
     compact: (sessionId: string): Promise<{ ok: boolean; sessionId: string; error?: string }> =>
       ipcRenderer.invoke('agent:compact', sessionId),
+    renameSession: (sessionId: string, title: string): Promise<void> =>
+      ipcRenderer.invoke('agent:rename-session', sessionId, title),
+    deleteSession: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke('agent:delete-session', sessionId),
+    searchSessions: (query: string): Promise<SessionSearchHit[]> =>
+      ipcRenderer.invoke('agent:search-sessions', query),
     /** Subscribe to streaming events. Returns an unsubscribe function. */
     onEvent: (cb: (ev: AgentEvent) => void): (() => void) => {
       const listener = (_e: IpcRendererEvent, payload: AgentEvent): void => cb(payload)
@@ -120,40 +126,11 @@ const forge = {
     remove: (path: string): Promise<PluginEntry[]> => ipcRenderer.invoke('plugins:remove', path)
   },
   orchestrate: {
-    /** Dry-run the orchestration engine (real conductor, simulated runners). */
-    dryRun: (
-      runId: string,
-      plan: Plan
-    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
-      ipcRenderer.invoke('orchestrate:dry-run', runId, plan),
-    /** LIVE run: real read-only SDK calls + haiku rubric judge (needs a session). */
-    run: (
-      runId: string,
-      plan: Plan
-    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
-      ipcRenderer.invoke('orchestrate:run', runId, plan),
-    /** Native ralph/autopilot loop: re-run until the goal verifies or caps hit. */
-    runLoop: (
-      runId: string,
-      plan: Plan,
-      maxIterations?: number
-    ): Promise<{ ok: boolean; errors: string[]; spentUsd: number; stopped?: string }> =>
-      ipcRenderer.invoke('orchestrate:run-loop', runId, plan, maxIterations),
-    validate: (plan: Plan): Promise<{ ok: boolean; errors: string[] }> =>
-      ipcRenderer.invoke('orchestrate:validate', plan),
-    /** Native agent roles (OMC port) for the subtask role picker. */
-    roles: (): Promise<
-      { name: string; description: string; tier: string; writeCapable: boolean; systemAppend: string }[]
-    > => ipcRenderer.invoke('orchestrate:roles'),
-    /** Native magic-keyword detector (OMC port): map a goal/prompt to active modes. */
+    /** Native magic-keyword detector (OMC port): map a typed prompt to active
+     * modes (ralph/ultrathink/code-review/…). The only orchestration surface the
+     * UI uses — the conductor engine is chat-driven only, not exposed here. */
     detectKeywords: (prompt: string): Promise<KeywordMatch[]> =>
-      ipcRenderer.invoke('orchestrate:detect-keywords', prompt),
-    /** Subscribe to orchestration events. Returns an unsubscribe function. */
-    onEvent: (cb: (ev: OrchestrateEvent) => void): (() => void) => {
-      const listener = (_e: IpcRendererEvent, payload: OrchestrateEvent): void => cb(payload)
-      ipcRenderer.on('orchestrate:event', listener)
-      return () => ipcRenderer.removeListener('orchestrate:event', listener)
-    }
+      ipcRenderer.invoke('orchestrate:detect-keywords', prompt)
   },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
@@ -167,6 +144,13 @@ const forge = {
     setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('pet:set-enabled', on),
     /** Toggle the pet; resolves to the new enabled state. */
     toggle: (): Promise<boolean> => ipcRenderer.invoke('pet:toggle')
+  },
+  workspace: {
+    /** List files the agent created/edited in a conversation's isolated workspace. */
+    list: (id: string): Promise<WorkspaceFile[]> => ipcRenderer.invoke('workspace:list', id),
+    /** Read one workspace file's contents (capped). */
+    read: (id: string, rel: string): Promise<string> =>
+      ipcRenderer.invoke('workspace:read', id, rel)
   },
   activity: {
     /** Current live + persisted agent activity for the Squad dashboard. */
@@ -185,8 +169,9 @@ const forge = {
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('forge', forge)
 } else {
-  // @ts-ignore - define on window when context isolation is off
-  window.forge = forge
+  // Context isolation off → define directly on window (no contextBridge).
+  const w = window as unknown as { forge: Forge }
+  w.forge = forge
 }
 
 export type Forge = typeof forge

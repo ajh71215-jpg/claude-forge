@@ -17,6 +17,7 @@ export type ModelInfo = import('../../main/agent').ModelInfo
 export type SlashCommand = import('../../main/agent').SlashCommand
 export type Capabilities = import('../../main/agent').Capabilities
 export type SessionInfo = import('../../main/agent').SessionInfo
+export type SessionSearchHit = import('../../main/agent').SessionSearchHit
 export type UsageInfo = import('../../main/agent').UsageInfo
 export type TranscriptItem = import('../../main/agent').TranscriptItem
 export type Attachment = import('../../main/agent').Attachment
@@ -32,18 +33,12 @@ export type McpTransport = import('../../main/mcp').McpTransport
 export type AgentMeta = import('../../main/agents').AgentMeta
 export type PluginEntry = import('../../main/plugins').PluginEntry
 
-// Orchestration (docs/SQUAD_ORCHESTRATION.md) — re-exported so the Squad tab
-// imports plan/monitor types from one place.
-export type Topology = import('../../main/orchestration').Topology
-export type ModelTier = import('../../main/orchestration').ModelTier
-export type Subtask = import('../../main/orchestration').Subtask
-export type Plan = import('../../main/orchestration').Plan
-export type ConductorEvent = import('../../main/conductor').ConductorEvent
-export type OrchestrateEvent = import('../../main/ipc/orchestrate').OrchestrateEvent
+// Agent-activity dashboard types (the Squad/Cost tabs read these).
 export type AgentActivity = import('../../main/agentActivity').AgentActivity
 export type ActivitySnapshot = import('../../main/agentActivity').ActivitySnapshot
 export type ToolEvent = import('../../main/agentActivity').ToolEvent
 export type KeywordMatch = import('../../main/keywords').KeywordMatch
+export type WorkspaceFile = import('../../main/workspace').WorkspaceFile
 
 export type EffortLabel = 'AUTO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX'
 

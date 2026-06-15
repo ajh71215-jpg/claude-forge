@@ -23,15 +23,17 @@ import { route, resolveModelId } from '../../../../main/routing'
 import { deriveTasks, parseTodos } from '../../lib/blocks'
 import { conversationToJson, conversationToMarkdown } from '../../lib/export'
 import { activityLabel, INTERACTIVE_ONLY } from '../../lib/composer'
-import { goalAchieved, goalDirective, GOAL_MAX_USD, type GoalState } from '../../lib/goal'
+import { goalDirective } from '../../lib/goal'
 import { useAgentEvents } from './useAgentEvents'
 import { useImageAttachments } from './useImageAttachments'
 import { useTranscriptSearch } from './useTranscriptSearch'
+import { useGoalLoop } from './useGoalLoop'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
 import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
+import ReliabilityBanner from './ReliabilityBanner'
 import Elapsed from './Elapsed'
 import type { KeywordMatch } from '../../types'
 
@@ -113,15 +115,6 @@ export default function Composer({
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
-  // /goal autonomous loop. goalRef mirrors the state synchronously so send() and
-  // the loop-driving effect see the current goal without waiting for a re-render.
-  const [goal, setGoalState] = useState<GoalState | null>(null)
-  const goalRef = useRef<GoalState | null>(null)
-  const setGoal = useCallback((g: GoalState | null): void => {
-    goalRef.current = g
-    setGoalState(g)
-  }, [])
-  const processedTurnRef = useRef<string | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
   const [stickBottom, setStickBottom] = useState<boolean>(() => {
@@ -186,6 +179,20 @@ export default function Composer({
   const { search, setSearch, searchOpen, setSearchOpen, searchRef, q, shownTurns } =
     useTranscriptSearch(turns, isActive)
 
+  const running = turns.some((t) => t.running)
+  const activeTurn = turns.find((t) => t.running) ?? null
+
+  // The autonomous /goal loop — owns the goal state + the loop driver. send()
+  // reads goalRef to prefix the directive; the loop drives send() via sendRef.
+  const { goal, goalRef, startGoal, stopGoal, resetGoal } = useGoalLoop({
+    turns,
+    running,
+    runIdRef,
+    maxBudget,
+    sendRef,
+    pushNotice
+  })
+
   // Keep the transcript pinned to the bottom as content streams in — but only
   // when the user is already near the bottom (don't yank them down if they
   // scrolled up to read), and via rAF so scrollTop is written at most once per
@@ -229,8 +236,7 @@ export default function Composer({
     setContextTokens(0)
     setContextModel('')
     runIdRef.current = null
-    setGoal(null) // switching conversations abandons any in-flight goal loop
-    processedTurnRef.current = null
+    resetGoal() // switching conversations abandons any in-flight goal loop
     const sid = sessionIdRef.current
     if (sid) {
       window.forge.agent
@@ -257,9 +263,6 @@ export default function Composer({
     // are stable, so they're intentionally omitted from the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey])
-
-  const running = turns.some((t) => t.running)
-  const activeTurn = turns.find((t) => t.running) ?? null
 
   // Task progress for the pinned bar above the composer. Models track work via
   // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
@@ -420,86 +423,9 @@ export default function Composer({
   }
 
   async function stop(): Promise<void> {
-    setGoal(null) // a manual STOP also ends any running goal loop
+    resetGoal() // a manual STOP also ends any running goal loop
     if (runIdRef.current) await window.forge.agent.interrupt(runIdRef.current)
   }
-
-  /** Enter /goal mode and kick off the first run. */
-  function startGoal(objective: string, max: number): void {
-    // Cumulative budget: the user's "max $/run" if set (treated as the goal total),
-    // else a conservative default. This is the dollar runaway guard.
-    const budget = Math.max(GOAL_MAX_USD, maxBudget)
-    setGoal({ objective, iter: 1, max, spent: 0, budget })
-    processedTurnRef.current = null
-    pushNotice(
-      '🎯 /goal',
-      `Goal set — running autonomously until complete (max ${max} iteration${max === 1 ? '' : 's'} · budget $${budget.toFixed(0)}).\n\nObjective: ${objective}`
-    )
-    void send(objective)
-  }
-
-  function stopGoal(): void {
-    const g = goalRef.current
-    setGoal(null)
-    if (runIdRef.current) void window.forge.agent.interrupt(runIdRef.current)
-    if (g) pushNotice('🎯 /goal', `Goal stopped after ${g.iter} iteration${g.iter === 1 ? '' : 's'}.`)
-  }
-
-  // Drive the /goal loop: when a goal run finishes, read the assistant's status
-  // token and either stop (achieved / error / cap) or auto-send a continuation
-  // that resumes the same session (so context + progress carry over).
-  useEffect(() => {
-    const g = goalRef.current
-    if (!g || running) return
-    const last = turns[turns.length - 1]
-    if (!last || last.running) return
-    if (processedTurnRef.current === last.id) return
-    processedTurnRef.current = last.id
-
-    // Accumulate the cost of the run that just finished (runaway-budget guard).
-    const spent = g.spent + (last.meta?.costUsd ?? 0)
-
-    if (last.meta?.error) {
-      setGoal(null)
-      pushNotice('🎯 /goal', `Goal stopped — the last run errored: ${last.meta.error}`)
-      return
-    }
-    const answer = last.blocks
-      .filter((b): b is Extract<typeof b, { kind: 'text' }> => b.kind === 'text')
-      .map((b) => b.text)
-      .join('\n')
-    if (goalAchieved(answer)) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `✓ Goal achieved in ${g.iter} iteration${g.iter === 1 ? '' : 's'} ($${spent.toFixed(2)}).`
-      )
-      return
-    }
-    if (spent >= g.budget) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `Reached the $${g.budget.toFixed(0)} budget ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — raise "max $/run" in LIMITS and run /goal again to continue.`
-      )
-      return
-    }
-    if (g.iter >= g.max) {
-      setGoal(null)
-      pushNotice(
-        '🎯 /goal',
-        `Reached the ${g.max}-iteration cap ($${spent.toFixed(2)} spent) without GOAL_ACHIEVED. Stopping — run /goal again to keep going.`
-      )
-      return
-    }
-    setGoal({ ...g, iter: g.iter + 1, spent })
-    void send(
-      'Continue working toward the goal. Make concrete progress, verify it, and remember to end with GOAL_ACHIEVED or GOAL_CONTINUE on its own line.'
-    )
-    // send / setGoal / pushNotice are stable enough for this effect; re-running it
-    // only when the transcript or running flag changes is exactly what we want.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns, running])
 
   async function compact(): Promise<void> {
     const sid = sessionIdRef.current
@@ -944,49 +870,10 @@ export default function Composer({
             </div>
           )
         })()}
-      {reliability && (reliability.retry || reliability.rate || reliability.compact) && (
-        <div className="reliability">
-          {reliability.retry && (
-            <div className="rb-item retry">
-              <span className="rb-spin" aria-hidden /> Retrying
-              {reliability.retry.status ? ` (${reliability.retry.status})` : ''} — attempt{' '}
-              {reliability.retry.attempt}/{reliability.retry.max}…
-            </div>
-          )}
-          {reliability.rate && (
-            <div className={`rb-item rate ${reliability.rate.status}`}>
-              ⚠ Rate limit{reliability.rate.rateLimitType ? ` (${reliability.rate.rateLimitType})` : ''}
-              {typeof reliability.rate.utilization === 'number'
-                ? ` — ${Math.round(reliability.rate.utilization * 100)}% used`
-                : ''}
-              {reliability.rate.resetsAt
-                ? ` · resets ${new Date(
-                    reliability.rate.resetsAt > 1e12
-                      ? reliability.rate.resetsAt
-                      : reliability.rate.resetsAt * 1000
-                  ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : ''}
-            </div>
-          )}
-          {reliability.compact && (
-            <div className="rb-item compact">
-              ✦ Context {reliability.compact.trigger === 'auto' ? 'auto-' : ''}compacted
-              {reliability.compact.pre
-                ? ` — ${Math.round(reliability.compact.pre / 1000)}k→${
-                    reliability.compact.post ? Math.round(reliability.compact.post / 1000) + 'k' : '…'
-                  } tokens`
-                : ''}
-              <button
-                className="rb-x"
-                title="Dismiss"
-                onClick={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <ReliabilityBanner
+        reliability={reliability}
+        onDismissCompact={() => setReliability((r) => (r ? { ...r, compact: undefined } : r))}
+      />
       {searchOpen && (
         <div className="transcript-search">
           <span className="ts-icon">⌕</span>

@@ -96,7 +96,7 @@ export interface DiffLine {
  * marked add/del and shared lines stay as neutral context. Used to visualize
  * Edit/Write/NotebookEdit tool inputs in the transcript.
  */
-export function lineDiff(oldStr: string, newStr: string): DiffLine[] {
+function lineDiff(oldStr: string, newStr: string): DiffLine[] {
   const a = oldStr.split('\n')
   const b = newStr.split('\n')
   const n = a.length

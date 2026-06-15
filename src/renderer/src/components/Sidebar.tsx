@@ -1,7 +1,7 @@
 // The left-hand control rail, extracted from App.tsx's MainShell for readability
 // (docs/MAINTAINABILITY.md). Behavior-preserving: the JSX is unchanged; the
 // shell's state/handlers are now passed in as props instead of closed over.
-import { useState, type JSX } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 import Icon from './Icon'
 import type {
   AuthMode,
@@ -131,8 +131,12 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     setRenamingId(null)
   }
   // Pinned conversations sort to the top; otherwise preserve recency order.
-  const sortedSessions = [...sessions].sort(
-    (a, b) => (pinned.has(b.sessionId) ? 1 : 0) - (pinned.has(a.sessionId) ? 1 : 0)
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (a, b) => (pinned.has(b.sessionId) ? 1 : 0) - (pinned.has(a.sessionId) ? 1 : 0)
+      ),
+    [sessions, pinned]
   )
 
   return (

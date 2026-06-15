@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { claudeDir, workspaceRoot } from './projectSettings'
-import { parseFrontmatter, serializeFrontmatter, isValidSlug, fileExists } from './frontmatter'
+import { parseFrontmatter, serializeFrontmatter, isValidSlug } from './frontmatter'
 
 /**
  * Skills console (roadmap feature #1).

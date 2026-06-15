@@ -37,8 +37,6 @@ export interface Observation {
   tool: string
   input: Record<string, unknown>
   ok: boolean
-  /** Tool result text (may contain secrets — always privacy-filtered downstream). */
-  content?: string
   sessionId?: string
   workspaceId?: string
 }

@@ -60,11 +60,6 @@ export function isProviderCoolingDown(id: string): boolean {
   return true
 }
 
-export function providerCooldownRemainingMs(id: string): number {
-  const until = cooldownUntil.get(id)
-  return until ? Math.max(0, until - Date.now()) : 0
-}
-
 /**
  * Record a provider result. On success, clears any cooldown. On failure, sets a
  * cooldown sized to the failure class and returns whether to try the next
@@ -86,9 +81,4 @@ export function noteProviderResult(id: string, ok: boolean, message?: string): E
           : 0
   if (ms > 0) cooldownUntil.set(id, Date.now() + ms)
   return cls
-}
-
-/** Test/diagnostic helper: clear all cooldowns. */
-export function resetCooldowns(): void {
-  cooldownUntil.clear()
 }

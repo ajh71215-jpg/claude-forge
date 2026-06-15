@@ -36,7 +36,8 @@ export default function WorkspaceFiles({
   const [files, setFiles] = useState<WorkspaceFile[] | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   const [content, setContent] = useState<string>('')
-  const [now] = useState(Date.now())
+  // Recompute on each render so relative mtimes aren't frozen at mount.
+  const now = Date.now()
   const [view, setView] = useState<'files' | 'map'>('files')
   const [map, setMap] = useState<{ map: string; fileCount: number } | null>(null)
 

@@ -18,10 +18,3 @@ export function petAssetDir(): string {
 export function petThemePath(): string {
   return join(petAssetDir(), 'theme.json')
 }
-
-/** file:// URL to an svg asset, for the renderer's <object>/<img> src. */
-export function petSvgUrl(file: string): string {
-  // pathToFileURL would encode spaces etc.; our filenames are simple ASCII.
-  const p = join(petAssetDir(), 'svg', file).replace(/\\/g, '/')
-  return `file:///${p}`
-}

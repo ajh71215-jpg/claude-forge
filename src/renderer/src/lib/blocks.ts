@@ -3,7 +3,7 @@
 // App.tsx — behavior-preserving.
 import type { AgentEvent, Block, Todo, Turn } from '../types'
 
-export function normTaskStatus(s: string): Todo['status'] {
+function normTaskStatus(s: string): Todo['status'] {
   return s === 'completed' ? 'completed' : s === 'in_progress' ? 'in_progress' : 'pending'
 }
 

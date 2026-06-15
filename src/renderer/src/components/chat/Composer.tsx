@@ -280,44 +280,43 @@ export default function Composer({
   // Task progress for the pinned bar above the composer. Models track work via
   // the Task tools (TaskCreate/TaskUpdate/TaskList), so reconstruct from those;
   // fall back to TodoWrite for any agent that still uses it.
-  const taskTodos = deriveTasks(turns)
-  let latestTodos: Todo[] | null = taskTodos.length ? taskTodos : null
-  if (!latestTodos) {
-    outer: for (let i = turns.length - 1; i >= 0; i--) {
+  const latestTodos = useMemo<Todo[] | null>(() => {
+    const taskTodos = deriveTasks(turns)
+    if (taskTodos.length) return taskTodos
+    for (let i = turns.length - 1; i >= 0; i--) {
       const blocks = turns[i].blocks
       for (let j = blocks.length - 1; j >= 0; j--) {
         const b = blocks[j]
         if (b.kind === 'tool' && b.name === 'TodoWrite') {
           const todos = parseTodos(b.inputRaw)
-          if (todos && todos.length) {
-            latestTodos = todos
-            break outer
-          }
+          if (todos && todos.length) return todos
         }
       }
     }
-  }
+    return null
+  }, [turns])
 
   // Cost-saver routing (lever 4): classify the prompt's difficulty and pick the
   // cheapest tier that fits, resolving the tier alias to a concrete model id from
   // the live model list. Effort is dropped for models that report no effort
   // control (e.g. Haiku) — sending an unsupported level would error, mirroring
   // the manual EFFORT guard in App.
-  function routeCostSaver(text: string): {
-    model: string
-    effort?: Effort
-    tier: string
-    difficulty: string
-  } {
-    const d = route({ instruction: text })
-    const m = resolveModelId(d.tier, models)
-    const levels = models.find((x) => x.value === m)?.supportedEffortLevels
-    const effort = levels && !levels.includes(d.effort) ? undefined : (d.effort as Effort)
-    return { model: m, effort, tier: d.tier, difficulty: d.difficulty }
-  }
+  const routeCostSaver = useCallback(
+    (text: string): { model: string; effort?: Effort; tier: string; difficulty: string } => {
+      const d = route({ instruction: text })
+      const m = resolveModelId(d.tier, models)
+      const levels = models.find((x) => x.value === m)?.supportedEffortLevels
+      const effort = levels && !levels.includes(d.effort) ? undefined : (d.effort as Effort)
+      return { model: m, effort, tier: d.tier, difficulty: d.difficulty }
+    },
+    [models]
+  )
   // Live preview of where the current draft would route (header chip). Only
   // meaningful in cost-saver mode; classifyDifficulty is a cheap regex.
-  const routePreview = costSaver ? routeCostSaver(prompt) : null
+  const routePreview = useMemo(
+    () => (costSaver ? routeCostSaver(prompt) : null),
+    [costSaver, prompt, routeCostSaver]
+  )
 
   async function send(textArg?: string): Promise<void> {
     const text = (textArg ?? prompt).trim()

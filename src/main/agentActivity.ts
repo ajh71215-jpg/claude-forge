@@ -134,12 +134,20 @@ function loadHistory(): void {
   }
 }
 
+// Coalesce disk writes: finish() can fire many times per second under
+// orchestration (per run / subtask / tool), so collapse a burst into one
+// write instead of synchronously serializing the whole history each time.
+let persistTimer: NodeJS.Timeout | null = null
 function persist(): void {
-  try {
-    writeFileSync(HISTORY_FILE(), JSON.stringify(history.slice(0, HISTORY_CAP)))
-  } catch {
-    /* best-effort */
-  }
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    try {
+      writeFileSync(HISTORY_FILE(), JSON.stringify(history.slice(0, HISTORY_CAP)))
+    } catch {
+      /* best-effort */
+    }
+  }, 250)
 }
 
 export function getSnapshot(): ActivitySnapshot {
@@ -278,7 +286,14 @@ export function onActivityEvent(ev: AgentEvent): void {
         te.endedAt = Date.now()
       }
       const task = live.get(ev.toolId)
-      if (task && task.kind === 'task') finish(task, ev.ok ? 'ok' : 'error')
+      if (task && task.kind === 'task') {
+        // If the native task-* lifecycle is tracking this card, let task-done /
+        // task-updated finalize it: those carry the final summary + usage that
+        // arrive AFTER the Task tool returns, so finishing here would drop them.
+        // (Any card the lifecycle never closes is reaped by the run's 'result'.)
+        const trackedNatively = [...taskIdToEntryId.values()].includes(ev.toolId)
+        if (!trackedNatively) finish(task, ev.ok ? 'ok' : 'error')
+      }
       cleanupTool(ev.toolId)
       broadcast()
       break

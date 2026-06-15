@@ -87,7 +87,6 @@ async function handle(ev: AgentEvent): Promise<void> {
         tool: t.name,
         input,
         ok: ev.ok,
-        content: ev.content,
         sessionId: r.sessionId,
         workspaceId: r.workspaceId
       })

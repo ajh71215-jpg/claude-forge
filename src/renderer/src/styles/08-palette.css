@@ -18,9 +18,9 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--bg-card);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  border-radius: var(--r-5);
+  background: var(--bg-float);
+  box-shadow: var(--shadow-modal), var(--edge-light);
   overflow: hidden;
 }
 .palette-input {
@@ -385,15 +385,15 @@
   font-size: 11px;
   padding: 2px 9px;
   border-radius: 6px;
-  border: 1px solid var(--line, #2a2521);
+  border: 1px solid var(--border);
   background: transparent;
-  color: var(--muted, #b9ad9c);
+  color: var(--muted);
   cursor: pointer;
 }
 .wsf-tab.on {
-  color: var(--amber, #e8932a);
-  border-color: rgba(232, 147, 42, 0.5);
-  background: rgba(232, 147, 42, 0.08);
+  color: var(--amber);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 .wsf-map {
   flex-direction: column;
@@ -406,5 +406,5 @@
   word-break: break-word;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--text, #e9e0d2);
+  color: var(--text);
 }

@@ -30,43 +30,52 @@ The **Cost & Cache** tab uses a different secondary glyph, `⛁` (U+26C1), as it
 
 All colors are CSS variables on `:root` in `00-core.css`. Use the variable, never the literal. The accent is expressed two ways: `--amber*` named tokens for solid fills/text, and `--accent-rgb` (a bare `r, g, b` triple) for every translucent wash via `rgba(var(--accent-rgb), α)` — this keeps the glow/hover system on one hue.
 
-### Surface & structure (dark, layered)
+### Surface & structure (warm-charcoal elevation ramp)
+
+The surfaces step in clear ~+6 lightness increments (deepest → floating) so elevation reads as **real depth**, and every neutral is tinted a *whisper* toward the warm brand hue (warm charcoal, not cold gray). No pure black — the base is an off-black charcoal with headroom.
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#0d0d0e` | app background, inputs, card insets, the base layer |
-| `--bg-deep` | `#09090a` | titlebar, tab strips, nav rails (`.mode-tabs`, `.chat-tabs`) |
-| `--bg-raised` | `#141416` | sidebar, composer, command bars, raised panels |
-| `--bg-card` | `#1a1a1d` | response cards, tool cards, modals, palette |
-| `--border` | `#262629` | default 1px hairline border everywhere |
-| `--border-strong` | `#34343a` | emphasized borders (active tabs, palette, checkbox idle) |
+| `--bg-deep` | `#0b0a09` | titlebar, tab strips, nav rails (`.mode-tabs`, `.chat-tabs`), deepest insets |
+| `--bg` | `#110f0d` | app background, inputs, card insets, the base layer |
+| `--bg-raised` | `#181613` | sidebar, composer, command bars, raised panels |
+| `--bg-card` | `#1e1b18` | response cards, tool cards, on-surface panels |
+| `--bg-float` | `#25221e` | **floating layers only**: modals, palette, popovers, menus (paired with `--shadow-modal`/`--shadow-pop` + `--edge-light`) |
+| `--border` | `#2b2825` | default 1px hairline border everywhere (warm) |
+| `--border-strong` | `#3b3733` | emphasized borders (active tabs, palette, checkbox idle) |
 
-### Text
-
-| Token | Value | Use |
-|---|---|---|
-| `--text` | `#ededee` | primary body / UI text |
-| `--muted` | `#9a9aa2` | secondary text, descriptions, inactive labels |
-| `--faint` | `#6a6a72` | tertiary — hints, elapsed timers, footers, placeholders |
-
-### Accent — low-chroma warm gray (the "amber" family)
+### Text (warm off-white ramp)
 
 | Token | Value | Use |
 |---|---|---|
-| `--accent-rgb` | `188, 180, 166` | the accent as an RGB triple — feeds **every** translucent wash/glow: `rgba(var(--accent-rgb), α)` (washes typically `0.08–0.16`, focus ring `0.5`, selection `0.26`) |
-| `--amber` | `#b4aa9b` | primary/active solid fills, strong active borders, the brand mark |
-| `--amber-bright` | `#ece8e0` | active text, links, headings, selected labels (near-white) |
-| `--amber-dim` | `#45423c` | dim dividers, ghost/hover borders, thinking-block rail, scrollbar thumb |
-| `--on-accent` | `#14130f` | text/icon sitting **on** an `--amber` fill (e.g. `.primary` button label, `.tool-icon` glyph, `.plan-badge`) |
+| `--text` | `#ecebe8` | primary body / UI text |
+| `--muted` | `#9d978c` | secondary text, descriptions, inactive labels |
+| `--faint` | `#756f64` | tertiary — hints, elapsed timers, footers, placeholders |
 
-### Semantic
+### Accent — low-chroma warm brass (the "amber" family)
 
 | Token | Value | Use |
 |---|---|---|
-| `--ok` | `#6fb98a` | success / additions / connected / cache-good (muted green) |
+| `--accent-rgb` | `192, 182, 165` | the accent as an RGB triple — feeds **every** translucent wash/glow: `rgba(var(--accent-rgb), α)` (washes typically `0.08–0.16`, focus ring `0.5`, selection `0.26`) |
+| `--amber` | `#bcae98` | primary/active solid fills, strong active borders, the brand mark |
+| `--amber-bright` | `#f1ede4` | active text, links, headings, selected labels (near-white) |
+| `--amber-dim` | `#4b463e` | dim dividers, ghost/hover borders, accent rails, scrollbar thumb |
+| `--on-accent` | `#14120d` | text/icon sitting **on** an `--amber` fill (e.g. `.primary` button label, `.tool-icon` glyph, `.plan-badge`) |
+
+### Semantic state colors
+
+The accent is **one locked hue**; these are reserved *state* colors (not decorative accents). `--info` is the single sanctioned second hue, used only to distinguish subagent / orchestration / procedural-memory state.
+
+| Token | Value | Use |
+|---|---|---|
+| `--ok` | `#6fb98a` | success / additions / cache-good (muted green) |
+| `--ok-bright` | `#57cf83` | live **connected** status dot (vivid) — `.mcp-dot.ok`, `.persona-dot.on`, `.conn-dot`, `.tool-badge.ok` |
+| `--warn` | `#d8923c` | warning (`.mcp-dot.warn`) |
 | `--danger` | `#d2806a` | destructive / errors / rate-limit / STOP (muted clay-red) |
+| `--danger-bright` | `#e2987f` | danger hover (`.primary.danger:hover`) |
+| `--info` | `#8aa2c4` | muted slate — **second semantic hue**: subagent / orchestration kind (`.ad-card.orchestration`, `.ad-kind.orchestration`), procedural memory (`.mem-procedural`) |
 
-**Semantic literals that recur** (not yet tokenized — prefer the variable where one exists, but these are the established raw values): a brighter connected-green `#4ccb6a` with a `rgba(76,203,106,0.6)` glow appears on status dots (`.mcp-dot.ok`, `.persona-dot.on`) and `.tool-badge.ok`; diff add/del use GitHub-ish `#7ee787`/`#ffa198` over `rgba(46,160,67,0.16)`/`rgba(248,81,73,0.16)`; the titlebar close-button hover is `#c0392b`. New work should lean on `--ok`/`--danger` rather than minting more literals.
+**Remaining semantic literals** (localized to chat diffs, prefer a token where one exists): diff add/del use GitHub-ish `#7ee787`/`#ffa198` over `rgba(46,160,67,0.16)`/`rgba(248,81,73,0.16)`; the titlebar close-button hover is `#c0392b`. New work should lean on the tokens above rather than minting more literals.
 
 ### Fonts (in the color block for proximity)
 
@@ -77,10 +86,22 @@ All colors are CSS variables on `:root` in `00-core.css`. Use the variable, neve
 
 ### Elevation
 
-| Token | Value |
-|---|---|
-| `--shadow-soft` | `0 1px 2px rgba(0,0,0,0.45)` |
-| `--shadow-pop` | `0 18px 44px rgba(0,0,0,0.6)` |
+Flat by default; depth appears **only on floating layers**. The drops use a negative spread so they stay tight and premium rather than a soft AI haze. `--edge-light` is a 1px top inner-highlight (a catch-light) layered on raised panels for a physical, lifted feel.
+
+| Token | Value | Use |
+|---|---|---|
+| `--shadow-soft` | `0 1px 2px rgba(0,0,0,0.4)` | minimal lift |
+| `--shadow-pop` | `0 16px 40px -8px rgba(0,0,0,0.55)` | popovers, menus (export/slash) |
+| `--shadow-modal` | `0 28px 70px -16px rgba(0,0,0,0.72)` | modals, palette, gate card |
+| `--edge-light` | `inset 0 1px 0 rgba(255,255,255,0.04)` | top catch-light on raised/floating panels (`.composer`, `.mode-tab.on`, `.primary`, modals, palette) |
+
+### Systematic scales (added in the design-taste redesign)
+
+Token scales for radius, spacing, and type sit on `:root` so future work is systematic instead of ad-hoc px. The values match the established usage below; **new rules should reference the scale tokens.**
+
+- **Radius** `--r-1`…`--r-5` = `4 / 6 / 8 / 10 / 12px`, plus `--r-pill: 999px`.
+- **Spacing** `--sp-1`…`--sp-6` = `4 / 8 / 12 / 16 / 24 / 32px` (4px base).
+- **Type ramp** (~1.2 step): `--fs-micro 10` · `--fs-xs 11` · `--fs-sm 12` · `--fs-base 13.5` · `--fs-md 15` · `--fs-lg 18` · `--fs-xl 22` (px).
 
 ---
 
@@ -105,8 +126,8 @@ Pretendard is pinned *last* in `--mono` on purpose: the Latin monospace fonts la
 
 ## 4. Spacing, radius, elevation
 
-**Radius scale** (consistent, used verbatim across components):
-- `4px` — tiny chips, checkboxes, badges, focus-ring rounding, bar fills
+**Radius scale** (now tokenized as `--r-1`…`--r-5`; values used verbatim across components):
+- `4px` (`--r-1`) — tiny chips, checkboxes, badges, focus-ring rounding, bar fills
 - `5–6px` — small controls: `.mini-btn`, `.effort-cell`, `select`, `.msg-act`, scrollbar thumb, tool-icon
 - `7px` — cards in lists: `.model-card`, `.perm-card`, `.palette-item`, `.modal-arg`
 - `8px` — standard buttons, panels, tool cards, todo cards, `.saver-toggle`, `.persona-text`
@@ -205,7 +226,16 @@ See **Modals** above — `ConfirmDialog.tsx` is the reference implementation (ov
 
 ## 8. Interaction states
 
-**Transitions.** Short and uniform: **`0.12s`** for most state changes (`transition: all 0.12s` on cards/tabs/buttons), `0.15s` for inputs, `0.3s` for bar-fill width animations.
+**Motion tokens** (`00-core.css`, added per the installed `design-taste` skill). Curves are explicit, not the weak CSS built-ins:
+- `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)` — enter/press feedback (starts fast = responsive); the default for state changes.
+- `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)` — on-screen movement/morph.
+- `--dur-1: 0.12s` (state changes), `--dur-2: 0.2s` (larger transitions).
+
+**Transitions.** Short and uniform: card/tab/button state changes use **`transition: all var(--dur-1) var(--ease-out)`**; `0.15s` for inputs; `0.3s` for bar-fill width animations. Pure *color/hover* fades keep the default `ease` (the skill's decision tree: hover/color → `ease`, enter/press/movement → custom curve) — only escalate to `--ease-out` when a `transform`/lift is involved.
+
+**Reduced motion (mandatory).** A global `@media (prefers-reduced-motion: reduce)` block in `00-core.css` collapses every animation/transition to near-instant (and stops the looping `spin`/`pulse`/`blink`) while preserving comprehension-aiding color/opacity end-states. Every new looping animation is covered automatically by the universal selector — don't reintroduce motion that ignores the OS preference.
+
+**Typography wrapping.** Markdown headings (`.md h1–h4`) use `text-wrap: balance`; prose (`.md p`) uses `text-wrap: pretty` (no orphan words / even ragged edge).
 
 **Hover** — borders brighten one step (`--border` → `--amber-dim` → `--amber`); muted text → `--text` or `--amber-bright`; subtle accent wash `rgba(var(--accent-rgb), 0.08–0.16)` on selectable rows.
 

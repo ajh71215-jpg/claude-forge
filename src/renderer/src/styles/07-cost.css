@@ -171,7 +171,7 @@
   border-top: none;
 }
 .cost-trow.running {
-  background: rgba(180, 170, 155, 0.04);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 .cost-table .ct-name {
   white-space: nowrap;

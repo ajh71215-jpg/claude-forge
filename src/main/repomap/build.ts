@@ -5,7 +5,6 @@
 // the more other files import it, plus its own surface area, minus its depth.
 // NO electron/SDK imports → unit-tested headlessly.
 
-import { estimateTokens } from '../efficiency/compress'
 import type { FileNode } from './parse'
 
 export interface RepoMapOptions {
@@ -75,9 +74,4 @@ export function buildRepoMap(files: FileNode[], opts: RepoMapOptions = {}): stri
   }
   if (files.length > maxFiles) lines.push(`… (+${files.length - maxFiles} more files)`)
   return lines.join('\n')
-}
-
-/** Convenience: estimate the token size of a rendered map. */
-export function repoMapTokens(map: string): number {
-  return estimateTokens(map)
 }

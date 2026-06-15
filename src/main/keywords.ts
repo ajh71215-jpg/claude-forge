@@ -12,7 +12,7 @@
 // sanitize code/URLs → strip system echoes → reject informational / quoted /
 // reference contexts → map surviving keywords to a Forge mode + priority order.
 
-import type { ModelTier, Topology } from './orchestration'
+import type { Topology } from './orchestration'
 import type { Tier } from './routing'
 
 /** What a detected keyword DOES inside Forge's orchestration engine. */

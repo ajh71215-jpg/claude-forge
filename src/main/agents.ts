@@ -105,7 +105,10 @@ export async function writeAgent(input: AgentInput): Promise<AgentWriteResult> {
       if (await fileExists(fileFor(name))) {
         return { ok: false, error: `An agent "${name}" already exists.` }
       }
-      await fs.rename(fileFor(orig), fileFor(name)).catch(() => {})
+      // The new file is written with fresh content below, so a rename only needs
+      // to drop the original. force: tolerate a missing original instead of a
+      // failed rename silently orphaning it under the old name.
+      await fs.rm(fileFor(orig), { force: true })
     } else if (!orig) {
       if (await fileExists(fileFor(name))) {
         return { ok: false, error: `An agent "${name}" already exists.` }

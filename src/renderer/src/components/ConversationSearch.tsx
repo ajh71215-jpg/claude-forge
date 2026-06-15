@@ -30,17 +30,26 @@ export default function ConversationSearch({
       return
     }
     setLoading(true)
+    let cancelled = false
     const t = setTimeout(() => {
       window.forge.agent
         .searchSessions(query)
         .then((r) => {
+          if (cancelled) return
           setHits(r)
           setSearched(true)
         })
-        .catch(() => setHits([]))
-        .finally(() => setLoading(false))
+        .catch(() => {
+          if (!cancelled) setHits([])
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
     }, 300)
-    return () => clearTimeout(t)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
   }, [q])
 
   function open(id: string): void {

@@ -374,3 +374,37 @@
 .brand-settings:hover {
   color: var(--amber-bright);
 }
+
+/* ---- Workspace repo-map tab (Understand-Anything absorption) ---- */
+.wsf-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 12px;
+}
+.wsf-tab {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #2a2521);
+  background: transparent;
+  color: var(--muted, #b9ad9c);
+  cursor: pointer;
+}
+.wsf-tab.on {
+  color: var(--amber, #e8932a);
+  border-color: rgba(232, 147, 42, 0.5);
+  background: rgba(232, 147, 42, 0.08);
+}
+.wsf-map {
+  flex-direction: column;
+  overflow: auto;
+  gap: 8px;
+}
+.wsf-mappre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text, #e9e0d2);
+}

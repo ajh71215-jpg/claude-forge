@@ -11,6 +11,7 @@ import {
   setSkillEnabled,
   type SkillInput
 } from '../skills'
+import { listBundledSkills, installBundledSkill } from '../skillsPack'
 import {
   listCommands,
   readCommand,
@@ -49,6 +50,9 @@ export function register(ipc: IpcMain): void {
   ipc.handle('skills:toggle', (_e, name: string, enabled: boolean) =>
     setSkillEnabled(name, enabled)
   )
+  // Curated starter pack (mattpocock/skills absorption) — bundled, one-click install.
+  ipc.handle('skills:bundled', () => listBundledSkills())
+  ipc.handle('skills:install', (_e, name: string) => installBundledSkill(name))
 
   // Custom slash commands — `.claude/commands/<name>.md`.
   ipc.handle('commands:list', () => listCommands())

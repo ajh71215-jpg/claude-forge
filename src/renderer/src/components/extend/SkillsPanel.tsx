@@ -5,6 +5,7 @@ import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
 import { useConfirm } from '../ConfirmDialog'
 import type { SkillMeta } from '../../types'
+import type { BundledSkillStatus } from '../../../../main/skillsPack'
 import { SKILL_NAME_RE } from './shared'
 
 interface SkillDraft {
@@ -30,6 +31,7 @@ Describe what this skill does and the steps the agent should follow.
 export default function SkillsPanel(): JSX.Element {
   const confirm = useConfirm()
   const [skills, setSkills] = useState<SkillMeta[] | null>(null)
+  const [pack, setPack] = useState<BundledSkillStatus[] | null>(null)
   const [editing, setEditing] = useState<SkillDraft | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -38,8 +40,23 @@ export default function SkillsPanel(): JSX.Element {
       .list()
       .then(setSkills)
       .catch(() => setSkills([]))
+    window.forge.skills
+      .bundled()
+      .then(setPack)
+      .catch(() => setPack([]))
   }
   useEffect(refresh, [])
+
+  async function install(name: string): Promise<void> {
+    setBusy(true)
+    try {
+      const res = await window.forge.skills.install(name)
+      if (res.ok) setSkills(res.skills)
+      setPack(await window.forge.skills.bundled())
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function toggle(s: SkillMeta): Promise<void> {
     setBusy(true)
@@ -120,6 +137,39 @@ export default function SkillsPanel(): JSX.Element {
                 <button className="skill-act danger" disabled={busy} onClick={() => remove(s)}>
                   Delete
                 </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pack && pack.length > 0 && (
+        <div className="skills-pack">
+          <div className="skills-pack-head">
+            <span className="skills-pack-title">Starter pack</span>
+            <span className="skills-pack-sub">
+              Battle-tested engineering skills · adapted from{' '}
+              <code>mattpocock/skills</code> (MIT)
+            </span>
+          </div>
+          {pack.map((b) => (
+            <div key={b.name} className="skill-row" style={{ cursor: 'default' }}>
+              <div className="skill-main" style={{ cursor: 'default' }}>
+                <div className="skill-name">{b.name}</div>
+                <div className="skill-desc">{b.description}</div>
+              </div>
+              <div className="skill-actions">
+                {b.installed ? (
+                  <span className="mcp-status-inline">installed</span>
+                ) : (
+                  <button
+                    className="skill-act"
+                    disabled={busy}
+                    onClick={() => install(b.name)}
+                  >
+                    Install
+                  </button>
+                )}
               </div>
             </div>
           ))}

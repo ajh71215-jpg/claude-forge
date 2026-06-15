@@ -485,3 +485,50 @@ select.hook-select {
   flex: none;
 }
 
+
+/* ---- Memory (agentmemory absorption) ---- */
+.mem-kind {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--line, #2a2521);
+  color: var(--muted, #b9ad9c);
+  background: rgba(232, 147, 42, 0.06);
+  white-space: nowrap;
+}
+.mem-semantic {
+  color: var(--amber, #e8932a);
+  border-color: rgba(232, 147, 42, 0.4);
+}
+.mem-procedural {
+  color: #7fb2d8;
+  border-color: rgba(127, 178, 216, 0.4);
+}
+
+/* ---- Skills starter pack (mattpocock/skills absorption) ---- */
+.skills-pack {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line, #2a2521);
+}
+.skills-pack-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.skills-pack-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber, #e8932a);
+}
+.skills-pack-sub {
+  font-size: 12px;
+  color: var(--muted, #b9ad9c);
+}

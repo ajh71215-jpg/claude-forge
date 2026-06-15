@@ -5,6 +5,7 @@ import { registerAll } from './ipc'
 // happen before app `ready`), via a side effect in pet/protocol.ts.
 import { initPet } from './pet'
 import { initActivity } from './agentActivity'
+import { initMemoryCapture } from './memory'
 import { interruptAll } from './agent'
 
 // Optional remote debugging for local verification: set FORGE_CDP=<port>.
@@ -59,6 +60,10 @@ app.whenReady().then(() => {
   // Agent-activity store: taps the event bus so the Squad dashboard captures
   // every run/subagent regardless of which tab is focused.
   initActivity()
+
+  // Persistent project memory: taps the same bus to auto-capture durable tool
+  // actions (file edits, commands) as recallable facts — zero extra tokens.
+  initMemoryCapture()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

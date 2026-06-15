@@ -22,6 +22,12 @@
     "src/renderer/src/lib/blocks.ts",
     "src/renderer/src/lib/format.ts",
     "src/renderer/src/lib/goal.ts",
-    "src/renderer/src/lib/slashCommands.ts"
+    "src/renderer/src/lib/slashCommands.ts",
+    "src/main/efficiency/compress.ts",
+    "src/main/memory/bm25.ts",
+    "src/main/memory/retrieve.ts",
+    "src/main/memory/observe.ts",
+    "src/main/repomap/parse.ts",
+    "src/main/repomap/build.ts"
   ]
 }

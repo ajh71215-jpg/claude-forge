@@ -18,6 +18,7 @@ import type {
   SkillInput,
   SkillWriteResult
 } from '../main/skills'
+import type { BundledSkillStatus, InstallBundledResult } from '../main/skillsPack'
 import type {
   CommandMeta,
   CommandDetail,
@@ -37,6 +38,8 @@ import type { ProviderEntry, ProviderSaveInput, ProviderSaveResult } from '../ma
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
 import type { WorkspaceFile } from '../main/workspace'
+import type { MemoryEntry } from '../main/memory'
+import type { RepoMapResult } from '../main/repomap'
 
 /** The safe surface exposed to the renderer as window.forge. */
 const forge = {
@@ -93,7 +96,12 @@ const forge = {
       ipcRenderer.invoke('skills:write', input),
     delete: (name: string): Promise<SkillMeta[]> => ipcRenderer.invoke('skills:delete', name),
     toggle: (name: string, enabled: boolean): Promise<SkillMeta[]> =>
-      ipcRenderer.invoke('skills:toggle', name, enabled)
+      ipcRenderer.invoke('skills:toggle', name, enabled),
+    /** Curated starter pack (mattpocock/skills absorption), with installed flags. */
+    bundled: (): Promise<BundledSkillStatus[]> => ipcRenderer.invoke('skills:bundled'),
+    /** Install one bundled skill into `.claude/skills/` (idempotent). */
+    install: (name: string): Promise<InstallBundledResult> =>
+      ipcRenderer.invoke('skills:install', name)
   },
   commands: {
     list: (): Promise<CommandMeta[]> => ipcRenderer.invoke('commands:list'),
@@ -157,7 +165,20 @@ const forge = {
     list: (id: string): Promise<WorkspaceFile[]> => ipcRenderer.invoke('workspace:list', id),
     /** Read one workspace file's contents (capped). */
     read: (id: string, rel: string): Promise<string> =>
-      ipcRenderer.invoke('workspace:read', id, rel)
+      ipcRenderer.invoke('workspace:read', id, rel),
+    /** Structural repo map of the conversation's workspace (Understand-Anything). */
+    repoMap: (id: string): Promise<RepoMapResult> => ipcRenderer.invoke('workspace:repo-map', id)
+  },
+  memory: {
+    /** Browse auto-captured project memory (newest first). */
+    list: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:list'),
+    /** Lexical (BM25) search over memory. */
+    search: (query: string): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:search', query),
+    delete: (id: string): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:delete', id),
+    clear: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:clear'),
+    /** Whether memory capture + recall is enabled (default on). */
+    enabled: (): Promise<boolean> => ipcRenderer.invoke('memory:enabled'),
+    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('memory:set-enabled', on)
   },
   activity: {
     /** Current live + persisted agent activity for the Squad dashboard. */

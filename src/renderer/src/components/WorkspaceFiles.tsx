@@ -37,6 +37,8 @@ export default function WorkspaceFiles({
   const [sel, setSel] = useState<string | null>(null)
   const [content, setContent] = useState<string>('')
   const [now] = useState(Date.now())
+  const [view, setView] = useState<'files' | 'map'>('files')
+  const [map, setMap] = useState<{ map: string; fileCount: number } | null>(null)
 
   useEffect(() => {
     window.forge.workspace
@@ -49,6 +51,14 @@ export default function WorkspaceFiles({
   }, [workspaceId])
 
   useEffect(() => {
+    if (view !== 'map' || map) return
+    window.forge.workspace
+      .repoMap(workspaceId)
+      .then((r) => setMap({ map: r.map, fileCount: r.fileCount }))
+      .catch(() => setMap({ map: '', fileCount: 0 }))
+  }, [view, map, workspaceId])
+
+  useEffect(() => {
     if (!sel) {
       setContent('')
       return
@@ -59,7 +69,37 @@ export default function WorkspaceFiles({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal wsf-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-title">WORKSPACE FILES — this conversation</div>
+        <div className="modal-title">
+          WORKSPACE — this conversation
+          <span className="wsf-tabs">
+            <button className={`wsf-tab ${view === 'files' ? 'on' : ''}`} onClick={() => setView('files')}>
+              Files
+            </button>
+            <button className={`wsf-tab ${view === 'map' ? 'on' : ''}`} onClick={() => setView('map')}>
+              Repo map
+            </button>
+          </span>
+        </div>
+        {view === 'map' ? (
+          <div className="wsf-body wsf-map">
+            {map === null ? (
+              <div className="wsf-note">building map…</div>
+            ) : map.map.trim() ? (
+              <>
+                <div className="wsf-note">
+                  {map.fileCount} source files · most-imported first · this is what Forge injects
+                  to help the agent navigate without exhaustive searching.
+                </div>
+                <pre className="wsf-mappre">{map.map}</pre>
+              </>
+            ) : (
+              <div className="wsf-note">
+                No source files to map yet. As the agent writes code here, a structural map appears
+                and is injected into new conversations in this workspace.
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="wsf-body">
           <div className="wsf-list">
             {files === null && <div className="wsf-note">loading…</div>}
@@ -95,6 +135,7 @@ export default function WorkspaceFiles({
             )}
           </div>
         </div>
+        )}
         <div className="modal-actions">
           <button className="primary" onClick={onClose}>
             Close

@@ -22,7 +22,7 @@ export type {
   QuestionResult
 } from './types'
 
-export { workspaceDir } from './env'
+export { workspaceDir, ensureWorkspace } from './env'
 export { respondPermission, respondDialog, interruptRun, interruptAll } from './control'
 export { getCapabilities } from './capabilities'
 export { getUsage } from './usage'

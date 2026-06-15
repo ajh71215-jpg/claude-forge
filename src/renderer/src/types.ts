@@ -41,6 +41,8 @@ export type ActivitySnapshot = import('../../main/agentActivity').ActivitySnapsh
 export type ToolEvent = import('../../main/agentActivity').ToolEvent
 export type KeywordMatch = import('../../main/keywords').KeywordMatch
 export type WorkspaceFile = import('../../main/workspace').WorkspaceFile
+export type MemoryEntry = import('../../main/memory').MemoryEntry
+export type MemoryKind = import('../../main/memory').MemoryKind
 
 export type EffortLabel = 'AUTO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'XHIGH' | 'MAX'
 

@@ -197,7 +197,9 @@ Two env-specific hurdles (`bootstrap/patch-app-builder.mjs` handles the first; b
 
 **Maintainability refactor** (`docs/MAINTAINABILITY.md`) — behavior-preserving decomposition done: `agent.ts`→`agent/`, `index.ts`→thin shell + `ipc/`, monolithic `App.tsx`→`components/` + `lib/`, `Composer`→hooks + `lib/`, and `styles.css`→`styles/` partials.
 
-**Tooling/infra:** ESLint + Prettier configured; `bootstrap/` provides one-step environment recovery for the reset-on-reboot machine; `npm run dev:web` gives a no-Electron browser design preview; `npm run selftest` (orchestration core) and `npm run test` (pure renderer lib) are the standing headless correctness gates.
+**Tooling/infra:** ESLint + Prettier configured; `bootstrap/` provides one-step environment recovery for the reset-on-reboot machine; `npm run dev:web` gives a no-Electron browser design preview; `npm run selftest` (orchestration core) and `npm run test` (pure renderer lib + the new efficiency/memory/repomap cores) are the standing headless correctness gates.
+
+**EFFICIENCY subsystems — IMPLEMENTED, headlessly verified** (`docs/EFFICIENCY.md`). Four open-source projects distilled (re-implemented, not vendored) into a token-efficiency + context-awareness layer, each with a pure core under `npm run test` (54 assertions): (1) **context compression** (`src/main/efficiency/compress.ts`, from chopratejas/headroom Apache-2.0) — JSON clip/minify, line dedup, budget-bounded marked head/tail elision, applied to the context Forge constructs itself; (2) **persistent project memory** (`src/main/memory/`, from rohitg00/agentmemory Apache-2.0) — auto-capture durable tool actions off the agent bus → privacy-filter → BM25×recency×usage recall within a token budget → compress + inject on fresh sessions; EXTEND → Memory panel; `forge-memory.json`; (3) **structural repo map** (`src/main/repomap/`, from Egonex-AI/Understand-Anything MIT) — regex parser → PageRank-lite rank → compact map injected for retrieval-first navigation; Workspace → Repo-map tab; fingerprint cache; (4) **curated starter skill pack** (`src/main/skillsPack.ts`, from mattpocock/skills MIT) — caveman/grill/tdd/diagnose/handoff one-click installable in EXTEND → Skills. **runStreaming** prepends repo-map + recalled memory (compressed, budget-bounded) on fresh conversations only (keeps the prompt cache stable). Honest caveat: pure cores + wiring pass typecheck/build/test/selftest, but live recall quality + the renderer panels were **not** live-verified in the cloud session (no key/GUI) — confirm on a local Electron run.
 
 ## Docs (under `docs/`)
 - `DESIGN.md` — UI/visual design language (theme, layout, component patterns).
@@ -207,4 +209,5 @@ Two env-specific hurdles (`bootstrap/patch-app-builder.mjs` handles the first; b
 - `MAINTAINABILITY.md` — the behavior-preserving file-decomposition plan.
 - `PERFORMANCE.md` — render/stream/paste perf levers + measurements.
 - `ROADMAP.md` — the (completed) EXTEND extensibility roadmap.
+- `EFFICIENCY.md` — the four absorbed open-source efficiency subsystems (compression, memory, repo map, skill pack) + verification status.
 - `PROGRESS.md` — live status ledger; the honest record of what's measured vs. still pending.

@@ -17,6 +17,13 @@ files:
 extraResources:
   - from: resources/pet
     to: pet
+  # Bundled goose binary (free/multi-provider delegation, docs/GOOSE_INTEGRATION.md).
+  # Populated per-platform at build time by scripts/ensure-goose.mjs. Resolved at
+  # runtime by src/main/goose/binary.ts under process.resourcesPath/goose/.
+  - from: resources/goose
+    to: goose
+    filter:
+      - "**/*"
 win:
   target:
     - nsis

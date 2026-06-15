@@ -13,6 +13,8 @@ import { getPersona, personaToSystemPrompt } from '../persona'
 import { resolveSkillsOption } from '../skills'
 import { toSdkMcpServers } from '../mcp'
 import { toSdkPlugins } from '../plugins'
+import { enabledProviders } from '../providers'
+import { buildDelegateServer } from '../goose/delegateTool'
 import { buildEnv, ensureWorkspace, SETTING_SOURCES } from './env'
 import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers'
 import { active, pendingDialogs, pendingPerms } from './state'
@@ -61,6 +63,16 @@ export async function runStreaming(
   // MCP (roadmap #4): Forge owns these connections (configured in the EXTEND
   // console), passed programmatically rather than via project `.claude/`.
   const mcpServers = await toSdkMcpServers()
+
+  // Free-provider delegation (docs/GOOSE_INTEGRATION.md): when ≥1 provider is
+  // enabled, expose the in-process `delegate` tool so the orchestrator can offload
+  // simple subtasks to a free model via goose. Configuring a provider is the
+  // opt-in. The handler can run >60s, so raise the SDK stream-close timeout.
+  if ((await enabledProviders()).length) {
+    mcpServers.forge = buildDelegateServer(cwd) as unknown as Record<string, unknown>
+    if (!env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT) env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '600000'
+  }
+
   if (Object.keys(mcpServers).length) options.mcpServers = mcpServers
 
   // Plugins (roadmap #6): local plugin bundles registered in the EXTEND console.

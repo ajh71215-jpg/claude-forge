@@ -33,6 +33,7 @@ import type {
   AgentWriteResult
 } from '../main/agents'
 import type { PluginEntry, PluginSaveResult } from '../main/plugins'
+import type { ProviderEntry, ProviderSaveInput, ProviderSaveResult } from '../main/providers'
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
 import type { WorkspaceFile } from '../main/workspace'
@@ -124,6 +125,12 @@ const forge = {
     toggle: (path: string, enabled: boolean): Promise<PluginEntry[]> =>
       ipcRenderer.invoke('plugins:toggle', path, enabled),
     remove: (path: string): Promise<PluginEntry[]> => ipcRenderer.invoke('plugins:remove', path)
+  },
+  providers: {
+    list: (): Promise<ProviderEntry[]> => ipcRenderer.invoke('providers:list'),
+    save: (input: ProviderSaveInput): Promise<ProviderSaveResult> =>
+      ipcRenderer.invoke('providers:save', input),
+    delete: (id: string): Promise<ProviderEntry[]> => ipcRenderer.invoke('providers:delete', id)
   },
   orchestrate: {
     /** Native magic-keyword detector (OMC port): map a typed prompt to active

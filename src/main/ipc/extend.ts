@@ -33,6 +33,12 @@ import {
   type AgentInput
 } from '../agents'
 import { listPlugins, addPlugin, setPluginEnabled, removePlugin } from '../plugins'
+import {
+  listProviders,
+  saveProvider,
+  deleteProvider,
+  type ProviderSaveInput
+} from '../providers'
 
 export function register(ipc: IpcMain): void {
   // Skills console — edit `.claude/skills` and toggle which ones the model sees.
@@ -72,4 +78,9 @@ export function register(ipc: IpcMain): void {
     setPluginEnabled(path, enabled)
   )
   ipc.handle('plugins:remove', (_e, path: string) => removePlugin(path))
+
+  // Free/cheaper providers (goose-routed) — secret-bearing, in forge-providers.json.
+  ipc.handle('providers:list', () => listProviders())
+  ipc.handle('providers:save', (_e, input: ProviderSaveInput) => saveProvider(input))
+  ipc.handle('providers:delete', (_e, id: string) => deleteProvider(id))
 }

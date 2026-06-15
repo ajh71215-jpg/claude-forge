@@ -106,6 +106,36 @@ export function route(input: RouteInput): RouteDecision {
   }
 }
 
+/** A delegation tier hint from the `delegate` tool (docs/GOOSE_INTEGRATION.md). */
+export type DelegateTier = 'free' | 'cheap' | 'auto'
+
+/**
+ * Pick which free/cheaper provider should handle a delegated subtask, or
+ * undefined → caller should tell Claude "no suitable free provider; do it
+ * yourself". Pure (no SDK/electron) so it is unit-testable via npm run selftest.
+ *
+ * Policy (a transparent default, not an oracle):
+ *  - no enabled providers → undefined.
+ *  - tier 'free' → first enabled `free` provider (else any enabled).
+ *  - tier 'auto' → only delegate when the instruction looks trivial/easy; a
+ *    'hard' classification returns undefined so Claude keeps hard work itself.
+ *  - tier 'cheap' → any enabled provider regardless of difficulty.
+ */
+export function pickProvider(
+  tier: DelegateTier,
+  instruction: string,
+  enabled: { id: string; free: boolean }[]
+): string | undefined {
+  if (!enabled.length) return undefined
+  const freeFirst = enabled.find((p) => p.free) ?? enabled[0]
+  if (tier === 'cheap') return freeFirst.id
+  if (tier === 'free') return (enabled.find((p) => p.free) ?? enabled[0]).id
+  // 'auto': gate on difficulty.
+  const difficulty = classifyDifficulty(instruction)
+  if (difficulty === 'hard') return undefined
+  return freeFirst.id
+}
+
 /**
  * Resolve a tier to a concrete model id from the live capability list (substring
  * match on value/displayName). Falls back to the alias, which the SDK also

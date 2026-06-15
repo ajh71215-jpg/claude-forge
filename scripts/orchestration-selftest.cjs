@@ -14,7 +14,7 @@ const base = path.join(__dirname, '..', 'out-selftest')
 
 const { topoSort } = require(path.join(base, 'orchestration.js'))
 const { validatePlan, executePlan, projectPlanCost } = require(path.join(base, 'conductor.js'))
-const { route, classifyDifficulty, escalate, resolveModelId } = require(path.join(base, 'routing.js'))
+const { route, classifyDifficulty, escalate, resolveModelId, pickProvider } = require(path.join(base, 'routing.js'))
 const { aggregateVotes, shouldEarlyStop, pairwiseWithSwap, debateConverged } = require(
   path.join(base, 'verifier.js')
 )
@@ -75,6 +75,14 @@ async function main() {
   check('priorFailures walks ladder haiku→opus', route({ instruction: 'fix a typo', priorFailures: 2 }).tier === 'opus')
   check('resolveModelId matches live id', resolveModelId('opus', [{ value: 'claude-opus-4-6' }]) === 'claude-opus-4-6')
   check('resolveModelId falls back to alias', resolveModelId('haiku', []) === 'haiku')
+
+  // pickProvider — free-provider delegation gate (docs/GOOSE_INTEGRATION.md)
+  const PROV = [{ id: 'openrouter-free', free: true }, { id: 'groq', free: false }]
+  check('pickProvider: no providers → undefined', pickProvider('auto', 'fix a typo', []) === undefined)
+  check('pickProvider: free tier prefers a free provider', pickProvider('free', 'anything', PROV) === 'openrouter-free')
+  check('pickProvider: auto + trivial → delegates', pickProvider('auto', 'fix a typo', PROV) === 'openrouter-free')
+  check('pickProvider: auto + hard → undefined (Claude keeps it)', pickProvider('auto', 'design a distributed consensus algorithm', PROV) === undefined)
+  check('pickProvider: cheap ignores difficulty', pickProvider('cheap', 'design a distributed consensus algorithm', PROV) === 'openrouter-free')
 
   // ============ VERIFIER (debate / voting / bias) ============
   group('verifier.ts — voting, early-stop, order-swap, debate')

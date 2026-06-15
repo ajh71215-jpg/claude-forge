@@ -159,6 +159,12 @@ export default function SquadView(): JSX.Element {
                       </span>
                       <span className="ad-name">{a.name}</span>
                       {a.detail && <span className="ad-detail">{a.detail}</span>}
+                      {(a.tokens || a.toolUses) && (
+                        <span className="ad-usage" title="Subagent usage so far">
+                          {a.toolUses ? `${a.toolUses} tools` : ''}
+                          {a.tokens ? ` · ${(a.tokens / 1000).toFixed(1)}k tok` : ''}
+                        </span>
+                      )}
                       {hasTools && (
                         <span className="ad-toolcount">
                           {a.tools!.length} {open ? '▾' : '▸'}

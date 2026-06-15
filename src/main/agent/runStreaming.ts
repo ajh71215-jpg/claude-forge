@@ -136,26 +136,87 @@ export async function runStreaming(
         sessionSent = true
         send({ type: 'session', sessionId: msg.session_id })
       }
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        send({ type: 'system', model: msg.model })
+      if (msg.type === 'system') {
+        // Native subagent (Task) lifecycle + reliability signals. All already
+        // emitted by the SDK — no extra tokens; Forge just surfaces them.
+        if (msg.subtype === 'init') {
+          send({ type: 'system', model: msg.model })
+        } else if (msg.subtype === 'task_started' && !msg.skip_transcript) {
+          send({
+            type: 'task-started',
+            taskId: msg.task_id,
+            toolUseId: msg.tool_use_id,
+            subagentType: msg.subagent_type,
+            description: msg.description
+          })
+        } else if (msg.subtype === 'task_progress') {
+          send({
+            type: 'task-progress',
+            taskId: msg.task_id,
+            toolUseId: msg.tool_use_id,
+            subagentType: msg.subagent_type,
+            totalTokens: msg.usage?.total_tokens,
+            toolUses: msg.usage?.tool_uses,
+            durationMs: msg.usage?.duration_ms
+          })
+        } else if (msg.subtype === 'task_updated') {
+          send({
+            type: 'task-updated',
+            taskId: msg.task_id,
+            status: msg.patch?.status,
+            description: msg.patch?.description,
+            error: msg.patch?.error
+          })
+        } else if (msg.subtype === 'task_notification') {
+          send({
+            type: 'task-done',
+            taskId: msg.task_id,
+            toolUseId: msg.tool_use_id,
+            status: msg.status,
+            summary: msg.summary,
+            totalTokens: msg.usage?.total_tokens,
+            toolUses: msg.usage?.tool_uses,
+            durationMs: msg.usage?.duration_ms
+          })
+        } else if (msg.subtype === 'api_retry') {
+          send({
+            type: 'api-retry',
+            attempt: msg.attempt,
+            maxRetries: msg.max_retries,
+            retryDelayMs: msg.retry_delay_ms,
+            errorStatus: msg.error_status
+          })
+        } else if (msg.subtype === 'compact_boundary') {
+          send({
+            type: 'compact-boundary',
+            trigger: msg.compact_metadata?.trigger ?? 'auto',
+            preTokens: msg.compact_metadata?.pre_tokens,
+            postTokens: msg.compact_metadata?.post_tokens
+          })
+        }
       } else if (msg.type === 'stream_event') {
         const ev = msg.event
+        // parent_tool_use_id is set on subagent stream events → attribute the
+        // block to the spawning Task instead of the lead (Agents dashboard).
+        const parentToolId = (msg.parent_tool_use_id ?? null) as string | null
         if (ev?.type === 'message_start') {
           turn += 1
           streamed = false
         } else if (ev?.type === 'content_block_start') {
           streamed = true
           const cb = ev.content_block
-          if (cb?.type === 'text') send({ type: 'block-start', blockId: bid(ev.index), kind: 'text' })
+          if (cb?.type === 'text')
+            send({ type: 'block-start', blockId: bid(ev.index), kind: 'text', parentToolId })
           else if (cb?.type === 'thinking')
-            send({ type: 'block-start', blockId: bid(ev.index), kind: 'thinking' })
+            send({ type: 'block-start', blockId: bid(ev.index), kind: 'thinking', parentToolId })
           else if (cb?.type === 'tool_use')
             send({
               type: 'block-start',
               blockId: bid(ev.index),
               kind: 'tool',
               name: cb.name,
-              toolId: cb.id
+              toolId: cb.id,
+              parentToolId
             })
         } else if (ev?.type === 'content_block_delta') {
           const d = ev.delta
@@ -190,6 +251,7 @@ export async function runStreaming(
         }
       } else if (msg.type === 'user') {
         const content = msg.message?.content
+        const parentToolId = (msg.parent_tool_use_id ?? null) as string | null
         if (Array.isArray(content)) {
           for (const b of content) {
             if (b?.type === 'tool_result') {
@@ -197,11 +259,22 @@ export async function runStreaming(
                 type: 'tool-result',
                 toolId: b.tool_use_id,
                 ok: !b.is_error,
-                content: toolContentToString(b.content)
+                content: toolContentToString(b.content),
+                parentToolId
               })
             }
           }
         }
+      } else if (msg.type === 'tool_progress') {
+        send({
+          type: 'tool-progress',
+          toolUseId: msg.tool_use_id,
+          toolName: msg.tool_name,
+          parentToolId: (msg.parent_tool_use_id ?? null) as string | null,
+          elapsedSeconds: msg.elapsed_time_seconds ?? 0
+        })
+      } else if (msg.type === 'rate_limit_event') {
+        send({ type: 'rate-limit', info: (msg.rate_limit_info ?? {}) as Record<string, unknown> })
       } else if (msg.type === 'result') {
         const ok = msg.subtype === 'success'
         const u = msg.usage

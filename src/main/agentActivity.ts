@@ -50,9 +50,12 @@ export interface AgentActivity {
   score?: number
   /** Orchestration verifier provenance: objective tool oracle vs LLM judge. */
   verifier?: 'tool' | 'judge'
-  /** Tools this agent used, in order (main-agent runs; empty for subagents whose
-   * inner calls the SDK does not stream to us). */
+  /** Tools this agent used, in order. For subagents these are attributed via the
+   * SDK parent_tool_use_id, so a subagent's inner Read/Bash/… nest under it. */
   tools?: ToolEvent[]
+  /** Subagent usage from native SDK task_* messages. */
+  tokens?: number
+  toolUses?: number
 }
 
 export interface ActivitySnapshot {
@@ -70,8 +73,9 @@ let loaded = false
 // Tool-call bookkeeping (tool-input carries blockId, tool-result carries toolId).
 const toolBlockToTool = new Map<string, string>() // blockId → toolId (every tool)
 const toolBlockOf = new Map<string, string>() // toolId → blockId (for cleanup)
-const toolOwner = new Map<string, string>() // toolId → runId (which run's timeline)
+const toolOwner = new Map<string, string>() // toolId → owner entry id (run OR subagent)
 const toolInput = new Map<string, string>() // blockId → accumulated input json
+const taskIdToEntryId = new Map<string, string>() // SDK task_id → our subagent entry id
 
 const TOOLS_CAP = 200
 
@@ -187,29 +191,34 @@ export function onActivityEvent(ev: AgentEvent): void {
 
   switch (ev.type) {
     case 'block-start': {
-      if (run) {
+      // A subagent's block carries parent_tool_use_id → attribute to that
+      // subagent's entry; otherwise to the lead run.
+      const isSub = !!ev.parentToolId && live.has(ev.parentToolId)
+      const targetId = isSub ? (ev.parentToolId as string) : ev.runId
+      const target = live.get(targetId)
+      if (target) {
         const a = actionFor(ev)
-        if (a) run.detail = a
+        if (a) target.detail = a
       }
       if (ev.kind === 'tool' && ev.toolId) {
-        // Record the tool on the owning run's timeline (no token cost — this
-        // event is streamed anyway).
-        if (run) {
+        // Record the tool on the owner's timeline (no token cost — streamed anyway).
+        if (target) {
           const te: ToolEvent = {
             id: ev.toolId,
             name: ev.name ?? 'tool',
             status: 'running',
             startedAt: Date.now()
           }
-          run.tools = run.tools ?? []
-          run.tools.push(te)
-          if (run.tools.length > TOOLS_CAP) run.tools.splice(0, run.tools.length - TOOLS_CAP)
+          target.tools = target.tools ?? []
+          target.tools.push(te)
+          if (target.tools.length > TOOLS_CAP) target.tools.splice(0, target.tools.length - TOOLS_CAP)
         }
         toolBlockToTool.set(ev.blockId, ev.toolId)
         toolBlockOf.set(ev.toolId, ev.blockId)
-        toolOwner.set(ev.toolId, ev.runId)
-        // A Task tool also spawns a tracked subagent card.
-        if (ev.name === 'Task') {
+        toolOwner.set(ev.toolId, targetId)
+        // A lead-issued Task tool spawns a tracked subagent card (keyed by its
+        // tool_use_id so subagent blocks attribute back to it).
+        if (ev.name === 'Task' && !isSub) {
           live.set(ev.toolId, {
             id: ev.toolId,
             kind: 'task',
@@ -259,6 +268,67 @@ export function onActivityEvent(ev: AgentEvent): void {
       if (task && task.kind === 'task') finish(task, ev.ok ? 'ok' : 'error')
       cleanupTool(ev.toolId)
       broadcast()
+      break
+    }
+    // ── Native subagent (Task) lifecycle — enriches the inferred Task card with
+    //    real subagent_type / description / usage / status. ──
+    case 'task-started': {
+      const entryId = ev.toolUseId ?? `task:${ev.taskId}`
+      taskIdToEntryId.set(ev.taskId, entryId)
+      const e = live.get(entryId)
+      if (e && e.kind === 'task') {
+        if (ev.subagentType) e.name = ev.subagentType
+        if (ev.description) e.detail = ev.description
+      } else if (!e) {
+        live.set(entryId, {
+          id: entryId,
+          kind: 'task',
+          runId: ev.runId,
+          name: ev.subagentType ?? 'subagent',
+          detail: ev.description,
+          status: 'running',
+          startedAt: Date.now()
+        })
+      }
+      broadcast()
+      break
+    }
+    case 'task-progress': {
+      const e = live.get(taskIdToEntryId.get(ev.taskId) ?? '')
+      if (e) {
+        if (ev.subagentType) e.name = ev.subagentType
+        if (ev.totalTokens != null) e.tokens = ev.totalTokens
+        if (ev.toolUses != null) e.toolUses = ev.toolUses
+        broadcast()
+      }
+      break
+    }
+    case 'task-updated': {
+      const e = live.get(taskIdToEntryId.get(ev.taskId) ?? '')
+      if (e) {
+        if (ev.description) e.detail = ev.description
+        if (ev.status === 'completed') finish(e, 'ok')
+        else if (ev.status === 'failed' || ev.status === 'killed') finish(e, 'error')
+        else broadcast()
+      }
+      break
+    }
+    case 'task-done': {
+      const e = live.get(taskIdToEntryId.get(ev.taskId) ?? ev.toolUseId ?? '')
+      if (e) {
+        if (ev.summary) e.detail = ev.summary
+        if (ev.totalTokens != null) e.tokens = ev.totalTokens
+        if (ev.toolUses != null) e.toolUses = ev.toolUses
+        finish(e, ev.status === 'completed' ? 'ok' : 'error')
+      }
+      taskIdToEntryId.delete(ev.taskId)
+      break
+    }
+    case 'api-retry': {
+      if (run) {
+        run.detail = `retrying (${ev.errorStatus ?? 'error'}) — attempt ${ev.attempt}/${ev.maxRetries}…`
+        broadcast()
+      }
       break
     }
     case 'result': {

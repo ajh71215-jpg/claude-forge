@@ -32,6 +32,8 @@ export type McpServerEntry = import('../../main/mcp').McpServerEntry
 export type McpTransport = import('../../main/mcp').McpTransport
 export type AgentMeta = import('../../main/agents').AgentMeta
 export type PluginEntry = import('../../main/plugins').PluginEntry
+export type ProviderEntry = import('../../main/providers').ProviderEntry
+export type ProviderSaveInput = import('../../main/providers').ProviderSaveInput
 
 // Agent-activity dashboard types (the Squad/Cost tabs read these).
 export type AgentActivity = import('../../main/agentActivity').AgentActivity

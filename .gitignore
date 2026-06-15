@@ -15,3 +15,6 @@ out-selftest/
 # stray local build artifact (913MB) — never commit
 dist v2/
 out-test/
+
+# Bundled goose binary (fetched at build time by scripts/ensure-goose.mjs)
+resources/goose/

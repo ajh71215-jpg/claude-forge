@@ -10,8 +10,9 @@ import HooksPanel from './HooksPanel'
 import McpPanel from './McpPanel'
 import AgentsPanel from './AgentsPanel'
 import PluginsPanel from './PluginsPanel'
+import ProvidersPanel from './ProvidersPanel'
 
-type ExtendSection = 'skills' | 'commands' | 'hooks' | 'mcp' | 'agents' | 'plugins'
+type ExtendSection = 'skills' | 'commands' | 'hooks' | 'mcp' | 'agents' | 'plugins' | 'providers'
 
 const EXTEND_SECTIONS: { id: ExtendSection; label: string; icon: IconName; ready: boolean }[] = [
   { id: 'skills', label: 'Skills', icon: 'skills', ready: true },
@@ -19,7 +20,8 @@ const EXTEND_SECTIONS: { id: ExtendSection; label: string; icon: IconName; ready
   { id: 'hooks', label: 'Hooks', icon: 'hooks', ready: true },
   { id: 'mcp', label: 'MCP', icon: 'mcp', ready: true },
   { id: 'agents', label: 'Agents', icon: 'agents', ready: true },
-  { id: 'plugins', label: 'Plugins', icon: 'plugins', ready: true }
+  { id: 'plugins', label: 'Plugins', icon: 'plugins', ready: true },
+  { id: 'providers', label: 'Providers', icon: 'mcp', ready: true }
 ]
 
 /** The EXTEND tab: a console over the filesystem `.claude/` extension points. */
@@ -63,6 +65,8 @@ export default function ExtendView({
           <AgentsPanel />
         ) : section === 'plugins' ? (
           <PluginsPanel onChanged={onMcpChanged} />
+        ) : section === 'providers' ? (
+          <ProvidersPanel />
         ) : (
           <div className="extend-stub">
             {active && <Icon name={active.icon} className="extend-stub-icon" />}

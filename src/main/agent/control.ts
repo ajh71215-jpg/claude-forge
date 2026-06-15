@@ -4,6 +4,7 @@
 
 import { active, pendingDialogs, pendingPerms } from './state'
 import type { QuestionResult } from './types'
+import { killGooseForRun } from '../goose/registry'
 
 /** Resolve a pending ASK prompt with the renderer's decision. */
 export function respondPermission(id: string, allow: boolean): void {
@@ -23,8 +24,11 @@ export function respondDialog(id: string, result: QuestionResult): void {
   }
 }
 
-/** STOP — interrupt the active run. */
+/** STOP — interrupt the active run and kill any goose subtasks it delegated. */
 export async function interruptRun(runId: string): Promise<void> {
+  // Kill in-flight delegated goose processes first (no ACP cancel exists, and
+  // they'd otherwise run to goose's 300s timeout after the run is interrupted).
+  killGooseForRun(runId)
   const q = active.get(runId)
   if (q) {
     try {

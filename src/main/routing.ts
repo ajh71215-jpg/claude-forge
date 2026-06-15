@@ -106,6 +106,51 @@ export function route(input: RouteInput): RouteDecision {
   }
 }
 
+/** A delegation tier hint from the `delegate` tool (docs/GOOSE_INTEGRATION.md). */
+export type DelegateTier = 'free' | 'cheap' | 'auto'
+
+/**
+ * Pick which free/cheaper provider should handle a delegated subtask, or
+ * undefined → caller should tell Claude "no suitable free provider; do it
+ * yourself". Pure (no SDK/electron) so it is unit-testable via npm run selftest.
+ *
+ * Policy (a transparent default, not an oracle):
+ *  - no enabled providers → undefined.
+ *  - tier 'free' → first enabled `free` provider (else any enabled).
+ *  - tier 'auto' → only delegate when the instruction looks trivial/easy; a
+ *    'hard' classification returns undefined so Claude keeps hard work itself.
+ *  - tier 'cheap' → any enabled provider regardless of difficulty.
+ */
+export function pickProvider(
+  tier: DelegateTier,
+  instruction: string,
+  enabled: { id: string; free: boolean }[]
+): string | undefined {
+  return orderProviders(tier, instruction, enabled)[0]
+}
+
+/**
+ * Ordered provider-id candidate list for a delegated subtask (free providers
+ * first), for the quota/429 fallback loop: try each in turn until one succeeds.
+ * Same gating as pickProvider. Pure → selftest-able.
+ *  - no providers → [].
+ *  - tier 'free'  → only free providers (strict; may be empty).
+ *  - tier 'auto' + a 'hard' instruction → [] (Claude keeps hard work itself).
+ *  - else → free providers first, then the rest (paid) as last-resort fallback.
+ */
+export function orderProviders(
+  tier: DelegateTier,
+  instruction: string,
+  enabled: { id: string; free: boolean }[]
+): string[] {
+  if (!enabled.length) return []
+  const free = enabled.filter((p) => p.free).map((p) => p.id)
+  if (tier === 'free') return free
+  if (tier === 'auto' && classifyDifficulty(instruction) === 'hard') return []
+  const rest = enabled.filter((p) => !p.free).map((p) => p.id)
+  return [...free, ...rest]
+}
+
 /**
  * Resolve a tier to a concrete model id from the live capability list (substring
  * match on value/displayName). Falls back to the alias, which the SDK also

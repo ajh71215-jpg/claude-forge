@@ -14,7 +14,7 @@ const base = path.join(__dirname, '..', 'out-selftest')
 
 const { topoSort } = require(path.join(base, 'orchestration.js'))
 const { validatePlan, executePlan, projectPlanCost } = require(path.join(base, 'conductor.js'))
-const { route, classifyDifficulty, escalate, resolveModelId } = require(path.join(base, 'routing.js'))
+const { route, classifyDifficulty, escalate, resolveModelId, pickProvider, orderProviders } = require(path.join(base, 'routing.js'))
 const { aggregateVotes, shouldEarlyStop, pairwiseWithSwap, debateConverged } = require(
   path.join(base, 'verifier.js')
 )
@@ -75,6 +75,19 @@ async function main() {
   check('priorFailures walks ladder haiku→opus', route({ instruction: 'fix a typo', priorFailures: 2 }).tier === 'opus')
   check('resolveModelId matches live id', resolveModelId('opus', [{ value: 'claude-opus-4-6' }]) === 'claude-opus-4-6')
   check('resolveModelId falls back to alias', resolveModelId('haiku', []) === 'haiku')
+
+  // pickProvider — free-provider delegation gate (docs/GOOSE_INTEGRATION.md)
+  const PROV = [{ id: 'openrouter-free', free: true }, { id: 'groq', free: false }]
+  check('pickProvider: no providers → undefined', pickProvider('auto', 'fix a typo', []) === undefined)
+  check('pickProvider: free tier prefers a free provider', pickProvider('free', 'anything', PROV) === 'openrouter-free')
+  check('pickProvider: auto + trivial → delegates', pickProvider('auto', 'fix a typo', PROV) === 'openrouter-free')
+  check('pickProvider: auto + hard → undefined (Claude keeps it)', pickProvider('auto', 'design a distributed consensus algorithm', PROV) === undefined)
+  check('pickProvider: cheap ignores difficulty', pickProvider('cheap', 'design a distributed consensus algorithm', PROV) === 'openrouter-free')
+  // orderProviders — quota/429 fallback ordering (free first, then paid)
+  check('orderProviders: free-first then paid', JSON.stringify(orderProviders('cheap', 'x', PROV)) === JSON.stringify(['openrouter-free', 'groq']))
+  check('orderProviders: free tier excludes paid', JSON.stringify(orderProviders('free', 'x', PROV)) === JSON.stringify(['openrouter-free']))
+  check('orderProviders: auto + hard → empty', orderProviders('auto', 'design a distributed consensus algorithm', PROV).length === 0)
+  check('orderProviders: no providers → empty', orderProviders('auto', 'x', []).length === 0)
 
   // ============ VERIFIER (debate / voting / bias) ============
   group('verifier.ts — voting, early-stop, order-swap, debate')
@@ -331,6 +344,9 @@ async function main() {
   check('security review maps to security-reviewer role', detectKeywords('security review the login flow').some((m) => m.role === 'security-reviewer'))
   check('ultrathink maps to a reasoning boost', detectKeywords('ultrathink about this design').some((m) => m.action === 'reason'))
   check('deepsearch maps to explore role + fanout', detectKeywords('deepsearch the codebase for callers').some((m) => m.role === 'explore' && m.topology === 'fanout'))
+  check('cheap maps to a delegate mode', detectKeywords('cheap mode: build the landing page').some((m) => m.name === 'cheap' && m.action === 'delegate'))
+  check('cheap systemAppend nudges the delegate tool', keywordSystemAppend(detectKeywords('use cheap mode here')).includes('delegate'))
+  check('informational "what is cheap mode" does NOT trigger', detectKeywords('what is cheap mode?').length === 0)
   // false-positive guards
   check('informational "what is ralph" does NOT trigger', detectKeywords('what is ralph mode?').length === 0)
   check('quoted keyword does NOT trigger', detectKeywords('the doc says "ralph" loops forever — how many iterations?').length === 0)

@@ -339,6 +339,9 @@ async function main() {
   check('security review maps to security-reviewer role', detectKeywords('security review the login flow').some((m) => m.role === 'security-reviewer'))
   check('ultrathink maps to a reasoning boost', detectKeywords('ultrathink about this design').some((m) => m.action === 'reason'))
   check('deepsearch maps to explore role + fanout', detectKeywords('deepsearch the codebase for callers').some((m) => m.role === 'explore' && m.topology === 'fanout'))
+  check('cheap maps to a delegate mode', detectKeywords('cheap mode: build the landing page').some((m) => m.name === 'cheap' && m.action === 'delegate'))
+  check('cheap systemAppend nudges the delegate tool', keywordSystemAppend(detectKeywords('use cheap mode here')).includes('delegate'))
+  check('informational "what is cheap mode" does NOT trigger', detectKeywords('what is cheap mode?').length === 0)
   // false-positive guards
   check('informational "what is ralph" does NOT trigger', detectKeywords('what is ralph mode?').length === 0)
   check('quoted keyword does NOT trigger', detectKeywords('the doc says "ralph" loops forever — how many iterations?').length === 0)

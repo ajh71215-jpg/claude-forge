@@ -18,6 +18,12 @@ import { AcpClient, type SessionUpdate } from './acpClient'
 import { resolveGooseBinary } from './binary'
 import { buildGooseEnv, type GooseMode } from './env'
 import { mapUpdate, normalizeTool } from './mapper'
+import {
+  acquireGooseSlot,
+  registerGooseClient,
+  releaseGooseSlot,
+  unregisterGooseClient
+} from './registry'
 import type { ProviderEntry } from '../providers'
 
 /** goose tools a read-only subtask may use; everything else is rejected. */
@@ -34,6 +40,8 @@ export interface GooseSubtaskOptions {
   writeCapable?: boolean
   /** cwd the subtask operates in (the conversation's isolated workspace). */
   cwd: string
+  /** Main-run id, so STOP/interrupt can kill this subtask's goose process. */
+  runId?: string
   /** Optional progress callback (tool/text events) for the activity dashboard. */
   onEvent?: (e: ReturnType<typeof mapUpdate>) => void
 }
@@ -86,7 +94,11 @@ export async function runGooseSubtask(opts: GooseSubtaskOptions): Promise<GooseS
     return selectPermissionOption(params, allow)
   }
 
+  // Cap concurrent goose processes (Claude may delegate several in parallel).
+  await acquireGooseSlot()
   const client = new AcpClient({ bin, cwd: opts.cwd, env, onUpdate, onServerRequest })
+  const runId = opts.runId
+  if (runId) registerGooseClient(runId, client)
   try {
     await client.initialize()
     const sessionId = await client.sessionNew(opts.cwd)
@@ -95,6 +107,8 @@ export async function runGooseSubtask(opts: GooseSubtaskOptions): Promise<GooseS
     await client.sessionPrompt(sessionId, composePrompt(opts))
   } finally {
     client.shutdown()
+    if (runId) unregisterGooseClient(runId, client)
+    releaseGooseSlot()
   }
 
   return {

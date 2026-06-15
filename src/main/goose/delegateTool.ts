@@ -78,6 +78,7 @@ export function buildDelegateServer(cwd: string, runId: string) {
           systemAppend: role?.systemAppend,
           writeCapable: args.writeCapable ?? role?.writeCapable ?? false,
           cwd,
+          runId,
           onEvent: (ev) => {
             if (ev.kind === 'tool') gooseSubtaskTool(activityId, ev.tool, ev.target, ev.status)
           }

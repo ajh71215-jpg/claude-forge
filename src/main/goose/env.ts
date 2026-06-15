@@ -23,6 +23,10 @@ export function buildGooseEnv(entry: ProviderEntry, mode: GooseMode): Record<str
   const env: Record<string, string> = {
     PATH: process.env.PATH || '',
     GOOSE_MODE: mode,
+    // Runaway guard: goose's default max-turns is 1000. A delegated subtask should
+    // be small — cap turns so a confused free model can't loop indefinitely.
+    // Best-effort (honored if this goose build reads it); override via env.
+    GOOSE_MAX_TURNS: process.env.FORGE_GOOSE_MAX_TURNS || '30',
     XDG_CONFIG_HOME: join(home, 'config'),
     XDG_DATA_HOME: join(home, 'data'),
     XDG_STATE_HOME: join(home, 'state'),

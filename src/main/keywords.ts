@@ -21,6 +21,7 @@ export type KeywordAction =
   | 'parallel' // ultrawork → favor fan-out topologies for independent work
   | 'reason' // ultrathink → append an extended-reasoning directive
   | 'role' // code-review / security-review / tdd / deepsearch / analyze → assign a role
+  | 'delegate' // cheap / delegate → prefer offloading simple subtasks to free models
   | 'cancel' // cancelomc / stopomc → clear any active mode
 
 export interface KeywordMode {
@@ -122,6 +123,17 @@ const MODES: ModeSpec[] = [
     systemAppend:
       'SECURITY REVIEW MODE: check trust boundaries, auth/authz, data exposure, input validation, ' +
       'secrets handling, and escalation risks. Each finding needs a concrete exploit path.'
+  },
+  {
+    name: 'cheap',
+    action: 'delegate',
+    priority: 8,
+    pattern: /\b(cheap|cheapmode|delegate|budget[\s-]?mode)\b|(저렴|아껴|절약)|(節約|安く)/i,
+    systemAppend:
+      'CHEAP MODE: aggressively conserve budget. For any self-contained, low-stakes subtask ' +
+      '(summaries, drafts, classification, lookups, simple edits, boilerplate), use the `delegate` ' +
+      'tool to offload it to a free model instead of doing it yourself. Verify each delegated result ' +
+      'before relying on it; keep only genuinely hard reasoning for yourself.'
   },
   {
     name: 'ultrathink',

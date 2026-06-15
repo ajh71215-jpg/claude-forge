@@ -18,6 +18,7 @@ import type {
   SkillInput,
   SkillWriteResult
 } from '../main/skills'
+import type { BundledSkillStatus, InstallBundledResult } from '../main/skillsPack'
 import type {
   CommandMeta,
   CommandDetail,
@@ -94,7 +95,12 @@ const forge = {
       ipcRenderer.invoke('skills:write', input),
     delete: (name: string): Promise<SkillMeta[]> => ipcRenderer.invoke('skills:delete', name),
     toggle: (name: string, enabled: boolean): Promise<SkillMeta[]> =>
-      ipcRenderer.invoke('skills:toggle', name, enabled)
+      ipcRenderer.invoke('skills:toggle', name, enabled),
+    /** Curated starter pack (mattpocock/skills absorption), with installed flags. */
+    bundled: (): Promise<BundledSkillStatus[]> => ipcRenderer.invoke('skills:bundled'),
+    /** Install one bundled skill into `.claude/skills/` (idempotent). */
+    install: (name: string): Promise<InstallBundledResult> =>
+      ipcRenderer.invoke('skills:install', name)
   },
   commands: {
     list: (): Promise<CommandMeta[]> => ipcRenderer.invoke('commands:list'),

@@ -36,6 +36,7 @@ import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
 import ReliabilityBanner from './ReliabilityBanner'
+import WorkHeader from './WorkHeader'
 import Elapsed from './Elapsed'
 import type { KeywordMatch } from '../../types'
 
@@ -176,8 +177,8 @@ export default function Composer({
   } = useAgentEvents({ ownedRef, runIdRef, onSessionRef, onResultRef, taRef })
 
   // Transcript search (Cmd/Ctrl+F) — owns its state + the active-tab keydown.
-  const { search, setSearch, searchOpen, setSearchOpen, searchRef, q, shownTurns } =
-    useTranscriptSearch(turns, isActive)
+  const searchState = useTranscriptSearch(turns, isActive)
+  const { search, setSearch, searchOpen, setSearchOpen, searchRef, q, shownTurns } = searchState
 
   const running = turns.some((t) => t.running)
   const activeTurn = turns.find((t) => t.running) ?? null
@@ -194,7 +195,7 @@ export default function Composer({
   })
 
   // Context compaction: manual /compact + live progress bar + auto-compact at 80%.
-  const { compacting, compactPct, compact } = useCompaction({
+  const compaction = useCompaction({
     sessionIdRef,
     onSessionRef,
     pushNotice,
@@ -594,110 +595,27 @@ export default function Composer({
           </div>
         </div>
       )}
-      <div className="work-header">
-        <div className="wh-left">
-          <span className="wh-item">
-            <span className="brand-mark">⚒</span> {costSaver ? 'cost-saver' : model ?? 'default'}
-          </span>
-          <span className="wh-sep">·</span>
-          <span className="wh-item">{permission}</span>
-          <span className="wh-sep">·</span>
-          <span className="wh-item">effort {costSaver ? 'auto' : effort ?? 'auto'}</span>
-          {convPersona && (
-            <>
-              <span className="wh-sep">·</span>
-              <span className="wh-item route-preview" title={convPersona}>
-                ✦ persona
-              </span>
-            </>
-          )}
-          {routePreview && prompt.trim() && (
-            <>
-              <span className="wh-sep">·</span>
-              <span
-                className="wh-item route-preview"
-                title="Cost-saver routes this task to the cheapest tier that fits its difficulty"
-              >
-                → {routePreview.model} ({routePreview.difficulty})
-              </span>
-            </>
-          )}
-        </div>
-        <div className="wh-right">
-          {(turns.length > 0 || history.length > 0) && (
-            <div className="export-wrap">
-              <button
-                className={`mini-btn${exportOpen ? ' on' : ''}`}
-                title="Export this conversation"
-                onClick={() => setExportOpen((v) => !v)}
-              >
-                ⭳ export
-              </button>
-              {exportOpen && (
-                <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
-                  <button className="export-item" onClick={() => doExport('md')}>
-                    Markdown (.md)
-                  </button>
-                  <button className="export-item" onClick={() => doExport('json')}>
-                    JSON (.json)
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {turns.length > 0 && (
-            <button
-              className={`mini-btn${searchOpen ? ' on' : ''}`}
-              title="Search this conversation (Ctrl/Cmd+F)"
-              onClick={() => {
-                const next = !searchOpen
-                setSearchOpen(next)
-                if (next) requestAnimationFrame(() => searchRef.current?.focus())
-                else setSearch('')
-              }}
-            >
-              ⌕ find
-            </button>
-          )}
-          {contextTokens > 0 && (
-            <div
-              className={`ctx-gauge ${ctxPct >= 70 ? 'hot' : ''}`}
-              title={`${contextTokens.toLocaleString()} context tokens of ${ctxWindow(contextModel).toLocaleString()}`}
-            >
-              ctx {ctxPct}%
-              <div className="ctx-bar">
-                <div className="ctx-fill" style={{ width: ctxPct + '%' }} />
-              </div>
-            </div>
-          )}
-          {compacting || compactPct > 0 ? (
-            <div
-              className="compact-progress"
-              title={`Compacting context… ${compactPct}%`}
-              role="progressbar"
-              aria-valuenow={compactPct}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <span className="compact-progress-label">⟲ compacting… {compactPct}%</span>
-              <div className="compact-bar">
-                <div className="compact-fill" style={{ width: compactPct + '%' }} />
-              </div>
-            </div>
-          ) : (
-            sessionId && (
-              <button
-                className="mini-btn"
-                onClick={compact}
-                disabled={running}
-                title="Summarize older context to free tokens"
-              >
-                ⟲ compact
-              </button>
-            )
-          )}
-        </div>
-      </div>
+      <WorkHeader
+        model={model}
+        permission={permission}
+        effort={effort}
+        costSaver={costSaver}
+        convPersona={convPersona}
+        routePreview={routePreview}
+        promptHasText={!!prompt.trim()}
+        hasTurns={turns.length > 0}
+        hasHistory={history.length > 0}
+        exportOpen={exportOpen}
+        setExportOpen={setExportOpen}
+        doExport={doExport}
+        search={searchState}
+        contextTokens={contextTokens}
+        ctxPct={ctxPct}
+        contextModel={contextModel}
+        compaction={compaction}
+        sessionId={sessionId}
+        running={running}
+      />
       {running &&
         (() => {
           const act = activityLabel(activeTurn)

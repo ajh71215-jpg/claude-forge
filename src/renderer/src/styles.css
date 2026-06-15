@@ -8,7 +8,8 @@
  *   02-sidebar  main shell, sidebar selectors, usage/sessions, persona + modals
  *   03-chat     transcript: markdown, turns, thinking, tool cards, todo, dialogs
  *   04-extend   EXTEND console (skills/commands/hooks/mcp/plugins)
- *   05-squad    Squad orchestration dashboard (plan editor + blackboard monitor)
+ *   05-squad    Squad → Agent Activity dashboard (live + history)
+ *   06-guide    Guide tab — first-run feature tour
  */
 @import './styles/00-core.css';
 @import './styles/01-auth.css';
@@ -16,3 +17,4 @@
 @import './styles/03-chat.css';
 @import './styles/04-extend.css';
 @import './styles/05-squad.css';
+@import './styles/06-guide.css';

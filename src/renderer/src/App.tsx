@@ -5,6 +5,7 @@ import TitleBar from './components/TitleBar'
 import ExtendView from './components/extend/ExtendView'
 import Composer from './components/chat/Composer'
 import SquadView from './components/squad/SquadView'
+import GuideView from './components/guide/GuideView'
 import PersonaModal from './components/persona/PersonaModal'
 import type {
   AuthMode,
@@ -90,7 +91,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [maxBudget, setMaxBudget] = useState(0) // 0 = off
   const [autoCompact, setAutoCompact] = useState(false)
   const [costSaver, setCostSaver] = useState(false)
-  const [view, setView] = useState<'chat' | 'squad' | 'extend'>('chat')
+  const [view, setView] = useState<'chat' | 'squad' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
 
@@ -508,6 +509,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
             <Icon name="extend" />
             EXTEND
           </button>
+          <button
+            className={`mode-tab ${view === 'guide' ? 'on' : ''}`}
+            onClick={() => setView('guide')}
+          >
+            <Icon name="guide" />
+            GUIDE
+          </button>
         </div>
         <div className="view-body">
           <div className="view-pane" style={{ display: view === 'chat' ? 'flex' : 'none' }}>
@@ -540,6 +548,9 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
               mcpStatus={mcpServers}
               onMcpChanged={refreshCaps}
             />
+          </div>
+          <div className="view-pane" style={{ display: view === 'guide' ? 'flex' : 'none' }}>
+            <GuideView onGoto={setView} />
           </div>
         </div>
       </main>

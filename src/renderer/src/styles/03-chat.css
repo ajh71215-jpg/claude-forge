@@ -750,6 +750,36 @@
     transform: rotate(360deg);
   }
 }
+/* magic-keyword mode chips above the composer */
+.mode-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--amber) 36%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  font-size: 11px;
+}
+.mode-chip-name {
+  color: var(--amber-bright);
+  letter-spacing: 0.04em;
+}
+.mode-chip-act {
+  color: var(--faint);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 /* Cursor-style prompt chevron in the composer */
 .composer-prompt {
   flex: none;

@@ -28,7 +28,7 @@ import TodoBar from './TodoBar'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
 import Elapsed from './Elapsed'
-import type { Turn } from '../../types'
+import type { Turn, KeywordMatch } from '../../types'
 
 /** Plain-language description of what the agent is doing right now, derived from
  * the active turn's latest block — so the pinned live strip says e.g. "Read
@@ -117,6 +117,9 @@ export default function Composer({
   const [searchOpen, setSearchOpen] = useState(false)
   const [search, setSearch] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
+  // Magic-keyword modes detected in the current draft (shown as chips so the
+  // trigger is discoverable before sending).
+  const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
   const [histIndex, setHistIndex] = useState<number | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
@@ -359,6 +362,23 @@ export default function Composer({
     const turnCap = resolveMaxTurns(maxTurnsByModel, runModel || model || 'default')
     if (turnCap > 0) opts.maxTurns = turnCap
     if (maxBudget > 0) opts.maxBudgetUsd = maxBudget
+    // Native magic-keyword trigger: ralph/ultrathink/code-review/… typed in the
+    // prompt activate a mode for THIS run — an extra system directive (+ optional
+    // tier) layered on the claude_code preset. The agent keeps its real tools and
+    // your permission mode; the AGENTS tab shows what it does. (docs/keywords.ts)
+    try {
+      const modes = await window.forge.orchestrate.detectKeywords(text)
+      const active = modes.filter((m) => m.action !== 'cancel')
+      const append = active
+        .map((m) => m.systemAppend)
+        .filter((s): s is string => !!s)
+        .join('\n\n')
+      if (append) opts.systemPrompt = { type: 'preset', preset: 'claude_code', append }
+      const tier = active.find((m) => m.tier)?.tier
+      if (tier && !opts.model) opts.model = tier
+    } catch {
+      /* keyword detection is best-effort; a normal run still proceeds */
+    }
     try {
       await window.forge.agent.start(id, text, opts)
     } catch (e) {
@@ -477,6 +497,22 @@ export default function Composer({
     }
     return false
   }
+
+  // Live magic-keyword detection on the draft → mode chips (debounced).
+  useEffect(() => {
+    const text = prompt.trim()
+    if (!text) {
+      setDetectedModes([])
+      return
+    }
+    const t = setTimeout(() => {
+      window.forge.orchestrate
+        .detectKeywords(text)
+        .then((m) => setDetectedModes(m.filter((x) => x.action !== 'cancel')))
+        .catch(() => setDetectedModes([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [prompt])
 
   // Cmd/Ctrl+F toggles the transcript search box (Escape closes it).
   useEffect(() => {
@@ -791,6 +827,16 @@ export default function Composer({
       )}
 
       <div className="composer-wrap">
+        {!running && detectedModes.length > 0 && (
+          <div className="mode-chips" title="Magic-keyword modes detected in your message — they activate on send">
+            {detectedModes.map((m) => (
+              <span className={`mode-chip ${m.action}`} key={m.name}>
+                <span className="mode-chip-name">{m.name}</span>
+                <span className="mode-chip-act">{m.action}</span>
+              </span>
+            ))}
+          </div>
+        )}
         {latestTodos && <TodoBar todos={latestTodos} />}
         {attachments.length > 0 && (
           <div className="attach-row">

@@ -14,3 +14,4 @@ out-selftest/
 
 # stray local build artifact (913MB) — never commit
 dist v2/
+out-test/

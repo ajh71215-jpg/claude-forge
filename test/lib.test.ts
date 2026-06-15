@@ -1,0 +1,153 @@
+// Unit tests for the pure renderer lib modules (no DOM/Electron/SDK). Compiled by
+// tsconfig.test.json → out-test, run via `npm test` (node:test). Mirrors the
+// orchestration selftest pattern: a cheap, always-available correctness gate for
+// the logic-dense pure helpers that otherwise had zero automated coverage.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { conversationToJson, conversationToMarkdown } from '../src/renderer/src/lib/export'
+import { reduceBlocks, parseTodos, deriveTasks } from '../src/renderer/src/lib/blocks'
+import {
+  ctxWindow,
+  resolveMaxTurns,
+  defaultMaxTurns,
+  toolArg,
+  cacheHitPercent,
+  fmtTokens
+} from '../src/renderer/src/lib/format'
+import type { AgentEvent, Block, Turn } from '../src/renderer/src/types'
+
+// ── format.ts ──────────────────────────────────────────────────────────────
+test('ctxWindow: 1M vs 200k models', () => {
+  assert.equal(ctxWindow('haiku'), 200_000)
+  assert.equal(ctxWindow('claude-opus-4-8[1m]'), 1_000_000)
+  assert.equal(ctxWindow('sonnet'), 1_000_000)
+  assert.equal(ctxWindow('claude-opus-4-1'), 200_000)
+  assert.equal(ctxWindow(''), 1_000_000)
+})
+
+test('resolveMaxTurns: override wins, else per-model default', () => {
+  assert.equal(resolveMaxTurns({}, 'haiku'), defaultMaxTurns('haiku'))
+  assert.equal(resolveMaxTurns({ 'my-model': 7 }, 'my-model'), 7)
+  assert.equal(resolveMaxTurns({ 'my-model': 0 }, 'my-model'), defaultMaxTurns('my-model'))
+})
+
+test('toolArg: extracts a label or empty on bad json', () => {
+  assert.equal(toolArg('{"file_path":"a.ts"}'), 'a.ts')
+  assert.equal(toolArg('{"command":"ls -la"}'), 'ls -la')
+  assert.equal(toolArg('not json'), '')
+})
+
+test('cacheHitPercent: read / total, null when empty', () => {
+  assert.equal(cacheHitPercent(10, 90, 0), 90)
+  assert.equal(cacheHitPercent(0, 0, 0), null)
+  assert.equal(cacheHitPercent(50, 50, 0), 50)
+})
+
+test('fmtTokens: k-suffix over 1000', () => {
+  assert.equal(fmtTokens(500), '500')
+  assert.equal(fmtTokens(1500), '1.5k')
+})
+
+// ── blocks.ts ──────────────────────────────────────────────────────────────
+const ev = (e: Partial<AgentEvent> & { type: string }): AgentEvent =>
+  ({ runId: 'r', ...e }) as AgentEvent
+
+test('reduceBlocks: text block start + delta accumulates', () => {
+  let blocks: Block[] = []
+  blocks = reduceBlocks(blocks, ev({ type: 'block-start', blockId: 'b1', kind: 'text' }))
+  blocks = reduceBlocks(blocks, ev({ type: 'block-delta', blockId: 'b1', text: 'hel' }))
+  blocks = reduceBlocks(blocks, ev({ type: 'block-delta', blockId: 'b1', text: 'lo' }))
+  assert.equal(blocks.length, 1)
+  assert.equal(blocks[0].kind, 'text')
+  assert.equal((blocks[0] as Extract<Block, { kind: 'text' }>).text, 'hello')
+})
+
+test('reduceBlocks: tool block carries parentToolId, input + result', () => {
+  let blocks: Block[] = []
+  blocks = reduceBlocks(
+    blocks,
+    ev({ type: 'block-start', blockId: 'b2', kind: 'tool', name: 'Read', toolId: 't2', parentToolId: 'p1' })
+  )
+  blocks = reduceBlocks(blocks, ev({ type: 'tool-input', blockId: 'b2', partialJson: '{"file_path":"x"}' }))
+  blocks = reduceBlocks(blocks, ev({ type: 'tool-result', toolId: 't2', ok: true, content: 'done' }))
+  const b = blocks[0] as Extract<Block, { kind: 'tool' }>
+  assert.equal(b.kind, 'tool')
+  assert.equal(b.parentToolId, 'p1')
+  assert.equal(b.inputRaw, '{"file_path":"x"}')
+  assert.equal(b.status, 'ok')
+  assert.equal(b.result, 'done')
+})
+
+test('reduceBlocks: duplicate block-start is ignored', () => {
+  let blocks: Block[] = []
+  blocks = reduceBlocks(blocks, ev({ type: 'block-start', blockId: 'b1', kind: 'text' }))
+  blocks = reduceBlocks(blocks, ev({ type: 'block-start', blockId: 'b1', kind: 'text' }))
+  assert.equal(blocks.length, 1)
+})
+
+test('parseTodos: parses todos, normalizes status', () => {
+  const todos = parseTodos('{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"weird"}]}')
+  assert.ok(todos)
+  assert.equal(todos!.length, 2)
+  assert.equal(todos![0].status, 'completed')
+  assert.equal(todos![1].status, 'pending')
+  assert.equal(parseTodos('nope'), null)
+})
+
+test('deriveTasks: reconstructs from TaskCreate result', () => {
+  const turn: Turn = {
+    id: 't',
+    prompt: 'p',
+    previews: [],
+    running: false,
+    meta: null,
+    blocks: [
+      {
+        kind: 'tool',
+        id: 'b',
+        toolId: 'tc',
+        name: 'TaskCreate',
+        inputRaw: '{"activeForm":"Doing X"}',
+        status: 'ok',
+        result: 'Task #1 created successfully: Do X'
+      }
+    ]
+  }
+  const tasks = deriveTasks([turn])
+  assert.equal(tasks.length, 1)
+  assert.equal(tasks[0].content, 'Do X')
+})
+
+// ── export.ts ──────────────────────────────────────────────────────────────
+const sampleTurn: Turn = {
+  id: 't1',
+  prompt: 'do the thing',
+  previews: [],
+  running: false,
+  meta: { costUsd: 0.0123, durationMs: 4200 },
+  blocks: [
+    { kind: 'text', id: 'x', text: 'done it' },
+    { kind: 'tool', id: 'y', toolId: 'ty', name: 'Read', inputRaw: '{"file_path":"a.ts"}', status: 'ok', result: 'contents' }
+  ]
+}
+
+test('conversationToMarkdown: includes prompts, answers, tools, cost', () => {
+  const md = conversationToMarkdown({
+    history: [{ kind: 'user', text: 'earlier question' }],
+    turns: [sampleTurn]
+  })
+  assert.match(md, /Claude Forge/)
+  assert.match(md, /earlier question/)
+  assert.match(md, /do the thing/)
+  assert.match(md, /done it/)
+  assert.match(md, /\*\*Read\*\*/)
+  assert.match(md, /\$0\.0123/)
+})
+
+test('conversationToJson: round-trips to a structured object', () => {
+  const json = conversationToJson({ history: [], turns: [sampleTurn] })
+  const obj = JSON.parse(json) as { app: string; turns: { prompt: string }[] }
+  assert.equal(obj.app, 'Claude Forge')
+  assert.equal(obj.turns.length, 1)
+  assert.equal(obj.turns[0].prompt, 'do the thing')
+})

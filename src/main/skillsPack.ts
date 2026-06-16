@@ -9,6 +9,7 @@
 // output tokens; `grill` cuts wasted turns from misalignment.
 
 import { listSkills, writeSkill, type SkillMeta } from './skills'
+import { LAZY_SKILL_BODY, PRUNE_SKILL_BODY } from './lazy'
 
 export interface BundledSkill {
   name: string
@@ -107,6 +108,18 @@ export const SKILLS_PACK: BundledSkill[] = [
       '',
       'Report the root cause in one sentence before the fix — if you cannot, you have not finished step 3.'
     ].join('\n')
+  },
+  {
+    name: 'lazy',
+    description:
+      'Lazy senior-dev mode (ponytail). Before writing code, walk a "laziest solution that works" ladder — YAGNI, stdlib, native feature, existing dep, one-liner — and stop at the first rung. Use when the user wants minimal code, says "ponytail"/"lazy mode", or complains about over-engineering. Cuts generated code without compromising security, validation, or accessibility.',
+    body: LAZY_SKILL_BODY
+  },
+  {
+    name: 'prune',
+    description:
+      'Over-engineering review/audit. Scan a diff or the whole repo ONLY for complexity to delete — dead code, speculative features, hand-rolled stdlib, single-caller abstractions — with tagged findings and a net-lines-cut count. Use for "review for over-engineering", "what can we delete", or a simplification audit. Does not look for bugs; pair it with a correctness review.',
+    body: PRUNE_SKILL_BODY
   },
   {
     name: 'handoff',

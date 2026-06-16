@@ -23,6 +23,7 @@ const { executeTopology } = require(path.join(base, 'topology.js'))
 const { getRole, isRole, ROLE_NAMES, listRoles } = require(path.join(base, 'roles.js'))
 const { runLoop } = require(path.join(base, 'loop.js'))
 const { detectKeywords, keywordSuggestsLoop, keywordSystemAppend } = require(path.join(base, 'keywords.js'))
+const { lazyDirective, LAZY_LADDER, LAZY_SKILL_BODY, PRUNE_SKILL_BODY } = require(path.join(base, 'lazy.js'))
 const { validateGoldenSet, summarize, baselineDelta, gateVerdict } = require(path.join(base, 'eval.js'))
 const goldenSet = require(path.join(__dirname, '..', 'eval', 'golden-set.json'))
 
@@ -358,6 +359,21 @@ async function main() {
   check('combined keywords sort by priority (ralph before code-review)', (() => { const m = detectKeywords('ralph and code review it'); return m[0].name === 'ralph' && m.some((x) => x.name === 'code-review') })())
   check('no keyword → empty + empty systemAppend', detectKeywords('just fix the typo on line 12').length === 0 && keywordSystemAppend([]) === '')
   check('systemAppend concatenates active modes', keywordSystemAppend(detectKeywords('ralph code review')).includes('RALPH'))
+
+  // ============ LAZY MODE (ponytail port — code-minimalism discipline) =========
+  group('lazy.ts — ponytail lazy-senior-dev mode + over-engineering prune')
+  check('ponytail keyword detected as a style mode', detectKeywords('ponytail: add a config loader').some((m) => m.name === 'ponytail' && m.action === 'style'))
+  check('"lazy mode" phrase triggers ponytail', detectKeywords('use lazy mode for this').some((m) => m.name === 'ponytail'))
+  check('"simplest solution" triggers ponytail', detectKeywords('give me the simplest solution that works').some((m) => m.name === 'ponytail'))
+  check('bare "lazy" does NOT trigger (too common)', detectKeywords('the lazy loader is slow, profile it').every((m) => m.name !== 'ponytail'))
+  check('informational "what is ponytail" does NOT trigger', detectKeywords('what is ponytail mode?').length === 0)
+  check('ponytail systemAppend carries the YAGNI ladder', keywordSystemAppend(detectKeywords('ponytail this')).includes('YAGNI'))
+  check('"stop ponytail" cancels (exclusive)', (() => { const m = detectKeywords('stop ponytail'); return m.length === 1 && m[0].action === 'cancel' })())
+  check('cancel directive names ponytail', keywordSystemAppend(detectKeywords('stop ponytail')).toLowerCase().includes('ponytail'))
+  check('lazyDirective scales by level', lazyDirective('ultra').includes('ULTRA') && lazyDirective('lite').includes('LITE'))
+  check('ladder has the six rungs', LAZY_LADDER.length === 6)
+  check('lazy skill body names non-negotiables', LAZY_SKILL_BODY.includes('accessibility') && LAZY_SKILL_BODY.includes('security'))
+  check('prune skill body carries the full tag taxonomy', ['delete:', 'stdlib:', 'native:', 'yagni:', 'shrink:'].every((t) => PRUNE_SKILL_BODY.includes(t)) && PRUNE_SKILL_BODY.includes('net: -'))
 
   // ============ ③ EVAL CORE + REAL GOLDEN SET ============
   group('eval.ts — golden set + scoring + kill-criteria gate')

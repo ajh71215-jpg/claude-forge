@@ -14,6 +14,7 @@
 
 import type { Topology } from './orchestration'
 import type { Tier } from './routing'
+import { lazyDirective } from './lazy'
 
 /** What a detected keyword DOES inside Forge's orchestration engine. */
 export type KeywordAction =
@@ -22,6 +23,7 @@ export type KeywordAction =
   | 'reason' // ultrathink → append an extended-reasoning directive
   | 'role' // code-review / security-review / tdd / deepsearch / analyze → assign a role
   | 'delegate' // cheap / delegate → prefer offloading simple subtasks to free models
+  | 'style' // ponytail / lazy mode → change code-generation discipline (no orchestration change)
   | 'cancel' // cancelomc / stopomc → clear any active mode
 
 export interface KeywordMode {
@@ -58,8 +60,10 @@ const MODES: ModeSpec[] = [
     name: 'cancel',
     action: 'cancel',
     priority: 0,
-    pattern: /\b(cancelomc|stopomc)\b/i,
-    systemAppend: 'Cancel any active autonomous mode (ralph/autopilot/ultrawork). Resume normal one-shot work.'
+    // Also deactivates lazy mode: "stop ponytail" / "normal mode" (ponytail's off switch).
+    pattern: /\b(cancelomc|stopomc|stop\s+ponytail|normal\s+mode)\b|(포니테일\s?(?:꺼|끄|종료|중지))|(ポニーテール\s?(?:停止|オフ))/i,
+    systemAppend:
+      'Cancel any active autonomous or lazy mode (ralph/autopilot/ultrawork/ponytail). Resume normal one-shot work.'
   },
   {
     name: 'ralph',
@@ -134,6 +138,16 @@ const MODES: ModeSpec[] = [
       '(summaries, drafts, classification, lookups, simple edits, boilerplate), use the `delegate` ' +
       'tool to offload it to a free model instead of doing it yourself. Verify each delegated result ' +
       'before relying on it; keep only genuinely hard reasoning for yourself.'
+  },
+  {
+    name: 'ponytail',
+    action: 'style',
+    priority: 7,
+    // "lazy" alone is too common → require an explicit mode phrase. Korean
+    // 게으른 모드 / 최소 코드, Japanese ポニーテール / 怠惰モード.
+    pattern:
+      /\bponytail\b|\blazy\s+(?:mode|coding|dev|senior|coder)\b|\b(?:laziest|simplest)\s+(?:solution|thing|approach|version)\b|(포니테일|게으른\s?모드|최소\s?코드)|(ポニーテール|怠惰\s?モード)/i,
+    systemAppend: lazyDirective('full')
   },
   {
     name: 'ultrathink',

@@ -1,0 +1,33 @@
+{
+  "//": "Compiles the pure renderer lib modules + their unit tests to CommonJS so `npm test` can run them headlessly with node:test (no electron, no DOM, no SDK). Mirrors tsconfig.selftest.json.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "DOM"],
+    "ignoreDeprecations": "6.0",
+    "rootDir": ".",
+    "outDir": "out-test",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "noEmit": false
+  },
+  "include": [
+    "test/**/*.ts",
+    "src/renderer/src/lib/export.ts",
+    "src/renderer/src/lib/blocks.ts",
+    "src/renderer/src/lib/format.ts",
+    "src/renderer/src/lib/goal.ts",
+    "src/renderer/src/lib/slashCommands.ts",
+    "src/main/efficiency/compress.ts",
+    "src/main/memory/bm25.ts",
+    "src/main/memory/retrieve.ts",
+    "src/main/memory/observe.ts",
+    "src/main/repomap/parse.ts",
+    "src/main/repomap/build.ts"
+  ]
+}

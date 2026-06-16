@@ -1,0 +1,228 @@
+/* =====================================================================
+   COST TAB — Cost & Cache dashboard
+   Read-only aggregation of per-run token/cache/cost figures captured (for
+   free) from the SDK result message via the agent-activity store. No model
+   calls. Spinner keyframes live in 03-chat.css (global).
+   ===================================================================== */
+.cost-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* ---- command bar ---- */
+.cost-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.cost-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.cost-bar-mark {
+  color: var(--amber-bright);
+}
+.cost-bar-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cost-bar-sub {
+  color: var(--muted);
+}
+
+.cost-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+}
+
+/* ---- summary stat grid ---- */
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.cost-stat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 14px 16px;
+}
+.cost-stat.hot {
+  border-color: var(--amber-dim);
+}
+.cost-stat-label {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.cost-stat-value {
+  font-size: 24px;
+  line-height: 1.1;
+  margin-top: 8px;
+  color: var(--amber-bright);
+  font-variant-numeric: tabular-nums;
+}
+.cost-stat.hot .cost-stat-value {
+  color: var(--ok);
+}
+.cost-stat-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ---- cache reuse bar ---- */
+.cost-cachebar-wrap {
+  margin-top: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 14px 16px;
+}
+.cost-cachebar-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text);
+}
+.cost-cachebar-pct {
+  color: var(--ok);
+  font-variant-numeric: tabular-nums;
+}
+.cost-cachebar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-deep);
+  margin: 8px 0 6px;
+  overflow: hidden;
+}
+.cost-cachebar-fill {
+  height: 100%;
+  background: var(--ok);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.cost-cachebar-legend {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- per-run table ---- */
+.cost-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 24px 0 10px;
+}
+.cost-section-title {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.cost-section-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cost-table {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cost-thead,
+.cost-trow {
+  display: grid;
+  grid-template-columns: 1fr 64px 64px 60px 78px 64px 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cost-thead {
+  background: var(--bg-raised);
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+.cost-trow {
+  border-top: 1px solid var(--border);
+  color: var(--text);
+}
+.cost-trow:first-child {
+  border-top: none;
+}
+.cost-trow.running {
+  background: rgba(var(--accent-rgb), 0.05);
+}
+.cost-table .ct-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cost-table .ct-num {
+  text-align: right;
+  color: var(--muted);
+}
+.cost-table .ct-num.cost {
+  color: var(--amber-bright);
+}
+.cost-table .ct-num.good {
+  color: var(--ok);
+}
+.cost-table .ct-num.when {
+  color: var(--muted);
+  font-size: 11px;
+}
+.ct-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* ---- empty state ---- */
+.cost-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--muted);
+}
+.cost-empty-mark {
+  font-size: 32px;
+  color: var(--amber-dim);
+}
+.cost-empty-title {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.cost-empty-text {
+  margin: 8px auto 0;
+  max-width: 440px;
+  font-size: 12px;
+  line-height: 1.5;
+}

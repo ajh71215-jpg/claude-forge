@@ -1,0 +1,5 @@
+{
+  "tag": "stable",
+  "host": "block/goose",
+  "note": "Release host is contested (block/goose vs aaif-goose mirror); both serve 'stable'. Pin a concrete version tag for reproducible builds. Verified working: goose 1.37.0 (2026-06-15)."
+}

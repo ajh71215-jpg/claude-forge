@@ -1,0 +1,350 @@
+:root {
+  /* ================================================================
+     CLAUDE FORGE — quiet-premium forge theme (design-taste pass).
+     Near-monochrome warm-charcoal surfaces with ONE restrained brass
+     accent. Neutrals are tinted a whisper toward the brand hue (warm,
+     not cold gray); surfaces step in clear ~+6 lightness increments so
+     elevation reads as real depth; every translucent wash/glow rides
+     --accent-rgb so the whole UI stays locked on a single hue.
+     ================================================================ */
+
+  /* Surfaces — warm-charcoal elevation ramp (deepest → floating) */
+  --bg-deep: #0b0a09; /* titlebar, tab strips, nav rails, deepest insets */
+  --bg: #110f0d; /* app base, inputs, card insets */
+  --bg-raised: #181613; /* sidebar, composer, command bars */
+  --bg-card: #1e1b18; /* response/tool cards, on-surface panels */
+  --bg-float: #25221e; /* floating layers: modals, palette, popovers, menus */
+
+  /* Borders — warm hairlines. Emphasis escalates COLOR, not width. */
+  --border: #2b2825;
+  --border-strong: #3b3733;
+
+  /* Text — warm off-white ramp (contrast preserved against the surfaces) */
+  --text: #ecebe8; /* primary body / UI */
+  --muted: #9d978c; /* secondary text, descriptions */
+  --faint: #756f64; /* tertiary — hints, timers, placeholders */
+
+  /* Accent — restrained low-chroma brass, the single hue. --accent-rgb
+     feeds every translucent wash/glow via rgba(var(--accent-rgb), a). */
+  --accent-rgb: 192, 182, 165;
+  --amber: #bcae98; /* active fills, strong borders, the brand mark */
+  --amber-bright: #f1ede4; /* active text, links, headings (near-white) */
+  --amber-dim: #4b463e; /* dim dividers, accent rails, ghost borders */
+  --on-accent: #14120d; /* text/icon sitting on an --amber fill */
+
+  /* Semantic state colors */
+  --danger: #d2806a; /* destructive / errors / rate-limit (muted clay) */
+  --danger-bright: #e2987f; /* danger hover */
+  --ok: #6fb98a; /* success / additions / cache-good (muted green) */
+  --ok-bright: #57cf83; /* live connected status dot (vivid) */
+  --warn: #d8923c; /* warning (amber-orange) */
+  --info: #8aa2c4; /* second semantic hue: subagent/orchestration/procedural (muted slate) */
+
+  /* Latin/code render in monospace; Korean falls through to Pretendard
+     (the monospace fonts lack Hangul glyphs, so per-glyph fallback pins
+     Korean to Pretendard). */
+  --mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Pretendard Variable', 'Pretendard',
+    ui-monospace, monospace;
+  --sans: 'Pretendard Variable', 'Pretendard', system-ui, sans-serif;
+
+  /* Radius scale — one corner system (chips → modals; pills are separate) */
+  --r-1: 4px; /* chips, checkboxes, badges, bar fills */
+  --r-2: 6px; /* small controls, selects, mini buttons */
+  --r-3: 8px; /* standard buttons, panels, tool cards */
+  --r-4: 10px; /* response cards, composer, stat tiles */
+  --r-5: 12px; /* modals, palette, command bars */
+  --r-pill: 999px;
+
+  /* Spacing scale (4px base) — systematic rhythm */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Type ramp (~1.2 step) — data/labels small, prose at --fs-base */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+
+  /* Elevation — flat by default; depth only on floating layers. Negative
+     spread keeps drops tight and premium rather than a soft AI haze. */
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.55);
+  --shadow-modal: 0 28px 70px -16px rgba(0, 0, 0, 0.72);
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.04); /* top catch-light on raised panels */
+
+  /* Motion — strong custom curves over the weak CSS built-ins, so state
+     changes read as intentional rather than mushy (design-taste skill).
+     --ease-out drives enter/press feedback (starts fast = responsive);
+     --ease-in-out drives on-screen movement. Durations stay short and uniform
+     so the UI feels instant; see the prefers-reduced-motion block below. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-1: 0.12s; /* state changes: hover, press, selection */
+  --dur-2: 0.2s; /* slightly larger transitions */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* ---- app shell + custom title bar ---- */
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.app-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.titlebar {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  padding-left: 14px;
+}
+.titlebar-brand {
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  color: var(--amber-bright);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.titlebar-brand .brand-mark {
+  color: var(--amber);
+}
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+.tb-btn {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tb-btn:hover {
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--amber-bright);
+}
+.tb-btn.close:hover {
+  background: #c0392b;
+  color: #fff;
+}
+
+/* ---- custom scrollbars ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--amber-dim) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a352d;
+  border: 2px solid var(--bg);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--amber-dim);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  /* Quiet premium: sans for prose/UI, mono reserved for data/code/agent output. */
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* ---- custom form controls ----
+   Replace the native Windows/OS widgets (checkbox, number spinners, select
+   chevron) with Forge-themed equivalents so the UI looks the same on every
+   platform instead of falling back to OS chrome. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background-color: var(--bg);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 72%;
+  cursor: pointer;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+input[type='checkbox']:hover {
+  border-color: var(--amber);
+}
+input[type='checkbox']:checked {
+  background-color: var(--amber);
+  border-color: var(--amber);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%230d0d0e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* number inputs: drop the native spin buttons (very OS-specific) */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* select: themed control + custom chevron (the popup list stays native — that's
+   unavoidable for a <select> — but the closed control matches the theme) */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%239a9aa2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 13px;
+}
+select:focus {
+  border-color: var(--amber);
+  outline: none;
+}
+select option {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+/* Unified monochrome line-icon (components/Icon.tsx). Sizes to 1em, inherits
+   currentColor, so every icon stays on-theme — no more multicolor emoji. */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.14em;
+  flex: none;
+}
+
+/* tabular figures for any data-bearing numerics */
+.mono,
+code,
+kbd,
+samp,
+pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- interaction polish (calm, consistent states) ---- */
+:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+button:active:not(:disabled) {
+  /* tactile press feedback — buttons should feel like they respond (design-taste) */
+  transform: scale(0.985);
+}
+::selection {
+  background: rgba(var(--accent-rgb), 0.26);
+  color: var(--text);
+}
+
+/* ---- boot ---- */
+.boot {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--amber);
+  letter-spacing: 0.08em;
+}
+
+/* ---- brand ---- */
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--amber-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand.big {
+  font-size: 18px;
+}
+.brand-mark {
+  color: var(--amber);
+}
+
+/* ---- reduced motion (mandatory, design-taste skill) ----
+   Respect the OS "reduce motion" preference: neutralize the looping
+   spin/pulse/blink animations (caret, spinners, running dots, breathing
+   badges) and collapse transitions to near-instant. Comprehension-aiding
+   color/opacity end-states are preserved — only the motion is removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

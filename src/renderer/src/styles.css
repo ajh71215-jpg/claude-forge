@@ -1,0 +1,25 @@
+/* Theme + layout index. The monolith was split into cohesive partials under
+ * styles/ for maintainability (behavior-preserving — the partials concatenate
+ * to the exact former stylesheet). Import order is preserved, so cascade and
+ * CSS-nesting behavior are identical. Edit the partials, not this index.
+ *
+ *   00-core     theme vars, resets, scrollbars, icons, boot, brand
+ *   01-auth     first-run gate + auth-method chooser + connection chip
+ *   02-sidebar  main shell, sidebar selectors, usage/sessions, persona + modals
+ *   03-chat     transcript: markdown, turns, thinking, tool cards, todo, dialogs
+ *   04-extend   EXTEND console (skills/commands/hooks/mcp/plugins)
+ *   05-squad    Squad → Agent Activity dashboard (live + history)
+ *   06-guide    Guide tab — first-run feature tour
+ *   07-cost     Cost tab — cost & cache dashboard
+ *   08-palette  Command palette (Cmd/Ctrl+K)
+ */
+@import './styles/00-core.css';
+@import './styles/01-auth.css';
+@import './styles/02-sidebar.css';
+@import './styles/03-chat.css';
+@import './styles/04-extend.css';
+@import './styles/05-squad.css';
+@import './styles/06-guide.css';
+@import './styles/07-cost.css';
+@import './styles/08-palette.css';
+@import './styles/09-debug.css';

@@ -1,0 +1,20 @@
+{
+  "root": true,
+  "env": { "browser": true, "es2022": true, "node": true },
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:react-hooks/recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module" },
+  "plugins": ["@typescript-eslint", "react-hooks"],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-console": "warn",
+    "react-hooks/exhaustive-deps": "warn",
+    "max-lines": ["warn", { "max": 400, "skipBlankLines": true, "skipComments": true }]
+  },
+  "ignorePatterns": ["out/", "dist/", "dist-build/", "node_modules/"]
+}

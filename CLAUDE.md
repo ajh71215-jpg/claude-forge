@@ -1,0 +1,214 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# Claude Forge
+
+Project guidance for Claude Code working in this repo. Read before building, running, or editing.
+
+## What this is
+**Claude Forge** — an Electron desktop GUI wrapper over `@anthropic-ai/claude-agent-sdk`. A daily-driver "forge" for agentic work with a dark amber blacksmith theme. Electron + TypeScript + React, bundled by **electron-vite**. Three layers: `main` (Node), `preload` (bridge), `renderer` (React).
+
+BYO-key / subscription, **local-only** — secrets never leave the machine to any third-party server. Auth supports Claude **subscription** (reuses `~/.claude` login), setup-token, or API key.
+
+The app has five primary views (`view: 'chat' | 'squad' | 'cost' | 'extend' | 'guide'`) plus an optional **desktop pet** ("Clawd") in its own frameless window. (`squad` is now the **Agents** tab — a live agent-activity dashboard, not a plan editor; `cost` is the **Cost & Cache** dashboard — per-run token/cache/cost aggregation over the agent-activity history.) A **Cmd/Ctrl+K command palette** (`components/palette/CommandPalette.tsx`) launches shell actions from the keyboard.
+
+## Architecture map
+
+The main process splits into thin **orchestration/IPC glue** + a **pure, headless-testable orchestration core** + per-feature backends.
+
+### Core SDK runner — `src/main/agent/` (formerly the monolithic `agent.ts`, now a directory; barrel `index.ts` re-exports the identical public surface)
+- `runStreaming.ts` — `runStreaming(sender, runId, prompt, opts)`, **per-runId and concurrency-safe** (active Map keyed by runId; every emitted `AgentEvent` carries `runId`). Maps STOP→`q.interrupt()`, ASK→`permissionMode:'default'` + `canUseTool` round-trip. Also emits every event into `pet/bus.ts` (pet) **and** the agent-activity store. Wires the EXTEND features into the SDK: `settingSources:['user','project']`, `skills`, `mcpServers`, `plugins`, plus per-run `systemPrompt`. **Surfaces SDK signals Forge used to ignore** (all already streamed — zero extra tokens): forwards `parent_tool_use_id` on `block-start`/`tool-result` (subagent attribution), and handles `system/task_started|progress|updated|notification` (native Task/subagent lifecycle), `tool_progress`, `rate_limit_event`, `system/api_retry`, `system/compact_boundary` → new `AgentEvent` variants (`types.ts`).
+- `subtaskRunner.ts` — `runSubtaskQuery(...)`: headless single-shot SDK call (no renderer streaming) used by the orchestration engine as the live model-call adapter. **Read-only by default** (`canUseTool` allows only `Read/Grep/Glob/WebFetch/WebSearch/TodoWrite`); write-capable roles opt into `WRITE_TOOLS`, but `Task` (recursive spawn) and `AskUserQuestion` (human block) stay denied always.
+- `capabilities.ts`/`usage.ts`/`sessions.ts`/`compact.ts`/`control.ts` — `getCapabilities` / `getUsage` / `getSessions` + `getTranscript` / `compactSession` / `respondPermission` + `respondDialog` + `interruptRun`. Control methods (`supportedModels`/`supportedCommands`/`mcpServerStatus`) resolve **without** iterating the stream.
+- `env.ts` — `buildEnv`, `ensureWorkspace`, `SETTING_SOURCES`, `workspaceDir`. `helpers.ts` — `singlePrompt`, `resultErrorMessage`, tool-content stringifiers. `state.ts` — shared `active`/`pendingPerms`/`pendingDialogs` maps. `types.ts` — all SDK-facing types (`RunOptions`, `AgentEvent`, `Capabilities`, `UsageInfo`, …).
+
+### Orchestration core — pure, no electron/SDK imports → **headlessly unit-testable** via `npm run selftest`
+These modules own the deterministic plan logic; live model calls are **injected** via `deps`, so the control flow is provable without a subscription. Design is documented in `docs/SQUAD_ORCHESTRATION.md`; the validated mechanism is *blueprint-first deterministic DAG execution* (Forge owns the skeleton; the model only picks tactics inside the plan's bounds).
+- `orchestration.ts` — data contracts (`Plan`, `Subtask`, `Topology`, `ModelTier`, `Artifact`, `Verdict`) + pure graph helpers (`topoSort`, `deriveDeps`, enum tables).
+- `conductor.ts` — `validatePlan` (rejects bad plans before any spend: unique ids, acyclic DAG, known enums, non-empty rubric, positive budget), `executePlan` (topological DAG executor with verify→revise, cascade escalation, per-step checkpoints, hard budget cap), `projectPlanCost`.
+- `topology.ts` — per-subtask executors: `single`, `fanout` (best-of-N chosen by the **verifier**, not the generator), `self_consistency` (vote with early-stop), `debate` (multi-round panel), `cascade` (escalate tier only after an external failure).
+- `routing.ts` — single owner of the model router / cascade ladder (`haiku→sonnet→opus`). Both the cost optimizer and the conductor import from here so routing policy is never duplicated. Heuristic difficulty classifier is a tunable default, not an oracle.
+- `verifier.ts` — LLM-judge aggregation with bias mitigation (confidence-weighted voting, pairwise order-swap, debate convergence, early-stop). Ties always resolve to **FAIL**.
+- `toolVerifier.ts` — the **preferred** verifier: an objective tool oracle (typecheck/test/build) → `Verdict`. No model needed; command runner injected for testability.
+- `roles.ts` — native registry of **19 agent roles** distilled from oh-my-claudecode's `agents/*.md` (persona + default tier + `writeCapable` builder/advisor gate). The conductor uses `writeCapable` to pick the subtask tool gate.
+- `keywords.ts` — native magic-keyword detector (port of OMC's `keyword-detector` hook): maps a typed goal to an orchestration mode (`loop`/`parallel`/`reason`/`role`/`style`/`cancel`) with OMC's false-positive guards (don't fire when the user is merely *talking about* the keyword). The `style` action carries the **ponytail lazy mode** (`ponytail`/`lazy mode`/`simplest solution` → `lazy.ts`'s `lazyDirective`); `stop ponytail`/`normal mode` deactivate it via the `cancel` mode.
+- `lazy.ts` — native **lazy senior-dev mode** (port of DietrichGebert/ponytail MIT, re-authored): the single source of truth for the "laziest solution that works" decision ladder (YAGNI→stdlib→native→existing-dep→one-liner→minimal), intensity levels (`lite`/`full`/`ultra`), and the over-engineering tag taxonomy (`delete`/`stdlib`/`native`/`yagni`/`shrink`). Pure (selftest-covered). Consumed three ways, all reusing existing Forge mechanisms (no new command/hook runtime): `keywords.ts` (per-turn directive, injected as the cache-stable user-message prefix — better than ponytail's cache-busting hook); `skillsPack.ts` (the `lazy` + `prune` skills); and a **persistent Settings toggle** — `Settings.tsx` exposes a `Lazy mode (ponytail)` intensity select (off/lite/full/ultra) persisted to `forge-lazy-level`, threaded App→Composer, which fetches the leveled directive via `orchestrate.lazyDirective` (IPC `orchestrate:lazy-directive`) and prepends it to every run's prefix (deduping the always-'full' ponytail keyword when the toggle is on).
+- `loop.ts` — `runLoop`: thin outer loop over `executePlan` that re-runs the plan until every subtask's goal verdict passes / iteration cap / budget exhausted; passed subtasks are cached cross-iteration (OMC's "ralph/autopilot, the boulder never stops").
+- `eval.ts` — golden-set scoring + **same-compute baseline delta** + the §8 kill-criteria gate (`gateVerdict`). The meaningful comparison is orchestrated vs a single agent given the **same** token budget. Golden set: `eval/golden-set.json` (53 tasks).
+
+### IPC + window — `src/main/index.ts` (thin: ~70 lines) + `src/main/ipc/`
+- `index.ts` — creates the frameless `BrowserWindow` (custom titlebar), calls `registerAll(ipcMain)`, `initPet()`, and `initActivity()`. Set `FORGE_CDP=<port>` to enable remote debugging. Dev loads `ELECTRON_RENDERER_URL`; prod `loadFile(out/renderer/index.html)`.
+- `ipc/index.ts` — `registerAll` fans out to domain modules, each owning its own `ipcMain.handle` channels: `auth.ts`, `agent.ts`, `persona.ts`, `extend.ts`, `orchestrate.ts`, `activity.ts`, `window.ts`, `pet.ts`, `workspace.ts`.
+- `ipc/workspace.ts` — `workspace:list` / `workspace:read`: list/read the files an agent created/edited in a conversation's isolated cwd (backed by `main/workspace.ts` — a pure local fs read, no model, no tokens), powering the **WorkspaceFiles** UI.
+- `ipc/orchestrate.ts` — drives the orchestration core. Channels: `orchestrate:dry-run` (simulated, no model), `orchestrate:run` (live: read-only `runSubtaskQuery` samples + a verifier — the **toolVerifier tool oracle** when a subtask declares `verifyCommands`, else a cheap haiku rubric judge), `orchestrate:run-loop`, `orchestrate:validate`, `orchestrate:roles`, `orchestrate:detect-keywords`. Mirrors conductor subtasks into the agent-activity store (with tool/judge verifier provenance).
+- `ipc/activity.ts` — `activity:snapshot` / `activity:clear` for the Agents dashboard (the store pushes `activity:update` itself).
+
+### Agent-activity store — `src/main/agentActivity.ts`
+Backs the **Agents** dashboard. Taps the agent event bus (`pet/bus`) in the MAIN process so it captures every run / Task subagent / orchestration subtask **regardless of the focused tab**, and persists a rolling history to Forge-private `forge-agent-activity.json` (survives restarts). Tracks: the lead **run** + its current action; each **Task subagent** (enriched by native `task_*` events: subagent_type, description, usage tokens/tool_uses, status, final summary); and a **per-agent tool timeline** (Read/Bash/Write/… with short args + status + duration), built from the already-streamed `block-start`/`tool-input`/`tool-result` events — so a subagent's inner tools nest under it via `parent_tool_use_id`. **Zero extra tokens/model calls** — pure local capture. Broadcasts are coalesced (~150 ms).
+
+### Per-feature EXTEND backends — `src/main/{skills,commands,hooks,mcp,agents,plugins,providers}.ts`
+Plus shared `frontmatter.ts` (YAML frontmatter parse/serialize) and `projectSettings.ts` (`.claude/settings.json` read/write). Source of truth is the filesystem `.claude/` (skills/commands/agents files, settings.json hooks) **except** MCP servers, plugins, skill-toggles, **and free-provider keys**, which live in Forge-private `forge-{skills,mcp,plugins,providers}.json` so secrets stay out of model-readable `.claude/`.
+
+### Free / multi-provider sub-agent delegation via goose — `src/main/goose/` + `src/main/providers.ts` (design+status: `docs/GOOSE_INTEGRATION.md`)
+**Plan A (Claude-as-orchestrator).** The main chat run is given an in-process MCP **`delegate` tool** (`goose/delegateTool.ts`, registered in `runStreaming` when ≥1 provider is enabled). Claude offloads simple/cheap subtasks to **free non-Anthropic models** (OpenRouter/Gemini/Groq/Ollama/any goose provider) by writing a standalone sub-prompt and calling `delegate(...)`; Forge runs it on a free model via **goose** (Block's Rust agent, driven over its **ACP** stdio JSON-RPC — `goose/acpClient.ts`) and returns the result text inline. Sub-agents exchange info **through Claude** (hub-and-spoke); there is NO free-form agent-to-agent chat. Modules: `binary.ts` (resolve the bundled goose, `resources/goose/<plat>/`), `env.ts` (XDG-isolated subprocess env + `GOOSE_PROVIDER/MODEL/MODE` + key), `mapper.ts` (`session/update` → events; discriminator `params.update.sessionUpdate`), `runGooseSubtask.ts` (lifecycle + read-only/builder permission gate, **fail-closed** until the live `session/request_permission` shape is confirmed), `registry.ts` (per-runId process registry for STOP cleanup + concurrency cap), `quota.ts` (429/quota classification + per-provider cooldown for the **multi-provider fallback**). Routing: `routing.pickProvider`/`orderProviders` (pure) pick free-first candidates; the `cheap` magic keyword nudges delegation. Delegated subtasks surface in the Agents dashboard via `agentActivity.gooseSubtask*`. `providers.ts` (+`forge-providers.json`) is the registry, edited in **Extend → Providers**. Build: `scripts/ensure-goose.mjs` fetches the binary (pinned in `goose-version.json`) → electron-builder `extraResources`; `scripts/goose-spike.mjs` is the keyed live ACP verifier. **Honest caveat:** verified by typecheck + selftest (105) + a live goose-1.37.0 ACP-lifecycle spike, but the actual model call + permission shape need a provider key (see `docs/GOOSE_INTEGRATION.md` §9 checklist).
+
+### Auth + persona — `src/main/auth.ts`, `src/main/persona.ts`
+- `auth.ts` — auth status + mode switching. `resolveAuthEnv()` **strips `ANTHROPIC_API_KEY`** in subscription mode (an API key would otherwise outrank the subscription).
+- `persona.ts` — global custom system prompt (`append` | `replace` modes).
+
+### Desktop pet ("Clawd") — `src/main/pet/` + `src/renderer/pet/` + `src/preload/pet.ts`
+A separate frameless, transparent, draggable window that animates in reaction to agent activity.
+- `pet/index.ts` — enable/disable lifecycle, persists the preference, restores on launch (`initPet`). `pet/petWindow.ts` — window + drag/interactive hit-test. `pet/petState.ts` — state machine driven by agent events. `pet/bus.ts` — leaf event bus tapped by `runStreaming` (type-only import, no cycle). `pet/protocol.ts` — registers the privileged `pet://` asset scheme (must run before app `ready`). `pet/paths.ts`, `pet/petState.ts`, `pet/protocol.ts`.
+- `src/renderer/pet/` — plain-JS renderer (`index.html` + `pet.js` + `pet.css`), no React. `src/preload/pet.ts` — tiny pet-only `window.pet` surface (state in, drag/interactive out).
+
+### Preload — `src/preload/index.ts`
+Exposes `window.forge` = `{ auth, agent.{start,interrupt,respondPermission,respondDialog,capabilities,sessions,usage,transcript,compact,onEvent,onCompactProgress}, persona, skills, commands, hooks, mcp, agents, plugins, providers.{list,save,delete}, orchestrate.{dryRun,run,runLoop,validate,roles,detectKeywords,onEvent}, activity.{snapshot,clear,onUpdate}, window, pet, workspace.{list,read} }`. The pet window has its own preload (`pet.ts` → `window.pet`).
+
+### Renderer — `src/renderer/src/` (App.tsx decomposed into `components/`, per `docs/MAINTAINABILITY.md`)
+- `App.tsx` (~580 lines) — shell + `MainShell` (sidebar/usage/caps/session state + `view` routing). No longer monolithic.
+- `components/` — `TitleBar.tsx`, `AuthGate.tsx`, `Icon.tsx`, `Md.tsx` (markdown), `Sidebar.tsx`, `Settings.tsx` (LIMITS/persona/pet/auth panel — gear in sidebar + command palette), `WorkspaceFiles.tsx` (browse files the agent edited in a conversation's isolated workspace, via `window.forge.workspace`), `ConversationSearch.tsx` (search across all conversations), `ConfirmDialog.tsx`, `ShortcutsHelp.tsx` (Cmd/Ctrl+/ overlay), and subfolders:
+  - `chat/` — the **Composer** is now thin: feature logic is extracted into co-located hooks (`useAgentEvents` event routing keyed by `runId`, owns `Reliability` state; `useChatTabs` the multi-tab/conversation state + localStorage persistence; `useCompaction` the `/compact` ticker; `useGoalLoop` the `/goal` autonomous loop + USD budget; `useImageAttachments` drag-drop/paste; `useTranscriptSearch` Ctrl/Cmd+F) and pure helpers into `lib/` (see below). Plus `TurnView`, `BlockView`, `HistoryView`, `PermissionModal`, `QuestionModal` (AskUserQuestion via `canUseTool`), `TodoBar`/`TodoList` (reconstructed from Task tools), `Elapsed` (shared live timer), `ReliabilityBanner` (api-retry / rate-limit / auto-compact awareness), `WorkHeader`. Composer hosts the **magic-keyword trigger** (typed `ralph`/`ultrathink`/`code-review`/… activate a mode via a user-message prefix + optional tier; detected modes show as chips), a pinned **live-activity strip**, and per-conversation **model & persona overrides**. Running tool cards show a spinner + elapsed.
+  - `squad/SquadView.tsx` — the **Agents** tab, an **agent-activity dashboard** (NOT a plan editor — the manual plan editor was fully removed). Two sections fed by `window.forge.activity`: **Live** agent cards (spinner + current action + elapsed; click to expand the per-agent **tool timeline** Read/Bash/Write/…) and a persisted **History** list (status/cost/duration/verifier-provenance 🔧tool/⚖judge/time). Subagent cards show native usage (tokens/tool_uses) and nest their inner tools.
+  - `guide/GuideView.tsx` — the **Guide** tab: a first-run feature tour (magic keywords, the Agents dashboard, cost-saver routing, slash commands, attach/search, EXTEND, persona, the Clawd pet, compaction, sign-in). Inline links jump to the relevant tab.
+  - `extend/` — `ExtendView` + `SkillsPanel`/`CommandsPanel`/`HooksPanel`/`McpPanel`/`AgentsPanel`/`PluginsPanel` + `shared.ts`. Each panel only calls `window.forge` IPC (near-zero coupling).
+  - `cost/CostView.tsx` — the **Cost & Cache** tab. `palette/CommandPalette.tsx` — the Cmd/Ctrl+K palette. `persona/PersonaModal.tsx`.
+- `lib/` — pure, side-effect-free helpers/types (the bulk of them covered by `npm run test`): `blocks.ts` (`reduceBlocks`/`parseTodos`/`deriveTasks`), `format.ts`, `export.ts` (Markdown/JSON transcript export), `goal.ts` (`/goal` directive + `GOAL_ACHIEVED` detection), `slashCommands.ts` (client-side slash-command dispatcher), `composer.ts` (Composer pure helpers), `storage.ts` (typed localStorage), `constants.ts` (`EFFORTS`/`PERMS`), `types.ts`.
+- `styles.css` — a thin **`@import` index**; the real CSS lives in `styles/` partials (`00-core`, `01-auth`, `02-sidebar`, `03-chat`, `04-extend`, `05-squad`, `06-guide`, `07-cost`, `08-palette`) split by section for maintainability. Theme vars (`--bg #0b0a09`, `--amber #e8932a`, Pretendard mono). **Edit the partials, not the index.** The CSS-nesting brace footgun (Gotchas) applies per partial — sanity-check brace balance after editing.
+
+### Vendored reference — `new_folder/oh-my-claudecode/`
+A **read-only checked-in copy** of the upstream `oh-my-claudecode` project, kept purely as the **reference source** for the native ports in `roles.ts` / `keywords.ts` / `loop.ts`. It is not built or imported by the app. Don't ship features by depending on it at runtime — port the portable core into pure Forge modules.
+
+## Commands
+A `.npmrc` sets `script-shell` to Git Bash and every `package.json` script invokes its tool through an explicit `node node_modules/.../bin` path, so `npm run <script>` works even on the locked-down Windows box (it no longer routes through the blocked `cmd.exe`). On the Windows env, prefix with the PATH export (see below).
+
+```bash
+npm run dev          # electron-vite dev — window on desktop; 4 electron procs = healthy
+npm run dev:web      # browser-only DESIGN PREVIEW of the renderer (vite, no Electron/SDK; window.forge mocked) → http://localhost:5199
+npm run build        # production build → out/
+npm run start        # preview the built app (electron-vite preview)
+npm run typecheck    # tsc -p tsconfig.json --noEmit
+npm run selftest     # compile tsconfig.selftest.json → out-selftest, then run the headless orchestration self-test
+npm run test         # compile tsconfig.test.json → out-test, then run the pure renderer-lib unit tests (node:test)
+npm run lint         # eslint src --ext .ts,.tsx
+npm run format       # prettier --write src
+```
+
+- **`npm run selftest`** is the cheap, always-available correctness check for the orchestration core: `scripts/orchestration-selftest.cjs` exercises DAG order, verify→revise cascade, budget hard-cap, plan-validation gate, judge-bias-mitigated voting, roles/keywords/loop — all with **injected stub model calls**, no live session. Run it after touching anything under the orchestration core. (~94 assertions.)
+- **`npm run test`** is the parallel gate for the **pure renderer lib** (`src/renderer/src/lib/{export,blocks,format,goal,slashCommands}.ts`): `test/lib.test.ts` runs them headlessly via `node:test` (no DOM/Electron/SDK), compiled by `tsconfig.test.json`. Run it after touching those modules. To run a single test, filter by name: `node --test out-test/test/*.test.js --test-name-pattern '<regex>'` (compile first with `node node_modules/typescript/bin/tsc -p tsconfig.test.json`).
+- **Live/CDP verification drivers** (need a real subscription session, cost money): `scripts/cdp.mjs` + `scripts/cdp-shot.mjs` (CDP), `scripts/live-orch.js` / `live-smoke.js` / `live-warm.js` (orchestration + token-cache realism), `EVAL_LIVE=1 node scripts/eval.mjs` (orchestrated-vs-baseline eval run loop), `scripts/perf-*.js` (paste/stream/frame perf), `scripts/smoke.mjs` (SDK concurrency).
+- **Goose delegation** (free-provider sub-agents): `node scripts/ensure-goose.mjs` fetches the goose binary into `resources/goose/<plat>/` (build step, before electron-builder). `node scripts/goose-spike.mjs "<task>"` (set `GOOSE_BIN`, `GOOSE_PROVIDER`, `GOOSE_MODEL`, `<KEY>_API_KEY`) is the keyed live ACP verifier — also closes the `docs/GOOSE_INTEGRATION.md` §9 follow-ups (permission shape, mapper fields, quota regexes).
+
+ESLint config: `.eslintrc.json` (`@typescript-eslint` + `react-hooks`; `no-explicit-any`/`no-unused-vars`/`no-console` are warnings). Prettier: `.prettierrc.json` (no semis, single quotes, width 100, no trailing comma, LF).
+
+## Build & run — locked-down Windows env (REQUIRED workarounds)
+This machine fights the Node/Electron toolchain, **and resets on reboot** (frozen/non-persistent — tools and deps vanish). `bootstrap/` automates full recovery; the manual notes below explain *why* each workaround exists when you need to debug or reapply one.
+
+**Fast path after a reset:** run `bootstrap/setup.exe` (downloads Node + PortableGit, then runs `install.sh`), or from any Git Bash: `bash bootstrap/install.sh` (idempotent; prints `[bootstrap] …` per step). It installs PowerShell 7 + Claude Code and restores deps with all patches applied. See `bootstrap/README.md`.
+
+The individual hurdles `install.sh` handles for you:
+
+1. **Node** is at `C:\Users\CKIRUser\tools\node` (manual install, no admin). The Bash tool does **not** source `~/.bashrc`, so prefix every command:
+   `export PATH="/c/Users/CKIRUser/tools/node:$PATH"`
+2. **cmd.exe and PowerShell 5.1 are blocked** (spawn EPERM −4048). npm lifecycle scripts run via cmd.exe → fail. Install with **`npm install --ignore-scripts`**.
+3. **AV quarantines some esbuild binaries** (0.27.x deleted seconds after landing; 0.25.12 survives). Keep `vite` pinned to **`^6`** and `@vitejs/plugin-react` to `^4`. Don't hand-place esbuild.exe.
+4. **electron binary**: `--ignore-scripts` skips it and its extract-zip fails (DLOPEN). Fetch manually: download `electron-v<ver>-win32-x64.zip` from GitHub releases, `unzip` into `node_modules/electron/dist`, then `printf 'electron.exe' > node_modules/electron/path.txt` (use **printf, not echo** — a trailing newline → `electron.exe\n` → ENOENT).
+5. **vite patch** (`bootstrap/patch-vite.mjs`): vite calls `exec("net use")` (→ cmd.exe) for network-drive realpath. In `node_modules/vite/dist/node/chunks/dep-*.js` replace the `exec("net use", ...)` block with `safeRealpathSync = fs__default.realpathSync.native;`. Lost on `npm install`; reapply (the patch script does this).
+
+**Raw commands** (when not using `npm run`; Bash tool, sandbox disabled for spawns that launch electron):
+```bash
+export PATH="/c/Users/CKIRUser/tools/node:$PATH"
+node node_modules/electron-vite/bin/electron-vite.js dev      # run
+node node_modules/electron-vite/bin/electron-vite.js build    # build → out/
+node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit   # typecheck
+```
+
+## Shell — tool routing priority (STRICT)
+Run **every** command through this fallback chain, in order. Do not skip to a lower tier unless the one above genuinely can't do the job.
+
+1. **Git Bash (PRIMARY)** — `C:\Users\CKIRUser\PortableGit\bin\bash.exe`. This is the only reliable shell here; `.npmrc` already points `script-shell` at it. **Launch Claude Code itself from a Git Bash terminal** so the harness exposes a working Bash tool (the default PowerShell tool below is dead). The Bash tool does **not** source `~/.bashrc` — prefix commands with `export PATH="/c/Users/CKIRUser/tools/node:$PATH"` (see the env-workarounds section).
+2. **PowerShell 7 / pwsh (FALLBACK)** — `C:\Users\CKIRUser\Downloads\PowerShell-7.6.2-win-x64\pwsh.exe`, i.e. `/c/Users/CKIRUser/Downloads/PowerShell-7.6.2-win-x64/pwsh -NoProfile -Command "..."`. Use **only** for things Git Bash can't do: process management (`Get-Process electron,node | Stop-Process -Force` — `tasklist`/`wmic` don't reliably see the manually-placed `electron.exe`) and Win32/`Add-Type` screenshots.
+3. **❌ NEVER PowerShell 5.1 (`powershell.exe`) or `cmd.exe`** — both are **blocked** on this machine and fail with `EPERM −4048 (uv_spawn)`. The harness's built-in "PowerShell" tool maps to 5.1, so it is unusable; never route a command through it.
+
+## Verifying UI changes (do this — screenshots/measurements alone mislead)
+Renderer verification is hard here: HMR is unreliable, and **zombie dev/electron instances from prior sessions cause stale-render confusion**. Procedure:
+1. **Kill everything first**, then start ONE: `pwsh ... "Get-Process electron,node | Stop-Process -Force"`.
+2. For fast layout/theme iteration WITHOUT Electron or a live key, use **`npm run dev:web`** (browser preview with a mocked `window.forge`). For ground truth of real behavior, build and run prod with CDP:
+   `FORGE_CDP=9222 ./node_modules/electron/dist/electron.exe .` (or `--remote-debugging-port=9222`).
+3. Probe **computed styles** via a Node script (Node 24 has global `WebSocket`): `fetch http://127.0.0.1:9222/json` → connect `webSocketDebuggerUrl` → `Runtime.evaluate` running `getComputedStyle(el)`. This is authoritative; `document.title` box-measurement hacks proved unreliable. Reusable drivers: `cdp-extend.mjs`, `scripts/cdp.mjs`, `scripts/cdp-shot.mjs`.
+4. For occlusion-free screenshots use Win32 **`PrintWindow(hwnd, hdc, 2)`** (PW_RENDERFULLCONTENT) via `Add-Type` in pwsh (`scripts/shot.ps1`) — not `CopyFromScreen` (a foreground terminal overlaps it).
+
+## Packaging a distributable `.exe` (electron-builder)
+Config: `electron-builder.yml` (target **nsis** installer; `asar: false`). The build also emits the **pet** preload + renderer entries (see `electron.vite.config.ts` — two `input`s each for preload and renderer). Build the renderer first (`electron-vite build` → `out/`), then run electron-builder via node (use the explicit node path for the `.bin` shim):
+```bash
+node node_modules/electron-builder/cli.js --win --dir   --publish never   # unpacked → dist/win-unpacked/Claude Forge.exe (fast, for testing)
+node node_modules/electron-builder/cli.js --win nsis --publish never       # installer → dist/Claude Forge Setup <ver>.exe
+```
+Two env-specific hurdles (`bootstrap/patch-app-builder.mjs` handles the first; both are lost on `npm install` — reapply like the Vite patch):
+1. **Collector patch** — electron-builder 26's node-module collector spawns `powershell.exe -EncodedCommand` to run `npm list`; here `powershell.exe`/`cmd.exe` are blocked → `spawn powershell.exe ENOENT`, build fails. Patched `node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js` (the `streamCollectorCommandToFile` win32 branch) to run npm directly via `node <node-dir>/node_modules/npm/bin/npm-cli.js` instead.
+2. **`asar: false`** — the Agent SDK spawns its bundled `claude.exe` by on-disk path; inside an asar archive that path isn't executable (renderer shows *"claude.exe exists but failed to launch"*). With asar off, `claude.exe` is a real file at `resources/app/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe` and spawns fine. NSIS/winCodeSign/7z downloads from GitHub releases worked here (not AV-blocked). Verify a packaged build by launching `dist/win-unpacked/Claude Forge.exe` with `FORGE_CDP=9222` and driving a test prompt via CDP — confirm a real reply, not the launch error.
+
+## Gotchas
+- **CSS unclosed-brace footgun**: a single stray `{` in a CSS partial makes modern Chromium's **CSS nesting** swallow ALL following rules as descendants — they silently stop matching (e.g. a dangling `.session-cost {` once broke the entire CHAT layout). After editing any `styles/*.css` partial, sanity-check brace balance per file: `grep -o '{' file | wc -l` must equal `grep -o '}' ...`.
+- **SDK events Forge surfaces** (ground truth: `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`, `SDKMessage` union): subagent tool_use/tool_result ARE emitted by default tagged with `parent_tool_use_id`; native `system/task_*` give subagent lifecycle/usage; `tool_progress`/`rate_limit_event`/`api_retry`/`compact_boundary` exist too. Handling these costs **no extra tokens** (already streamed). `forwardSubagentText` (off) would add subagent text/thinking, not tools. A few low-value events remain unhandled (`permission_denied`, `model_refusal_fallback`, `prompt_suggestion`, `tool_use_summary`).
+- **Flexbox height**: in a flex column, prefer `flex: 1; min-height: 0` over `height: 100%` for fill children (percentage height resolution against flex items is fragile in Chromium).
+- **Inline styles** (`style={{ display: ... }}`) override CSS class rules — watch for `'block'` vs `'flex'` clobbering layout.
+- **Subscription thinking text** is **encrypted/empty on Opus 4.8** but **visible on Sonnet 4.6**.
+- SDK **slash commands** (`/usage`, `/context`, …) execute when sent as the prompt; REPL-only ones (`/model`, `/help`) are handled client-side in the renderer.
+- **Pet protocol ordering**: `pet/protocol.ts` registers `pet://` as a privileged scheme, which must happen **before** app `ready` — `index.ts` imports the pet module for this side effect. Don't lazy-import it.
+- **Orchestration purity**: anything imported by `tsconfig.selftest.json` (the orchestration core) must stay free of electron/SDK imports, or `npm run selftest` breaks. Inject live model calls via `deps`, never import them.
+
+## Constraints (do NOT violate)
+- **Never port `C:\Users\CKIRUser\Downloads\free-code-main`.** It is leaked Anthropic Claude Code source with safety guardrails stripped. Build every feature from scratch via the official SDK. (The SDK's safety guardrails are intentional and must stay intact.)
+- Keep it **local-only / BYO-key**; never send secrets or user content to a third-party server. **One opt-in exception:** free-provider delegation (`goose/`, Extend → Providers) sends *delegated subtask content* to the chosen provider (OpenRouter/Gemini/Groq/…). It is OFF until the user adds a provider; provider keys live in `forge-providers.json` (never `.claude/`); surface the external-transfer caveat in UI/docs. Never send the user's *credentials* anywhere.
+- **Goose delegation guardrails**: the `delegate` MCP tool routes to goose only — never redirect the SDK's native Task subagents (they run inside `claude.exe`). Delegated subtasks are **read-only by default** (builder roles opt in); the permission gate in `runGooseSubtask.ts` is **fail-closed** until the live `session/request_permission` shape is confirmed. No free-form agent-to-agent chat (hub-and-spoke through Claude only). The goose binary is git-ignored (`resources/goose/`), fetched at build by `scripts/ensure-goose.mjs`.
+- Squad / orchestration subtasks default to **read-only** (`subtaskRunner` tool gate). Only explicit write-capable roles (`roles.ts`) may mutate the workspace; `Task` and `AskUserQuestion` are always denied to subtasks. The global **max $/run** budget cap is enforced by the conductor's budget governor (N subtasks multiply cost — the governor projects spend before each step and hard-stops).
+- MCP servers, plugins, and skill-toggles must stay **out of `.claude/`** (in Forge-private `forge-*.json`) so secrets aren't model-readable.
+- `new_folder/oh-my-claudecode/` is **vendored reference only** — port its ideas into pure Forge modules; don't import or build it at runtime.
+- Orchestration honesty: the eval (`eval.ts`/`scripts/eval.mjs`) compares orchestrated vs single-agent at the **same compute budget**. Winning by spending more is not a win — keep `gateVerdict` honest and don't cherry-pick task mixes.
+
+## Status
+8-step app complete and running. Done: subscription auth, transcript restore, prompt history, message actions, image attachment, subscription **usage %** panel, token-optimization tiers 1–4, Pretendard font, arbitrary `/model <id>`, custom titlebar/scrollbar.
+
+**EXTEND tab — COMPLETE** (`docs/ROADMAP.md`). GUI console over the filesystem `.claude/`: Skills, Commands, Hooks, MCP, Agents, Plugins, **Providers**. Also landed: **AskUserQuestion** routes via `canUseTool` (renders QuestionModal) and the pinned **TODO bar** reconstructs from Task tools.
+
+**GOOSE free-provider delegation — IMPLEMENTED (Plan A), live-verification pending a key** (`docs/GOOSE_INTEGRATION.md`). Claude offloads simple subtasks to free models (OpenRouter/Gemini/Groq/Ollama/any goose provider) via an in-process `delegate` MCP tool → goose ACP; multi-provider 429/quota fallback, interrupt cleanup, concurrency cap, Agents-dashboard nesting, `cheap` keyword. Verified by typecheck + `selftest` (105) + a live goose-1.37.0 ACP-lifecycle spike; the model call + `session/request_permission` shape (read-only gate is **fail-closed**) + mapper fields + quota regexes await a provider key (`docs/GOOSE_INTEGRATION.md` §9). PR #18.
+
+**AGENTS tab (formerly SQUAD) — reworked into an agent-activity dashboard.** The manual plan editor was removed; the orchestration **engine** (conductor / topology / routing / verifier / toolVerifier / roles / keywords / loop / eval — pure, `npm run selftest`) is kept as the backend. Orchestration modes now trigger from chat (magic keywords activate a mode on the live run) or when the model delegates; the Agents tab observes: live agent cards with an expandable per-agent **tool timeline**, native **subagent** lifecycle/usage + nested inner tools (via `parent_tool_use_id`), tool/judge verifier provenance, and a persisted **History** (`forge-agent-activity.json`). The **toolVerifier** is now wired into live runs (a subtask's `verifyCommands` → objective tool oracle; else haiku judge). Honest caveat: the new SDK-event handling (subagent nesting, reliability banner) passes typecheck + `selftest` but the renderer was **not** live-verified in the cloud session — confirm on a local Electron run.
+
+**GUIDE tab** — first-run feature tour (`components/guide/GuideView.tsx`).
+
+**COST tab — Cost & Cache dashboard** (`components/cost/CostView.tsx`). The SDK `result` message's full token/cache breakdown was streamed but only `costUsd` survived to `AgentActivity` history; `agentActivity.ts` now persists `inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens/contextTokens` per run, and the COST tab aggregates them (total cost, **prompt-cache hit %**, token totals, per-run breakdown table). Pure observatory — no model calls, no extra tokens.
+
+**Chat command + UX work** — (1) **`/goal [max] <objective>`**: a Forge-native *autonomous loop* (the headless analog of Claude Code's interactive `/goal`, which has no headless behavior). It appends a `GOAL_ACHIEVED`/`GOAL_CONTINUE` completion protocol to the `claude_code` preset, resumes the session each turn, and loops until achieved / error / iteration-cap, with a live goal banner over the composer (driven in `Composer.tsx`, not the orchestration `runLoop`). (2) **Command feedback**: unknown slash commands now get an "unknown command" notice instead of being silently sent as literal text; interactive-only commands (`/login`, `/agents`, …) are named as unavailable. (3) **Subagent tool nesting in chat**: `parentToolId` (already streamed) is carried into the renderer `Block` model so a subagent's tools nest under their parent Task — indented + collapsible (`TurnView.tsx`). (4) **Conversation export** (`lib/export.ts`): an Export dropdown saves the transcript as Markdown or JSON. (5) **Cmd/Ctrl+K command palette**. Honest caveat: all of this passes typecheck + `selftest` + a full `electron-vite build`, but the renderer was **not** live-verified in the cloud session — confirm `/goal` looping and the new tabs on a local Electron run.
+
+**Maintainability** — the sidebar control rail was extracted from `App.tsx` MainShell into `components/Sidebar.tsx` (App MainShell 600→422 lines); new CSS partials `07-cost.css` + `08-palette.css`.
+
+**Concurrent conversation tabs + isolated workspaces** — CHAT is now a tab bar (max 5). Each tab is an independent conversation = its own `Composer` (already runId-concurrency-safe) = its own **isolated workspace**, so multiple agents can run at once but never edit the same files. All tabs stay mounted, so switching tabs **no longer interrupts** a running conversation (the old single-Composer reset-on-switch is gone). Main: `RunOptions.workspaceId` → `ensureWorkspace(id)` makes a per-conversation cwd at `<root>/ws/<id>/` and links the shared `.claude/` in (junction on Windows — no admin) so EXTEND config/settings still load; `getSessions` accepts sessions whose `cwd` is under the root (the isolated subdirs). A localStorage `sessionId→workspace` map lets a resumed conversation reuse its original dir.
+
+**Token-leak fixes** (from the token-usage audit, `docs/TOKEN_OPTIMIZATION.md`) — (1) `/goal` now has a **cumulative USD budget** (default $10, raised to the user's max-$/run) on top of the iteration cap, so the autonomous loop can't run away; the banner shows `$spent/$budget`. (2) Magic-keyword + `/goal` directives are injected as a **user-message prefix** instead of mutating `opts.systemPrompt` — the system+tools prefix stays byte-stable across a conversation so the **prompt cache isn't busted** turn-to-turn (persona stays on `systemPrompt`; it's global/stable). (3) LIMITS (`maxBudget` / per-model `maxTurns` / `autoCompact`) are **persisted** to localStorage so a safety cap survives restarts.
+
+**Reliability awareness** — chat banner for api-retry / subscription rate-limit / auto-compaction; **live-activity strip** + tool elapsed timers; the `/compact` bar now climbs on a real time ticker.
+
+**Desktop pet ("Clawd")** — optional frameless transparent window that animates to agent activity (`src/main/pet/`, `src/renderer/pet/`), toggleable + persisted; idle micro-animations + listener/timer-leak fixes landed.
+
+**Conversation management + settings** — sidebar conversations can be **renamed / pinned / deleted**; **search across all conversations** (`ConversationSearch.tsx`); **per-conversation model & persona overrides**; a **Settings panel** (`Settings.tsx`, gear in sidebar + palette) consolidates LIMITS/persona/pet/auth; a **keyboard-shortcut help overlay** (Cmd/Ctrl+/, `ShortcutsHelp.tsx`); and **WorkspaceFiles** (`WorkspaceFiles.tsx` + `main/workspace.ts` + `ipc/workspace.ts`) browses the files an agent created/edited in a conversation's isolated workspace — a local fs read, no model/tokens.
+
+**Composer decomposition** — the monolithic `Composer` was split into co-located hooks (`useChatTabs`/`useCompaction`/`useGoalLoop`/`useImageAttachments`/`useTranscriptSearch`/`useAgentEvents`) + extracted components (`ReliabilityBanner`/`WorkHeader`) + tested pure helpers in `lib/` (`composer.ts`/`goal.ts`/`slashCommands.ts`/`storage.ts`), with `npm run test` (node:test) as the standing gate for those pure modules.
+
+**Maintainability refactor** (`docs/MAINTAINABILITY.md`) — behavior-preserving decomposition done: `agent.ts`→`agent/`, `index.ts`→thin shell + `ipc/`, monolithic `App.tsx`→`components/` + `lib/`, `Composer`→hooks + `lib/`, and `styles.css`→`styles/` partials.
+
+**Tooling/infra:** ESLint + Prettier configured; `bootstrap/` provides one-step environment recovery for the reset-on-reboot machine; `npm run dev:web` gives a no-Electron browser design preview; `npm run selftest` (orchestration core) and `npm run test` (pure renderer lib + the new efficiency/memory/repomap cores) are the standing headless correctness gates.
+
+**EFFICIENCY subsystems — IMPLEMENTED, headlessly verified** (`docs/EFFICIENCY.md`). Four open-source projects distilled (re-implemented, not vendored) into a token-efficiency + context-awareness layer, each with a pure core under `npm run test` (54 assertions): (1) **context compression** (`src/main/efficiency/compress.ts`, from chopratejas/headroom Apache-2.0) — JSON clip/minify, line dedup, budget-bounded marked head/tail elision, applied to the context Forge constructs itself; (2) **persistent project memory** (`src/main/memory/`, from rohitg00/agentmemory Apache-2.0) — auto-capture durable tool actions off the agent bus → privacy-filter → BM25×recency×usage recall within a token budget → compress + inject on fresh sessions; EXTEND → Memory panel; `forge-memory.json`; (3) **structural repo map** (`src/main/repomap/`, from Egonex-AI/Understand-Anything MIT) — regex parser → PageRank-lite rank → compact map injected for retrieval-first navigation; Workspace → Repo-map tab; fingerprint cache; (4) **curated starter skill pack** (`src/main/skillsPack.ts`, from mattpocock/skills MIT + DietrichGebert/ponytail MIT) — caveman/grill/tdd/diagnose/handoff/**lazy**/**prune** one-click installable in EXTEND → Skills (`lazy` = ponytail's code-minimalism discipline; `prune` = its over-engineering review/audit; bodies sourced from `lazy.ts`). **runStreaming** prepends repo-map + recalled memory (compressed, budget-bounded) on fresh conversations only (keeps the prompt cache stable). Honest caveat: pure cores + wiring pass typecheck/build/test/selftest, but live recall quality + the renderer panels were **not** live-verified in the cloud session (no key/GUI) — confirm on a local Electron run.
+
+## Docs (under `docs/`)
+- `DESIGN.md` — UI/visual design language (theme, layout, component patterns).
+- `SQUAD_ORCHESTRATION.md` — orchestration design + evidence ledger (validated-mechanism grading).
+- `GOOSE_INTEGRATION.md` — free / multi-provider sub-agent delegation via goose (Plan A): design, verified-facts ledger, and the §9 follow-up checklist.
+- `TOKEN_OPTIMIZATION.md` — cost levers (caching, difficulty routing, cascade).
+- `MAINTAINABILITY.md` — the behavior-preserving file-decomposition plan.
+- `PERFORMANCE.md` — render/stream/paste perf levers + measurements.
+- `ROADMAP.md` — the (completed) EXTEND extensibility roadmap.
+- `EFFICIENCY.md` — the four absorbed open-source efficiency subsystems (compression, memory, repo map, skill pack) + verification status.
+- `PROGRESS.md` — live status ledger; the honest record of what's measured vs. still pending.

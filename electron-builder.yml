@@ -1,0 +1,29 @@
+# Packaging config — wired up in a later step. Present now so the build target
+# is decided (Windows portable/nsis .exe via electron-builder).
+appId: com.claudeforge.app
+productName: Claude Forge
+# The Claude Agent SDK ships a native claude.exe and spawns it by its on-disk
+# path. Inside an asar archive that path isn't executable ("exists but failed to
+# launch"), so disable asar — all files stay as real files the SDK can spawn.
+asar: false
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# Desktop-pet assets (Clawd theme + svgs) served at runtime via the pet://
+# protocol from process.resourcesPath/pet (see src/main/pet/paths.ts).
+extraResources:
+  - from: resources/pet
+    to: pet
+  # Bundled goose binary (free/multi-provider delegation, docs/GOOSE_INTEGRATION.md).
+  # Populated per-platform at build time by scripts/ensure-goose.mjs. Resolved at
+  # runtime by src/main/goose/binary.ts under process.resourcesPath/goose/.
+  - from: resources/goose
+    to: goose
+    filter:
+      - "**/*"
+win:
+  target:
+    - nsis

@@ -1,0 +1,20 @@
+node_modules
+out
+dist
+*.log
+.DS_Store
+*.tsbuildinfo
+dist-build/
+
+# headless selftest build output
+out-selftest/
+
+# per-machine Claude Code local settings (absolute paths, not shared)
+.claude/settings.local.json
+
+# stray local build artifact (913MB) — never commit
+dist v2/
+out-test/
+
+# Bundled goose binary (fetched at build time by scripts/ensure-goose.mjs)
+resources/goose/

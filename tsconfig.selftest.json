@@ -1,0 +1,32 @@
+{
+  "//": "Compiles ONLY the pure orchestration core to CommonJS so scripts/orchestration-selftest.cjs can exercise it headlessly (no electron, no SDK, no live session). See docs/SQUAD_ORCHESTRATION.md / TOKEN_OPTIMIZATION.md.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "rootDir": "src/main",
+    "outDir": "out-selftest",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["node"],
+    "noEmit": false
+  },
+  "include": [
+    "src/main/orchestration.ts",
+    "src/main/routing.ts",
+    "src/main/verifier.ts",
+    "src/main/conductor.ts",
+    "src/main/toolVerifier.ts",
+    "src/main/topology.ts",
+    "src/main/eval.ts",
+    "src/main/roles.ts",
+    "src/main/loop.ts",
+    "src/main/keywords.ts",
+    "src/main/lazy.ts",
+    "src/main/goose/mapper.ts",
+    "src/main/goose/quota.ts",
+    "src/main/agent/types.ts"
+  ]
+}

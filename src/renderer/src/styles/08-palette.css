@@ -1,0 +1,410 @@
+/* =====================================================================
+   COMMAND PALETTE (Cmd/Ctrl+K) — keyboard launcher over shell actions.
+   ===================================================================== */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.palette {
+  width: min(560px, 92vw);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-5);
+  background: var(--bg-float);
+  box-shadow: var(--shadow-modal), var(--edge-light);
+  overflow: hidden;
+}
+.palette-input {
+  flex: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  padding: 14px 16px;
+  outline: none;
+  font-family: inherit;
+}
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  padding: 9px 11px;
+}
+.palette-item.on {
+  background: color-mix(in srgb, var(--amber) 12%, var(--bg-raised));
+}
+.palette-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-item.on .palette-label {
+  color: var(--amber-bright);
+}
+.palette-hint {
+  flex: none;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.palette-section {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.palette-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.palette-foot {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/* ── keyboard-shortcut help overlay ── */
+.shortcuts-modal {
+  width: 540px;
+  max-width: 92vw;
+}
+.shortcuts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.shortcuts-group-title {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+.shortcuts-keys {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+  min-width: 140px;
+  justify-content: flex-end;
+}
+.shortcuts-kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.shortcuts-desc {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+/* ── cross-conversation search overlay ── */
+.cs-modal {
+  width: 560px;
+  max-width: 92vw;
+}
+.cs-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+.cs-input:focus {
+  border-color: var(--amber);
+}
+.cs-results {
+  margin-top: 12px;
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs-note {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.cs-hit {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 9px 11px;
+  cursor: pointer;
+}
+.cs-hit:hover {
+  border-color: var(--amber-dim);
+  background: var(--bg-raised);
+}
+.cs-hit-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.cs-hit-title {
+  color: var(--amber-bright);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-hit-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cs-hit-snippet {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cs-foot {
+  margin-top: 12px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/* ── workspace files viewer ── */
+.wsf-modal {
+  width: 860px;
+  max-width: 94vw;
+}
+.wsf-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 12px;
+  height: 60vh;
+}
+.wsf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+.wsf-file {
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.wsf-file:hover {
+  background: var(--bg-raised);
+}
+.wsf-file.on {
+  background: color-mix(in srgb, var(--amber) 12%, var(--bg-raised));
+}
+.wsf-file-path {
+  display: block;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsf-file.on .wsf-file-path {
+  color: var(--amber-bright);
+}
+.wsf-file-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.wsf-preview {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  background: var(--bg);
+}
+.wsf-note {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ── settings panel ── */
+.settings-modal {
+  width: 460px;
+  max-width: 92vw;
+}
+.settings-section {
+  margin-bottom: 18px;
+}
+.settings-section-title {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-label {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.settings-row input[type='number'] {
+  width: 90px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  text-align: right;
+}
+.settings-row input[type='number']:focus {
+  border-color: var(--amber);
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.settings-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-actions .ghost {
+  width: auto;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+.ghost.danger-text {
+  color: var(--danger);
+}
+.ghost.danger-text:hover {
+  border-color: var(--danger);
+}
+.brand-settings {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.brand-settings:hover {
+  color: var(--amber-bright);
+}
+
+/* ---- Workspace repo-map tab (Understand-Anything absorption) ---- */
+.wsf-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 12px;
+}
+.wsf-tab {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wsf-tab.on {
+  color: var(--amber);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.wsf-map {
+  flex-direction: column;
+  overflow: auto;
+  gap: 8px;
+}
+.wsf-mappre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}

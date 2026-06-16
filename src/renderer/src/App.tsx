@@ -25,7 +25,8 @@ import type {
   SessionInfo,
   UsageInfo,
   Persona,
-  EffortLabel
+  EffortLabel,
+  LazySetting
 } from './types'
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
 import { resolveMaxTurns } from './lib/format'
@@ -115,10 +116,14 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   const [maxBudget, setMaxBudget] = useState<number>(() => loadJson('forge-max-budget', 0)) // 0 = off
   const [autoCompact, setAutoCompact] = useState<boolean>(() => loadJson('forge-auto-compact', false))
   const [costSaver, setCostSaver] = useState(false)
+  // Lazy mode (ponytail): a persistent code-minimalism discipline injected on
+  // every run at the chosen intensity. 'off' = inactive (keyword still works).
+  const [lazyLevel, setLazyLevel] = useState<LazySetting>(() => loadJson('forge-lazy-level', 'off'))
   // Persist the LIMITS settings whenever they change.
   useEffect(() => saveJson('forge-max-turns', maxTurnsByModel), [maxTurnsByModel])
   useEffect(() => saveJson('forge-max-budget', maxBudget), [maxBudget])
   useEffect(() => saveJson('forge-auto-compact', autoCompact), [autoCompact])
+  useEffect(() => saveJson('forge-lazy-level', lazyLevel), [lazyLevel])
   const [view, setView] = useState<'chat' | 'squad' | 'cost' | 'extend' | 'guide'>('chat')
   const [persona, setPersonaState] = useState<Persona | null>(null)
   const [showPersona, setShowPersona] = useState(false)
@@ -515,6 +520,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                   maxBudget={maxBudget}
                   autoCompact={autoCompact}
                   costSaver={costSaver}
+                  lazyLevel={lazyLevel}
                   onResult={onResult}
                   workspaceId={t.key}
                   isActive={t.key === activeKey}
@@ -565,6 +571,8 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
           onSetMaxBudget={setMaxBudget}
           autoCompact={autoCompact}
           onSetAutoCompact={setAutoCompact}
+          lazyLevel={lazyLevel}
+          onSetLazyLevel={setLazyLevel}
           onClose={() => setSettingsOpen(false)}
         />
       )}

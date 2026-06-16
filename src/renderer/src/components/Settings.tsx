@@ -4,18 +4,30 @@
 // so there's a single source of truth (no divergence). Local-only.
 import { useEffect, useState, type JSX } from 'react'
 import { useConfirm } from './ConfirmDialog'
+import type { LazySetting } from '../types'
+
+const LAZY_LEVELS: { value: LazySetting; label: string; hint: string }[] = [
+  { value: 'off', label: 'Off', hint: 'Normal mode. (The "ponytail" / "lazy mode" keyword still works per message.)' },
+  { value: 'lite', label: 'Lite', hint: 'Offer the lazy path as an alternative; don’t force it.' },
+  { value: 'full', label: 'Full', hint: 'Enforce the ladder — stop at the first rung that works.' },
+  { value: 'ultra', label: 'Ultra', hint: 'YAGNI extremist — challenge whether the requirement is even needed.' }
+]
 
 export default function Settings({
   maxBudget,
   onSetMaxBudget,
   autoCompact,
   onSetAutoCompact,
+  lazyLevel,
+  onSetLazyLevel,
   onClose
 }: {
   maxBudget: number
   onSetMaxBudget: (n: number) => void
   autoCompact: boolean
   onSetAutoCompact: (v: boolean) => void
+  lazyLevel: LazySetting
+  onSetLazyLevel: (v: LazySetting) => void
   onClose: () => void
 }): JSX.Element {
   const confirm = useConfirm()
@@ -58,6 +70,7 @@ export default function Settings({
       'forge-max-turns',
       'forge-max-budget',
       'forge-auto-compact',
+      'forge-lazy-level',
       'forge-stick-bottom'
     ])
       clearKey(k)
@@ -92,6 +105,28 @@ export default function Settings({
           </label>
           <div className="settings-hint">
             Per-model max turns + the model/effort/permission selectors live in the sidebar.
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-section-title">Lazy mode (ponytail)</div>
+          <label className="settings-row">
+            <span className="settings-label">Intensity</span>
+            <select
+              value={lazyLevel}
+              onChange={(e) => onSetLazyLevel(e.target.value as LazySetting)}
+            >
+              {LAZY_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="settings-hint">
+            {LAZY_LEVELS.find((l) => l.value === lazyLevel)?.hint} When on, every run is told to
+            write the laziest solution that works (YAGNI → stdlib → native → existing dep →
+            one-liner) — never trading away validation, error handling, security, or accessibility.
           </div>
         </div>
 

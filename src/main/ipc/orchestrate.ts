@@ -12,6 +12,7 @@
 
 import type { IpcMain } from 'electron'
 import { detectKeywords, type KeywordMatch } from '../keywords'
+import { lazyDirective, type LazyLevel } from '../lazy'
 
 export function register(ipc: IpcMain): void {
   // Native magic-keyword detector (OMC port): map a typed prompt to active modes
@@ -19,5 +20,12 @@ export function register(ipc: IpcMain): void {
   // (+ optional tier) onto a normal run and surface the detected-mode chips.
   ipc.handle('orchestrate:detect-keywords', (_e, prompt: string): KeywordMatch[] =>
     detectKeywords(prompt)
+  )
+
+  // Lazy-mode directive at a chosen intensity (ponytail port). The Settings panel
+  // sets a persistent level; the composer fetches the matching directive and
+  // injects it as the cache-stable user-message prefix on every run.
+  ipc.handle('orchestrate:lazy-directive', (_e, level: LazyLevel): string =>
+    lazyDirective(level)
   )
 }

@@ -38,7 +38,7 @@ import QuestionModal from './QuestionModal'
 import ReliabilityBanner from './ReliabilityBanner'
 import WorkHeader from './WorkHeader'
 import Elapsed from './Elapsed'
-import type { KeywordMatch } from '../../types'
+import type { KeywordMatch, LazySetting } from '../../types'
 
 export default function Composer({
   model,
@@ -50,6 +50,7 @@ export default function Composer({
   maxBudget,
   autoCompact,
   costSaver,
+  lazyLevel = 'off',
   onResult,
   sessionId,
   sessionKey,
@@ -74,6 +75,9 @@ export default function Composer({
   autoCompact: boolean
   /** Cost-saver mode: route each prompt to a tier by difficulty (lever 4). */
   costSaver: boolean
+  /** Persistent lazy mode (ponytail) intensity from Settings; 'off' = inactive.
+   * When set, every run carries the leveled lazy directive (cache-stable prefix). */
+  lazyLevel?: LazySetting
   onResult: (r: {
     costUsd?: number
     inputTokens?: number
@@ -383,10 +387,18 @@ export default function Composer({
     try {
       const modes = await window.forge.orchestrate.detectKeywords(text)
       const active = modes.filter((m) => m.action !== 'cancel')
-      directive = active
+      // When lazy mode is on globally, the persisted level supersedes the
+      // ponytail keyword's (always-'full') directive — drop it to avoid injecting
+      // the ladder twice; the leveled directive is prepended below.
+      const parts = active
+        .filter((m) => !(lazyLevel !== 'off' && m.name === 'ponytail'))
         .map((m) => m.systemAppend)
         .filter((s): s is string => !!s)
-        .join('\n\n')
+      if (lazyLevel !== 'off') {
+        const lazy = await window.forge.orchestrate.lazyDirective(lazyLevel)
+        parts.unshift(lazy)
+      }
+      directive = parts.join('\n\n')
       keywordTier = active.find((m) => m.tier)?.tier
     } catch {
       /* keyword detection is best-effort; a normal run still proceeds */

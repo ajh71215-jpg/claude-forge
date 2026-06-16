@@ -37,6 +37,7 @@ import type { PluginEntry, PluginSaveResult } from '../main/plugins'
 import type { ProviderEntry, ProviderSaveInput, ProviderSaveResult } from '../main/providers'
 import type { ActivitySnapshot } from '../main/agentActivity'
 import type { KeywordMatch } from '../main/keywords'
+import type { LazyLevel } from '../main/lazy'
 import type { WorkspaceFile } from '../main/workspace'
 import type { MemoryEntry } from '../main/memory'
 import type { RepoMapResult } from '../main/repomap'
@@ -145,7 +146,11 @@ const forge = {
      * modes (ralph/ultrathink/code-review/…). The only orchestration surface the
      * UI uses — the conductor engine is chat-driven only, not exposed here. */
     detectKeywords: (prompt: string): Promise<KeywordMatch[]> =>
-      ipcRenderer.invoke('orchestrate:detect-keywords', prompt)
+      ipcRenderer.invoke('orchestrate:detect-keywords', prompt),
+    /** Lazy-mode (ponytail) directive at a chosen intensity, for the persistent
+     * Settings toggle. Injected as the cache-stable user-message prefix. */
+    lazyDirective: (level: LazyLevel): Promise<string> =>
+      ipcRenderer.invoke('orchestrate:lazy-directive', level)
   },
   window: {
     minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),

@@ -20,6 +20,7 @@ import type {
   AuthMode,
   AuthStatus,
   Permission,
+  Effort,
   ModelInfo,
   SlashCommand,
   Capabilities,
@@ -32,7 +33,7 @@ import type {
 import { EFFORTS, PERMS, effortOption } from './lib/constants'
 import { resolveMaxTurns } from './lib/format'
 import { loadJson, saveJson } from './lib/storage'
-import { useChatTabs, MAX_TABS } from './components/chat/useChatTabs'
+import { useChatTabs, MAX_TABS, type ChatTab } from './components/chat/useChatTabs'
 import { useDebugStream } from './lib/useDebugStream'
 
 /**
@@ -100,10 +101,12 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     resetTab,
     setTabSession,
     setTabModel,
+    setTabEffort,
     setTabPersona,
     closeTab,
     tabTitle,
-    clearTabsForSession
+    clearTabsForSession,
+    forgetSession
   } = useChatTabs({ sessions, onExitCostSaver: () => setCostSaver(false) })
   // Per-model max turns. Each model keeps its own override; unset models fall
   // back to defaultMaxTurns(model). Keyed by model id ('default' = the active
@@ -173,6 +176,8 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     })
     // Reset any open tab showing the deleted conversation to a fresh one.
     clearTabsForSession(id)
+    // Drop its persisted workspace mapping + per-chat overrides (no map growth).
+    forgetSession(id)
     refreshSessions()
   }
 
@@ -262,6 +267,18 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     if (label === 'AUTO') return true
     if (!modelEfforts) return true // no info (custom id) → don't constrain
     return modelEfforts.includes(label.toLowerCase())
+  }
+  // Resolve the effort actually sent for a tab: its per-chat override else the
+  // global, clamped to what the tab's effective model supports (so a model that
+  // has no effort control — e.g. Haiku — never receives an unsupported level,
+  // which would error). Returns undefined (= AUTO / no effort param).
+  function resolveRunEffort(t: ChatTab): Effort | undefined {
+    const label = t.effort ?? effort
+    if (label === 'AUTO') return undefined
+    const mv = t.model ?? model
+    const levels = models.find((m) => m.value === mv)?.supportedEffortLevels
+    if (levels && !levels.includes(label.toLowerCase())) return undefined
+    return effortOption(label)
   }
   // Switching to a model that can't do the current effort (e.g. Haiku) snaps
   // the selection back to AUTO so the run doesn't carry an unsupported level.
@@ -531,7 +548,11 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                   <Composer
                     model={t.model ?? model}
                     permission={permission}
-                    effort={effortOption(effort)}
+                    effort={resolveRunEffort(t)}
+                    globalModel={model}
+                    tabModel={t.model}
+                    globalEffort={effort}
+                    tabEffort={t.effort}
                     commands={commands}
                     models={models}
                     maxTurnsByModel={maxTurnsByModel}
@@ -548,7 +569,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                     onSession={(id) => setTabSession(t.key, id)}
                     onSetModel={(id) => setTabModel(t.key, id)}
                     onSetConvPersona={(text) => setTabPersona(t.key, text)}
-                    onSetEffort={chooseEffort}
+                    onSetEffort={(l) => setTabEffort(t.key, l)}
                     onSetPermission={setPermission}
                     onNewSession={() => resetTab(t.key)}
                   />

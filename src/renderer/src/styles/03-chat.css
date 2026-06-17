@@ -708,6 +708,88 @@
   letter-spacing: 0.08em;
   color: var(--muted);
 }
+/* Per-conversation Model / Effort / System-prompt controls (above the composer). */
+.chat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 24px 0;
+}
+.chat-controls.dim {
+  opacity: 0.5;
+}
+.cc-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.cc-label {
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.cc-select {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--amber-bright);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.cc-select:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+.cc-select option {
+  background: var(--bg-float);
+  color: var(--text);
+}
+button.cc-persona {
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color 0.15s, color 0.15s;
+}
+button.cc-persona:hover {
+  border-color: var(--amber-dim);
+  color: var(--text);
+}
+button.cc-persona.on {
+  border-color: var(--amber-dim);
+}
+.cc-persona-state {
+  color: var(--amber-bright);
+}
+button.cc-persona:not(.on) .cc-persona-state {
+  color: var(--muted);
+}
+.cc-persona-modal {
+  width: min(620px, 92vw);
+}
+.cc-persona-input {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  outline: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.cc-persona-input:focus {
+  border-color: var(--amber-dim);
+}
 .composer {
   display: flex;
   gap: 12px;

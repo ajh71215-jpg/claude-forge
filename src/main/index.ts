@@ -3,8 +3,8 @@ import { join } from 'path'
 import { registerAll } from './ipc'
 // Importing the pet module registers the `pet://` scheme as privileged (must
 // happen before app `ready`), via a side effect in pet/protocol.ts.
-import { initPet } from './pet'
-import { initActivity } from './agentActivity'
+import { initPet, shutdownPet } from './pet'
+import { initActivity, flushActivity } from './agentActivity'
 import { initMemoryCapture } from './memory'
 import { interruptAll } from './agent'
 
@@ -34,6 +34,15 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => win.show())
+
+  // The desktop pet is a separate always-on-top window. If it survives the main
+  // window it keeps the whole Electron process alive (window-all-closed never
+  // fires), so the pet leaks after the user "closes" Forge. Tear it down when the
+  // main window closes so the app can actually quit. macOS keeps the app alive by
+  // design (dock), so leave teardown there to before-quit.
+  win.on('closed', () => {
+    if (process.platform !== 'darwin') shutdownPet()
+  })
 
   // Open external links in the OS browser, never in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -77,6 +86,25 @@ app.on('window-all-closed', () => {
   void interruptAll()
   if (process.platform !== 'darwin') app.quit()
 })
-app.on('before-quit', () => {
-  void interruptAll()
+// On a real quit (Cmd+Q, app.quit, OS shutdown) tear down the pet, flush the
+// activity store, and let in-flight SDK runs actually finish interrupting before
+// the process exits — otherwise a detached subprocess can keep streaming (and
+// billing) after the window is gone. We defer the quit on the FIRST pass (so the
+// async interrupt can run) with a hard 2s safety cap so a hung interrupt can never
+// block shutdown; the second pass (re-entered via app.quit) proceeds normally.
+let quitting = false
+app.on('before-quit', (e) => {
+  // Always destroy the pet so it can never outlive the app, on any platform.
+  shutdownPet()
+  // Persist any just-finished run whose coalesced write hasn't fired yet.
+  flushActivity()
+  if (quitting) return
+  quitting = true
+  e.preventDefault()
+  const finish = (): void => app.quit()
+  const safety = setTimeout(finish, 2000)
+  void interruptAll().finally(() => {
+    clearTimeout(safety)
+    finish()
+  })
 })

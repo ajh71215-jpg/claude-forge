@@ -65,6 +65,32 @@ async function ensureClaudeDirs(dir: string): Promise<void> {
  *   Windows — no admin needed; symlink elsewhere) so EXTEND config + settings are
  *   still seen. Any failure falls back to the shared root (never blocks a run).
  */
+/**
+ * Make an EXISTING recorded cwd usable for a resumed run: ensure the dir exists
+ * and carries the shared root `.claude` (so Skills/Commands/Agents/settings still
+ * load). Used when resuming a session in the exact dir the SDK stored it under,
+ * which may differ from the tab's current workspace key (e.g. a session created
+ * before workspace isolation, or after the renderer's session→ws map was lost on
+ * restart). Falls back to the shared root on any failure (never blocks a run).
+ */
+export async function ensureResumeCwd(dir: string): Promise<string> {
+  const root = workspaceRoot()
+  await ensureClaudeDirs(root)
+  try {
+    if (dir === root) return root
+    await fs.mkdir(dir, { recursive: true })
+    const link = join(dir, '.claude')
+    try {
+      await fs.access(link)
+    } catch {
+      await fs.symlink(join(root, '.claude'), link, 'junction').catch(() => {})
+    }
+    return dir
+  } catch {
+    return root
+  }
+}
+
 export function ensureWorkspace(id?: string): Promise<string> {
   const key = id && id.trim() ? id.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : ''
   let p = workspaceReady.get(key)

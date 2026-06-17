@@ -61,6 +61,23 @@ export async function getTranscript(sessionId: string): Promise<TranscriptItem[]
   }
 }
 
+/**
+ * The cwd a saved session was originally run in. The SDK resolves a `resume`
+ * by the project key derived from cwd, so a resume MUST run in this exact dir or
+ * it fails — even though getSessionMessages (the transcript) finds the session
+ * regardless of cwd. Searches all project dirs (dir omitted). undefined if unknown.
+ */
+export async function getSessionCwd(sessionId: string): Promise<string | undefined> {
+  const sdk: any = await import('@anthropic-ai/claude-agent-sdk')
+  try {
+    const info = await sdk.getSessionInfo(sessionId)
+    const cwd = info?.cwd
+    return typeof cwd === 'string' && cwd ? cwd : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** One conversation that matched a cross-conversation search. */
 export interface SessionSearchHit {
   sessionId: string

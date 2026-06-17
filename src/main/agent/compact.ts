@@ -2,7 +2,8 @@
 // from the former src/main/agent.ts.
 
 import { type WebContents } from 'electron'
-import { buildEnv, ensureWorkspace } from './env'
+import { buildEnv, ensureWorkspace, ensureResumeCwd } from './env'
+import { getSessionCwd } from './sessions'
 import { active } from './state'
 import type { ActiveQuery, CompactProgress } from './types'
 
@@ -25,9 +26,11 @@ export async function compactSession(
   const env = await buildEnv()
   // Resume must run in the SAME cwd as the run that created the session, or the
   // SDK can't locate it — it would start a fresh empty session and orphan the
-  // conversation. Concurrent conversations run in their isolated ws/<id>, so
-  // thread that id through: compact must target that workspace, not the root.
-  const cwd = await ensureWorkspace(workspaceId)
+  // conversation. Prefer the session's recorded cwd (correct across restarts and
+  // for pre-isolation sessions, where the passed workspaceId can be wrong); fall
+  // back to the conversation's isolated ws/<id>.
+  const recordedCwd = await getSessionCwd(sessionId)
+  const cwd = recordedCwd ? await ensureResumeCwd(recordedCwd) : await ensureWorkspace(workspaceId)
   let sid = sessionId
   let ok = false
   let error: string | undefined

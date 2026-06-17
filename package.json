@@ -9,6 +9,7 @@
     "dev":      "node node_modules/electron-vite/bin/electron-vite.js dev",
     "dev:web":  "node node_modules/vite/bin/vite.js --config vite.web.config.ts",
     "build":    "node node_modules/electron-vite/bin/electron-vite.js build",
+    "dist":     "node node_modules/electron-vite/bin/electron-vite.js build && node node_modules/electron-builder/cli.js --win",
     "start":    "node node_modules/electron-vite/bin/electron-vite.js preview",
     "typecheck":"node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "selftest": "node node_modules/typescript/bin/tsc -p tsconfig.selftest.json && node scripts/orchestration-selftest.cjs",

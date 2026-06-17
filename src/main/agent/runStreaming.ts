@@ -15,7 +15,8 @@ import { toSdkMcpServers } from '../mcp'
 import { toSdkPlugins } from '../plugins'
 import { enabledProviders } from '../providers'
 import { buildDelegateServer } from '../goose/delegateTool'
-import { buildEnv, ensureWorkspace, SETTING_SOURCES } from './env'
+import { buildEnv, ensureWorkspace, ensureResumeCwd, SETTING_SOURCES } from './env'
+import { getSessionCwd } from './sessions'
 import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers'
 import { active, pendingDialogs, pendingPerms } from './state'
 import { emitAgentEvent } from '../pet/bus'
@@ -38,9 +39,19 @@ export async function runStreaming(
 
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const env = await buildEnv()
-  // Isolated per-conversation workspace when the renderer supplies a workspaceId,
-  // so concurrent conversations don't edit the same files; else the shared root.
-  const cwd = await ensureWorkspace(opts.workspaceId)
+  // Resolve the run's cwd:
+  //  - Resuming → the SDK locates a session by the project key derived from cwd,
+  //    so the run MUST happen in the exact dir the session was recorded under.
+  //    The renderer's workspaceId can be wrong here (a session predating workspace
+  //    isolation, or whose session→ws map was lost on restart → a random fallback
+  //    key), which is why the transcript loads but a follow-up turn errored. Anchor
+  //    to the session's recorded cwd when known.
+  //  - Otherwise → the tab's isolated per-conversation workspace (workspaceId), so
+  //    concurrent conversations don't edit the same files; else the shared root.
+  const recordedCwd = opts.resume ? await getSessionCwd(opts.resume) : undefined
+  const cwd = recordedCwd
+    ? await ensureResumeCwd(recordedCwd)
+    : await ensureWorkspace(opts.workspaceId)
 
   // Phase 0: read the filesystem `.claude/` (skills · commands · agents ·
   // settings · hooks · mcp). Without settingSources the SDK runs hermetic and

@@ -33,6 +33,7 @@ import { useCompaction } from './useCompaction'
 import HistoryView from './HistoryView'
 import TurnView from './TurnView'
 import TodoBar from './TodoBar'
+import ChatControls from './ChatControls'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
 import ReliabilityBanner from './ReliabilityBanner'
@@ -44,6 +45,10 @@ export default function Composer({
   model,
   permission,
   effort,
+  globalModel,
+  tabModel,
+  globalEffort,
+  tabEffort,
   commands,
   models,
   maxTurnsByModel,
@@ -67,6 +72,14 @@ export default function Composer({
   model?: string
   permission: Permission
   effort?: Effort
+  /** The global sidebar model selection (fallback shown in the per-chat control). */
+  globalModel: string
+  /** This conversation's model override (undefined ⇒ uses the global). */
+  tabModel?: string
+  /** The global sidebar effort label (fallback shown in the per-chat control). */
+  globalEffort: EffortLabel
+  /** This conversation's effort override (undefined ⇒ uses the global). */
+  tabEffort?: EffortLabel
   commands: SlashCommand[]
   models: ModelInfo[]
   /** Per-model max-turns overrides (model id → turns). Default applied per model. */
@@ -93,7 +106,8 @@ export default function Composer({
   onSetModel: (value: string) => void
   /** Set/clear this conversation's persona override (via /persona). */
   onSetConvPersona: (text: string | null) => void
-  onSetEffort: (label: EffortLabel) => void
+  /** Set this conversation's effort override; 'GLOBAL' reverts to the sidebar. */
+  onSetEffort: (label: EffortLabel | 'GLOBAL') => void
   onSetPermission: (p: Permission) => void
   onNewSession: () => void
   /** Isolated workspace id for this conversation (per-tab) — keeps concurrent
@@ -718,6 +732,18 @@ export default function Composer({
       )}
 
       <div className="composer-wrap">
+        <ChatControls
+          models={models}
+          globalModel={globalModel}
+          tabModel={tabModel}
+          onSetModel={onSetModel}
+          globalEffort={globalEffort}
+          tabEffort={tabEffort}
+          onSetEffort={onSetEffort}
+          convPersona={convPersona}
+          onSetConvPersona={onSetConvPersona}
+          costSaver={costSaver}
+        />
         {goal && (
           <div className="goal-banner" title="Autonomous goal loop — runs until the objective verifies">
             <span className="goal-spinner" aria-hidden />

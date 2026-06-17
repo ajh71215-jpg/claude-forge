@@ -52,4 +52,15 @@ export function togglePet(): boolean {
   return setPetEnabled(!enabled)
 }
 
+/**
+ * Tear down the pet window + subscriptions on app quit / main-window close,
+ * WITHOUT touching the persisted preference (so it still restores next launch).
+ * The pet is a separate always-on-top BrowserWindow: if it isn't destroyed, it
+ * keeps the Electron process alive after the main window closes, so the pet (and
+ * the whole app) leaks instead of quitting. Idempotent.
+ */
+export function shutdownPet(): void {
+  disable()
+}
+
 export { petWindow }

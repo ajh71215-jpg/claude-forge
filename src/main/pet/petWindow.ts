@@ -151,6 +151,10 @@ export function openPetWindow(): BrowserWindow {
 
 /** Close the pet window if open. */
 export function closePetWindow(): void {
+  // Clear the debounced position-save timer so it can't fire after the window is
+  // gone (it would otherwise hold the event loop open ~400ms, delaying quit).
+  if (savePosTimer) clearTimeout(savePosTimer)
+  savePosTimer = null
   if (win && !win.isDestroyed()) win.close()
   win = null
 }

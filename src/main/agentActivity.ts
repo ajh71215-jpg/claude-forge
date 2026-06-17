@@ -150,6 +150,20 @@ function persist(): void {
   }, 250)
 }
 
+/** Force any pending coalesced write to disk immediately. Called on app quit so a
+ * just-finished run (whose 250ms persist timer hasn't fired yet) isn't lost when
+ * the process exits. No-op when nothing is pending. */
+export function flushActivity(): void {
+  if (!persistTimer) return
+  clearTimeout(persistTimer)
+  persistTimer = null
+  try {
+    writeFileSync(HISTORY_FILE(), JSON.stringify(history.slice(0, HISTORY_CAP)))
+  } catch {
+    /* best-effort */
+  }
+}
+
 export function getSnapshot(): ActivitySnapshot {
   loadHistory()
   // live newest-first; history already newest-first.

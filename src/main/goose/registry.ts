@@ -13,6 +13,20 @@ interface Killable {
 
 const byRun = new Map<string, Set<Killable>>()
 
+// Runs that have been interrupted/killed. A delegated subtask can be parked in the
+// concurrency semaphore (waiters) when STOP fires; once a slot frees it would
+// otherwise spawn a fresh goose process for a run that's already dead (orphan
+// process + wasted free-tier call). runGooseSubtask checks isRunKilled() right
+// after acquiring a slot and bails instead. Bounded so it can't grow unbounded
+// (runIds are UUIDs, never reused — so eviction of the oldest is always safe).
+const killed = new Set<string>()
+const KILLED_CAP = 256
+
+/** True if a run was interrupted — a parked subtask should NOT spawn for it. */
+export function isRunKilled(runId: string): boolean {
+  return killed.has(runId)
+}
+
 export function registerGooseClient(runId: string, client: Killable): void {
   let set = byRun.get(runId)
   if (!set) {
@@ -31,6 +45,10 @@ export function unregisterGooseClient(runId: string, client: Killable): void {
 
 /** Kill every goose client spawned for a run (called from interruptRun). */
 export function killGooseForRun(runId: string): void {
+  // Mark the run dead even if it has no live clients yet — a subtask may still be
+  // parked in the semaphore and must not spawn once a slot frees.
+  killed.add(runId)
+  if (killed.size > KILLED_CAP) killed.delete(killed.values().next().value as string)
   const set = byRun.get(runId)
   if (!set) return
   for (const c of set) {

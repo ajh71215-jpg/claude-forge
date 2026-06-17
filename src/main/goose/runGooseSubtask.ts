@@ -20,6 +20,7 @@ import { buildGooseEnv, type GooseMode } from './env'
 import { mapUpdate, normalizeTool } from './mapper'
 import {
   acquireGooseSlot,
+  isRunKilled,
   registerGooseClient,
   releaseGooseSlot,
   unregisterGooseClient
@@ -104,6 +105,13 @@ export async function runGooseSubtask(opts: GooseSubtaskOptions): Promise<GooseS
   // can't leak the slot we just acquired.
   await acquireGooseSlot()
   const runId = opts.runId
+  // STOP may have fired while this subtask was parked in the semaphore. If so, the
+  // run is already dead — don't spawn a fresh goose process that would orphan and
+  // run to goose's timeout. Release the slot we just took and bail.
+  if (runId && isRunKilled(runId)) {
+    releaseGooseSlot()
+    throw new Error('Run was interrupted before this delegated subtask could start')
+  }
   let client: AcpClient | undefined
   try {
     client = new AcpClient({ bin, cwd: opts.cwd, env, onUpdate, onServerRequest })

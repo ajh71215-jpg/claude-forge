@@ -7,8 +7,13 @@ import assert from 'node:assert/strict'
 import {
   estimateTokens,
   compressText,
-  compressContext
+  compressContext,
+  capToolResult,
+  squeezeProse,
+  FORGE_CONTEXT_TOKEN_CAP
 } from '../src/main/efficiency/compress'
+import { maskObservations } from '../src/main/efficiency/mask'
+import { createResponseCache } from '../src/main/efficiency/responseCache'
 
 // ── compress.ts (headroom) ───────────────────────────────────────────────────
 test('estimateTokens: ~4 chars/token', () => {
@@ -79,4 +84,112 @@ test('compressContext: drops empty parts', () => {
   const r = compressContext([{ label: 'a', text: '' }, { label: 'b', text: 'hi' }], 0)
   assert.ok(!r.text.includes('## a'))
   assert.match(r.text, /## b/)
+})
+
+// ── capToolResult (Forge-owned tool-result / context cap) ────────────────────
+test('capToolResult: under cap passes through without a trim header', () => {
+  const r = capToolResult('short answer', undefined, 'delegated result')
+  assert.equal(r.truncated, false)
+  assert.equal(r.text, 'short answer')
+  assert.ok(!/Forge trimmed/.test(r.text))
+})
+
+test('capToolResult: over cap elides and prepends a self-describing header', () => {
+  const huge = Array.from({ length: 5000 }, (_, i) => `detail line ${i} ${'.'.repeat(30)}`).join('\n')
+  const r = capToolResult(huge, 200, 'delegated result')
+  assert.ok(r.truncated)
+  assert.ok(r.originalTokens > r.tokens, 'should shrink')
+  assert.ok(r.tokens <= 260, `expected ~<=200 tokens, got ${r.tokens}`)
+  assert.match(r.text, /Forge trimmed this delegated result/)
+  assert.match(r.text, /elided by Forge compression/)
+})
+
+test('capToolResult: default cap is the shared 8k constant', () => {
+  assert.equal(FORGE_CONTEXT_TOKEN_CAP, 8000)
+  // A blob just under the cap is not truncated at the default.
+  const justUnder = 'x'.repeat((FORGE_CONTEXT_TOKEN_CAP - 100) * 4)
+  assert.equal(capToolResult(justUnder).truncated, false)
+})
+
+test('capToolResult: empty input is safe', () => {
+  const r = capToolResult('')
+  assert.equal(r.text, '')
+  assert.equal(r.truncated, false)
+})
+
+// ── squeezeProse (model-free LLMLingua analog) ───────────────────────────────
+test('squeezeProse: drops filler phrases and tightens whitespace', () => {
+  const r = squeezeProse('Please note that in order to  build , you basically run it .')
+  assert.ok(!/please note that/i.test(r))
+  assert.ok(!/basically/i.test(r))
+  assert.match(r, /\bto build,/)
+  assert.ok(!/ {2,}/.test(r), 'collapses double spaces')
+  assert.ok(!/ ,/.test(r), 'no space before punctuation')
+})
+
+test('squeezeProse: leaves clean prose essentially intact', () => {
+  assert.equal(squeezeProse('The cache key is the file path.'), 'The cache key is the file path.')
+})
+
+// ── maskObservations (JetBrains observation masking) ─────────────────────────
+test('maskObservations: keeps recent in full, masks older', () => {
+  const big = 'x'.repeat(2000)
+  const obs = [
+    { label: 's1', text: big },
+    { label: 's2', text: big },
+    { label: 's3', text: 'recent result' }
+  ]
+  const out = maskObservations(obs, { keepRecent: 1 })
+  assert.match(out, /s1: output masked/)
+  assert.match(out, /s2: output masked/)
+  assert.ok(out.includes('recent result'), 'most-recent kept in full')
+  assert.ok(out.length < big.length, 'older payloads dropped')
+})
+
+test('maskObservations: tiny observations are not masked', () => {
+  const obs = [
+    { label: 'a', text: 'short' },
+    { label: 'b', text: 'also short' }
+  ]
+  const out = maskObservations(obs, { keepRecent: 0, minMaskTokens: 50 })
+  assert.ok(out.includes('short'))
+  assert.ok(!/output masked/.test(out))
+})
+
+// ── createResponseCache (lexical/exact response cache) ───────────────────────
+test('responseCache: normalized-exact hit ignores case/whitespace', () => {
+  const c = createResponseCache<string>()
+  c.set('Summarize  the  FILE', 'done')
+  assert.equal(c.get('summarize the file'), 'done')
+  assert.equal(c.get('summarize something else'), undefined)
+})
+
+test('responseCache: TTL expiry via injected clock', () => {
+  let t = 1000
+  const c = createResponseCache<string>({ ttlMs: 100, now: () => t })
+  c.set('q', 'v')
+  t = 1050
+  assert.equal(c.get('q'), 'v')
+  t = 2000
+  assert.equal(c.get('q'), undefined, 'expired past TTL')
+})
+
+test('responseCache: fuzzy match only when threshold < 1', () => {
+  const exact = createResponseCache<string>({ threshold: 1 })
+  exact.set('classify the payment webhook event', 'A')
+  assert.equal(exact.get('classify payment webhook events'), undefined)
+  const fuzzy = createResponseCache<string>({ threshold: 0.5 })
+  fuzzy.set('classify the payment webhook event', 'A')
+  assert.equal(fuzzy.get('classify the payment webhook events please'), 'A')
+})
+
+test('responseCache: LRU eviction respects capacity', () => {
+  const c = createResponseCache<number>({ maxEntries: 2 })
+  c.set('a', 1)
+  c.set('b', 2)
+  c.get('a') // bump a → b is now LRU
+  c.set('c', 3) // evicts b
+  assert.equal(c.get('b'), undefined)
+  assert.equal(c.get('a'), 1)
+  assert.equal(c.get('c'), 3)
 })

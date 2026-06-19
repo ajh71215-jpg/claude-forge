@@ -69,6 +69,9 @@ export interface AgentActivity {
   cacheWriteTokens?: number
   /** Total context tokens at the end of the run (fresh + cache read + cache write). */
   contextTokens?: number
+  /** Tokens of context Forge itself injected (repo map + recalled memory), first
+   * turn only — the "injected-context occupancy" metric (TOKEN_OPTIMIZATION §9). */
+  injectedTokens?: number
 }
 
 export interface ActivitySnapshot {
@@ -382,6 +385,7 @@ export function onActivityEvent(ev: AgentEvent): void {
         if (ev.cacheReadTokens != null) run.cacheReadTokens = ev.cacheReadTokens
         if (ev.cacheWriteTokens != null) run.cacheWriteTokens = ev.cacheWriteTokens
         if (ev.contextTokens != null) run.contextTokens = ev.contextTokens
+        if (ev.injectedTokens != null) run.injectedTokens = ev.injectedTokens
         finish(run, ev.ok ? 'ok' : 'error', ev.costUsd)
       }
       // Any orphan subagents from this run resolve with the run.

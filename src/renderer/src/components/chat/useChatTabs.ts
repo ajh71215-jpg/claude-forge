@@ -22,6 +22,9 @@ export interface ChatTab {
   effort?: EffortLabel
   /** Per-conversation persona override (set via /persona); falls back to global. */
   persona?: string
+  /** Per-conversation MCP-server scope: names of the configured servers to load
+   * for this chat. undefined ⇒ all (default); trims the per-turn MCP tax. */
+  mcpScope?: string[]
 }
 
 export const MAX_TABS = 5
@@ -34,6 +37,7 @@ interface SessionOpts {
   model?: string
   effort?: EffortLabel
   persona?: string
+  mcpScope?: string[]
 }
 
 /** Stable workspace id for a resumed session (so it reuses the dir where it did
@@ -93,6 +97,7 @@ export interface ChatTabs {
   setTabModel: (key: string, value: string) => void
   setTabEffort: (key: string, value: EffortLabel | 'GLOBAL') => void
   setTabPersona: (key: string, persona: string | null) => void
+  setTabMcpScope: (key: string, scope: string[] | null) => void
   closeTab: (key: string) => void
   tabTitle: (t: ChatTab) => string
   /** Reset any open tab showing a (deleted) conversation to a fresh one. */
@@ -136,7 +141,12 @@ export function useChatTabs(opts: {
     rememberSessionWs(id, wsKey)
     // Restore the per-chat model/effort/persona this conversation was last using.
     const saved = loadSessionOpts(id)
-    const seed = { model: saved.model, effort: saved.effort, persona: saved.persona }
+    const seed = {
+      model: saved.model,
+      effort: saved.effort,
+      persona: saved.persona,
+      mcpScope: saved.mcpScope
+    }
     const active = tabs.find((t) => t.key === activeKey)
     if ((active && active.sessionId === null) || tabs.length >= MAX_TABS) {
       const target = active && active.sessionId === null ? active.key : activeKey
@@ -165,7 +175,13 @@ export function useChatTabs(opts: {
   function setTabSession(key: string, sid: string): void {
     rememberSessionWs(sid, key)
     const t = tabs.find((x) => x.key === key)
-    if (t) saveSessionOpts(sid, { model: t.model, effort: t.effort, persona: t.persona })
+    if (t)
+      saveSessionOpts(sid, {
+        model: t.model,
+        effort: t.effort,
+        persona: t.persona,
+        mcpScope: t.mcpScope
+      })
     setTabs((prev) => prev.map((x) => (x.key === key ? { ...x, sessionId: sid } : x)))
   }
   /** Set/clear a tab's per-conversation model override (via /model or the chat
@@ -193,6 +209,14 @@ export function useChatTabs(opts: {
     setTabs((prev) =>
       prev.map((x) => (x.key === key ? { ...x, persona: persona || undefined } : x))
     )
+  }
+  /** Set/clear a tab's per-conversation MCP scope. null ⇒ all servers (default);
+   * an array (incl. empty) ⇒ exactly those servers load. */
+  function setTabMcpScope(key: string, scope: string[] | null): void {
+    const next = scope ?? undefined
+    const t = tabs.find((x) => x.key === key)
+    if (t?.sessionId) saveSessionOpts(t.sessionId, { mcpScope: next })
+    setTabs((prev) => prev.map((x) => (x.key === key ? { ...x, mcpScope: next } : x)))
   }
   /** Close a tab (always keep at least one); focus a neighbor if it was active. */
   function closeTab(key: string): void {
@@ -231,6 +255,7 @@ export function useChatTabs(opts: {
     setTabModel,
     setTabEffort,
     setTabPersona,
+    setTabMcpScope,
     closeTab,
     tabTitle,
     clearTabsForSession,

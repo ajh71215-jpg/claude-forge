@@ -17,6 +17,9 @@ export default function ChatControls({
   onSetEffort,
   convPersona,
   onSetConvPersona,
+  mcpServers,
+  mcpScope,
+  onSetMcpScope,
   costSaver
 }: {
   models: ModelInfo[]
@@ -32,6 +35,12 @@ export default function ChatControls({
   onSetEffort: (value: EffortLabel | 'GLOBAL') => void
   convPersona?: string
   onSetConvPersona: (text: string | null) => void
+  /** Names of the configured MCP servers (for the per-conversation scope control). */
+  mcpServers: string[]
+  /** This conversation's MCP scope (names to load); undefined ⇒ all servers. */
+  mcpScope?: string[]
+  /** Set/clear this conversation's MCP scope; null ⇒ all (default). */
+  onSetMcpScope: (scope: string[] | null) => void
   /** Cost-saver routing is on — model/effort are chosen per prompt, so the manual
    * controls are disabled (mirrors the sidebar). */
   costSaver: boolean
@@ -49,6 +58,9 @@ export default function ChatControls({
       : (models.find((m) => m.value === globalModel)?.displayName ?? globalModel)
 
   const [personaOpen, setPersonaOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
+  // undefined scope ⇒ all servers load; a list ⇒ only those.
+  const mcpActive = mcpScope ? mcpScope.length : mcpServers.length
 
   return (
     <div className={`chat-controls${costSaver ? ' dim' : ''}`}>
@@ -99,6 +111,19 @@ export default function ChatControls({
         <span className="cc-persona-state">{convPersona ? '✦ custom' : '— global'}</span>
       </button>
 
+      {mcpServers.length > 0 && (
+        <button
+          className={`cc-field cc-persona${mcpScope ? ' on' : ''}`}
+          title="Choose which MCP servers load for THIS conversation. Each server's tool definitions are re-sent every turn, so scoping to only what you need trims tokens (docs/TOKEN_OPTIMIZATION.md §10)."
+          onClick={() => setMcpOpen(true)}
+        >
+          <span className="cc-label">mcp</span>
+          <span className="cc-persona-state">
+            {mcpScope ? `${mcpActive}/${mcpServers.length}` : '— all'}
+          </span>
+        </button>
+      )}
+
       {personaOpen && (
         <PersonaEditor
           initial={convPersona ?? ''}
@@ -109,6 +134,82 @@ export default function ChatControls({
           }}
         />
       )}
+
+      {mcpOpen && (
+        <McpScopeEditor
+          servers={mcpServers}
+          scope={mcpScope}
+          onClose={() => setMcpOpen(false)}
+          onSave={(scope) => {
+            onSetMcpScope(scope)
+            setMcpOpen(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Modal to pick which MCP servers load for THIS conversation. Saving the full
+ *  set clears the scope (≡ "all", the default); a strict subset stores that list;
+ *  none stores an empty list. */
+function McpScopeEditor({
+  servers,
+  scope,
+  onClose,
+  onSave
+}: {
+  servers: string[]
+  scope?: string[]
+  onClose: () => void
+  onSave: (scope: string[] | null) => void
+}): JSX.Element {
+  // undefined scope ⇒ all checked (default loads every server).
+  const [sel, setSel] = useState<Set<string>>(() => new Set(scope ?? servers))
+  const toggle = (name: string): void =>
+    setSel((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  const save = (): void => {
+    const picked = servers.filter((s) => sel.has(s))
+    // All selected ⇒ clear the override back to the default (load everything).
+    onSave(picked.length === servers.length ? null : picked)
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal cc-persona-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">CONVERSATION MCP SERVERS</div>
+        <div className="help-note">
+          Only the checked servers load for this chat. Each server&apos;s tool definitions are
+          re-sent on every turn, so unchecking ones you don&apos;t need here saves tokens. All
+          checked ≡ the default (load everything).
+        </div>
+        <div className="cc-mcp-list">
+          {servers.map((name) => (
+            <label key={name} className="cc-mcp-row">
+              <input type="checkbox" checked={sel.has(name)} onChange={() => toggle(name)} />
+              <span>{name}</span>
+            </label>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button className="mini-btn" onClick={() => setSel(new Set(servers))} title="Load all servers">
+            All
+          </button>
+          <button className="mini-btn" onClick={() => setSel(new Set())} title="Load no MCP servers">
+            None
+          </button>
+          <button className="mini-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="primary" onClick={save}>
+            Save
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

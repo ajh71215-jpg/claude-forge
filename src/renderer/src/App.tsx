@@ -103,6 +103,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     setTabModel,
     setTabEffort,
     setTabPersona,
+    setTabMcpScope,
     closeTab,
     tabTitle,
     clearTabsForSession,
@@ -564,11 +565,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
                     workspaceId={t.key}
                     isActive={t.key === activeKey}
                     convPersona={t.persona}
+                    mcpScope={t.mcpScope}
                     sessionId={t.sessionId}
                     sessionKey={t.sessionKey}
                     onSession={(id) => setTabSession(t.key, id)}
                     onSetModel={(id) => setTabModel(t.key, id)}
                     onSetConvPersona={(text) => setTabPersona(t.key, text)}
+                    onSetMcpScope={(s) => setTabMcpScope(t.key, s)}
                     onSetEffort={(l) => setTabEffort(t.key, l)}
                     onSetPermission={setPermission}
                     onNewSession={() => resetTab(t.key)}

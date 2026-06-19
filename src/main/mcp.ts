@@ -1,4 +1,5 @@
 import { readForgeConfig, writeForgeConfig } from './projectSettings'
+import { scopeMcpServers } from './mcpScope'
 
 /**
  * MCP server management (roadmap #4). Forge owns the connections, so servers are
@@ -100,9 +101,15 @@ export async function deleteMcpServer(name: string): Promise<McpServerEntry[]> {
   return listMcpServers()
 }
 
-/** Convert stored entries to the SDK `mcpServers` option shape. */
-export async function toSdkMcpServers(): Promise<Record<string, Record<string, unknown>>> {
-  const servers = await readAll()
+/**
+ * Convert stored entries to the SDK `mcpServers` option shape. `scope` (the
+ * per-conversation MCP scope) restricts which servers load this run; undefined ⇒
+ * all (default), `[]` ⇒ none. Trims the per-turn "MCP tax" (TOKEN_OPTIMIZATION §10).
+ */
+export async function toSdkMcpServers(
+  scope?: string[]
+): Promise<Record<string, Record<string, unknown>>> {
+  const servers = scopeMcpServers(await readAll(), scope)
   const out: Record<string, Record<string, unknown>> = {}
   for (const s of servers) {
     if (!s?.name) continue

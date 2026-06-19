@@ -67,7 +67,9 @@ export default function Composer({
   onNewSession,
   workspaceId,
   isActive = true,
-  convPersona
+  convPersona,
+  mcpScope,
+  onSetMcpScope
 }: {
   model?: string
   permission: Permission
@@ -120,6 +122,11 @@ export default function Composer({
   /** This conversation's persona override (set via /persona); when set it's sent
    * as the run's systemPrompt (replace), overriding the global persona. */
   convPersona?: string
+  /** This conversation's MCP-server scope (names to load); undefined ⇒ all. Trims
+   * the per-turn tool-definition tax (docs/TOKEN_OPTIMIZATION.md §10). */
+  mcpScope?: string[]
+  /** Set/clear this conversation's MCP scope; null ⇒ all servers (default). */
+  onSetMcpScope: (scope: string[] | null) => void
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
   const [menuIndex, setMenuIndex] = useState(0)
@@ -130,6 +137,19 @@ export default function Composer({
   const { attachments, setAttachments, dragOver, setDragOver, fileRef, addFiles, onDrop } =
     useImageAttachments()
   const [exportOpen, setExportOpen] = useState(false)
+  // Configured MCP server names, for the per-conversation scope control. Fetched
+  // once; an empty list hides the control (nothing to scope).
+  const [mcpServers, setMcpServers] = useState<string[]>([])
+  useEffect(() => {
+    let on = true
+    window.forge.mcp
+      .list()
+      .then((s) => on && setMcpServers(s.map((x) => x.name)))
+      .catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [])
   // Magic-keyword modes detected in the current draft (shown as chips so the
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
@@ -386,6 +406,9 @@ export default function Composer({
     // for THIS conversation, so it doesn't bust the cache (constant across turns)
     // and overrides the global persona resolved in the main process.
     if (convPersona && convPersona.trim()) opts.systemPrompt = convPersona
+    // Per-conversation MCP scope: undefined ⇒ all servers (default); an explicit
+    // list (incl. empty) trims which servers' tool defs load this run.
+    if (mcpScope) opts.mcpScope = mcpScope
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
       opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))
@@ -742,6 +765,9 @@ export default function Composer({
           onSetEffort={onSetEffort}
           convPersona={convPersona}
           onSetConvPersona={onSetConvPersona}
+          mcpServers={mcpServers}
+          mcpScope={mcpScope}
+          onSetMcpScope={onSetMcpScope}
           costSaver={costSaver}
         />
         {goal && (

@@ -183,7 +183,20 @@ Phase 0(settingSources) + 6개 기능 전부 EXTEND 탭에 출하. 코드로 확
   **라이브 실호출**: cost-saver ON + trivial 프롬프트 → 실제 haiku로 라우팅돼 응답 완료(위 live-smoke).
 - [~] **레버 3 (compaction)** — `auto-compact at 80%` 토글 존재(기존, Composer `ctxWindow` 80% 트리거) /
   플랜의 *가역 정책*(요약본↔원문 복원)은 미착수
-- [ ] **레버 2 (동적 tool 스코핑)** · **레버 5 (retrieval-first)** · **레버 6 (output 절감)** — 미착수
+- [x] **레버 2 (동적 tool 스코핑) — 대화별 MCP 스코핑 구현** ✅ (2026-06-19, TOKEN.md §10.5): `RunOptions.mcpScope`
+  → `toSdkMcpServers(scope)`(순수 `scopeMcpServers` 필터, 테스트 5) → 채팅 컨트롤 `mcp` 토글+모달, per-tab
+  영속. 무거운 MCP 세트의 매-턴 재전송 비용 직격. **렌더러 동작 미검증(클라우드 키/GUI 없음)** · build 339모듈 ✅.
+- [x] **레버 5 (retrieval-first) — RAG 구현** ✅ (2026-06-19, TOKEN.md §11.1): `src/main/retrieval/`
+  (chunk+scan+bm25 재사용) → fresh 턴에 top-k 콘텐츠 청크 주입(`path:line` 헤더 = 모델-프리 Contextual
+  Retrieval), BM25 자연 게이트. 라이브.
+- [x] **보고서 미적용 4종 진행** ✅ (2026-06-19, TOKEN.md §11): RAG(라이브) · 응답캐싱(delegate 읽기전용만,
+  렉시컬·임베딩 아님) · prose squeeze(memory prose, 모델-프리·LLMLingua 아님) · 관찰 마스킹(순수 코어만 —
+  CLI가 히스토리 소유라 라이브 불가). 순수 코어 전부 테스트(test 75) · typecheck · build · selftest 133 ✅.
+- [ ] **레버 6 (output 절감)** — 미착수
+- [x] **§10 (구조적 보고서 반영, 2026-06-19)** ✅ — Forge가 *실제로 소유한* 토큰만 줄임: goose `delegate`
+  결과를 `capToolResult`(기본 8k)로 캡(라이브 O(n²) 방지) · subtaskRunner 컨텍스트 캡(잠재/라이브러리) ·
+  주입 컨텍스트 `injectedTokens` 계측(데이터 레이어). SDK-제어 vs Forge-제어 레버 분류 + MCP occupancy
+  측정 불가 한계를 TOKEN.md §10에 정직 기록. 순수+테스트(efficiency.test 58) · typecheck · selftest 133 ✅.
 - [ ] **§5 구독 반증**: 캐싱/라우팅이 구독 rate-limit을 못 줄이면 → 레버 1·4를 *지연 개선*으로 강등 (미측정)
 
 > 정적 게이트: typecheck ✅ · build ✅(렌더러 307모듈 — `routing.ts` 렌더러 번들에 깔끔히 포함) ·

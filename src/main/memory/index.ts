@@ -1,7 +1,7 @@
 // Persistent project memory (absorbed from rohitg00/agentmemory). Barrel +
 // the injection helper runStreaming calls at the start of a fresh conversation.
 
-import { compressText } from '../efficiency/compress'
+import { compressText, squeezeProse } from '../efficiency/compress'
 import { allMemories, isMemoryEnabled, memoryBudgetTokens, recordAccess } from './store'
 import { retrieve, assembleMemory } from './retrieve'
 
@@ -41,7 +41,9 @@ export async function buildMemoryInjection(
     const chosen = retrieve(entries, query, { budgetTokens: budget, workspaceId: opts.workspaceId })
     if (chosen.length === 0) return { text: '', count: 0 }
     await recordAccess(chosen.map((e) => e.id))
-    const body = compressText(assembleMemory(chosen), { maxTokens: budget }).text
+    // Memory facts are prose, so it's safe to drop low-signal filler (squeezeProse,
+    // the model-free LLMLingua analog) before the budget-bounded compression.
+    const body = compressText(squeezeProse(assembleMemory(chosen)), { maxTokens: budget }).text
     const text =
       '<project-memory>\n' +
       'Facts Forge auto-captured from earlier sessions in this project. They may ' +

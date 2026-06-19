@@ -49,6 +49,14 @@ export interface RunOptions {
    * i.e. identical to current behavior. (docs/SQUAD_ORCHESTRATION.md §6)
    */
   agents?: Record<string, AgentDefinition>
+  /**
+   * Per-conversation MCP-server scope: the names of the configured MCP servers to
+   * load for THIS run. Each tool definition is re-sent every turn (the "MCP tax",
+   * docs/TOKEN_OPTIMIZATION.md §10 / report §5), so scoping a conversation to only
+   * the servers it needs trims per-turn input tokens. Omitted ⇒ ALL servers load
+   * (default, zero behavior change); `[]` ⇒ none.
+   */
+  mcpScope?: string[]
 }
 
 export interface SessionInfo {
@@ -250,6 +258,12 @@ export type AgentEvent =
       /** cache_creation_input_tokens — the write side of prompt caching, for the
        * cache hit % metric (docs/TOKEN_OPTIMIZATION.md §3 lever 1). */
       cacheWriteTokens?: number
+      /** Estimated tokens of context Forge itself injected this run (repo map +
+       * recalled memory), prepended on the first turn only. Data-layer metric for
+       * the "injected-context occupancy" the report's §9 measurement asks for;
+       * 0 on resumed turns. Forge can measure only what it constructs — the SDK's
+       * own tool-definition footprint is materialized by the CLI, out of reach. */
+      injectedTokens?: number
       error?: string
     }
 

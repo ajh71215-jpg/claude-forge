@@ -197,6 +197,88 @@ export function compressText(input: string, options: CompressOptions = {}): Comp
   }
 }
 
+/**
+ * Default ceiling for a Forge-CONSTRUCTED tool result / context blob that gets
+ * carried in the prompt. The report's guidance is "keep tool responses under
+ * 25,000 tokens"; Forge uses a tighter 8k default because such a result is then
+ * re-sent on every subsequent turn (the O(n²) re-billing cost dominates), and a
+ * delegated free-model answer rarely needs more than this. Tunable — the single
+ * source of truth for the cap so callers don't hard-code their own number.
+ */
+export const FORGE_CONTEXT_TOKEN_CAP = 8000
+
+export interface CapResult {
+  text: string
+  /** True when the input exceeded the cap and was head/tail-elided. */
+  truncated: boolean
+  /** Token estimate of the returned text (after any compression). */
+  tokens: number
+  /** Token estimate of the original input (before compression). */
+  originalTokens: number
+}
+
+/**
+ * Cap a Forge-OWNED tool result / context blob to a token budget, marked-lossy.
+ * This is the one place Forge can apply the report's "bound large observations"
+ * rule, since the SDK's own tool results (Read/Bash/…) are out of reach — only
+ * the context Forge itself constructs (the goose `delegate` result, orchestration
+ * blackboard context) flows through here. Always squeezes (dedup/whitespace);
+ * only head/tail-elides above `maxTokens`. When trimmed, a one-line header tells
+ * the model the blob was shortened so it can re-request a specific part.
+ */
+export function capToolResult(
+  text: string,
+  maxTokens: number = FORGE_CONTEXT_TOKEN_CAP,
+  label = 'result'
+): CapResult {
+  const r = compressText(text, { maxTokens })
+  const out = r.truncated
+    ? `[Forge trimmed this ${label} from ~${r.originalTokens} to ~${r.compressedTokens} tokens to keep context small; ask again for a specific part if you need more.]\n${r.text}`
+    : r.text
+  return {
+    text: out,
+    truncated: r.truncated,
+    tokens: estimateTokens(out),
+    originalTokens: r.originalTokens
+  }
+}
+
+// Low-signal filler PHRASES that are safe to drop from injected PROSE context
+// without changing meaning. We target known-redundant phrases rather than doing
+// stopword removal (which corrupts code and can change meaning) — the safe,
+// model-free analog of LLMLingua's perplexity-based token dropping. True
+// LLMLingua needs a small LM to score tokens, which Forge has no in-process
+// equivalent for, so this is deliberately conservative.
+const FILLER: [RegExp, string][] = [
+  [/\bin order to\b/gi, 'to'],
+  [/\bplease note that\b/gi, ''],
+  [/\bit (?:is|'s) (?:worth|important) (?:noting|to note) that\b/gi, ''],
+  [/\bas (?:you can|we can) see\b/gi, ''],
+  [/\bplease\b/gi, ''],
+  [/\bbasically\b/gi, ''],
+  [/\bessentially\b/gi, ''],
+  [/\bvery\b/gi, ''],
+  [/\bin general\b/gi, ''],
+  [/\bof course\b/gi, '']
+]
+
+/**
+ * Squeeze injected PROSE (memory facts, retrieved-chunk headers) by dropping
+ * low-signal filler phrases + tightening whitespace. Conservative and model-free
+ * — NOT to be applied to code (it only removes English filler words/phrases).
+ * Safe to no-op: returns the input minus filler, never reorders or rewrites.
+ */
+export function squeezeProse(input: string): string {
+  let s = input
+  for (const [re, rep] of FILLER) s = s.replace(re, rep)
+  return s
+    .replace(/[ \t]{2,}/g, ' ') // collapse internal whitespace runs
+    .replace(/ +([,.;:!?])/g, '$1') // no space before punctuation
+    .replace(/\n[ \t]+/g, '\n') // strip leading indent on prose lines
+    .replace(/[ \t]+\n/g, '\n') // strip trailing whitespace
+    .trim()
+}
+
 export interface ContextPart {
   /** Short label rendered as a section header (e.g. "memory", "repo map"). */
   label: string

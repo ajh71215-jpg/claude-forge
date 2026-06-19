@@ -85,3 +85,46 @@ output — the same task at a fraction of the tokens.
   the actual recall quality, injection effect on real runs, and the renderer
   panels were not exercised against a live model. Wiring is type-safe and builds;
   behavior needs a local Electron run to confirm.
+
+## Forge-owned tool-result cap — `capToolResult` (2026-06-19)
+
+The compression core gained `capToolResult(text, maxTokens=8000, label)` +
+`FORGE_CONTEXT_TOKEN_CAP` (single tunable source of truth). It is the one place
+Forge can enforce the report's "bound large observations / keep tool responses
+under 25k tokens" rule, since the SDK's own tool results are out of reach — only
+**Forge-constructed** context flows through it:
+
+- **Live**: the goose `delegate` result (`goose/delegateTool.ts`) — previously an
+  unbounded free-model dump re-sent every turn (O(n²)); now capped marked-lossy.
+- **Latent**: the orchestration blackboard context (`agent/subtaskRunner.ts`) —
+  the conductor engine is a selftest-only library with no runtime caller, so this
+  is a zero-cost consistency fix for when/if it is wired up.
+- **Metric**: per-run `injectedTokens` (repo-map + memory) now persists to
+  `AgentActivity` (data layer; Cost-tab surfacing is a deferred renderer task).
+
+Pure + tested (`npm run test`, 58 assertions). See `docs/TOKEN_OPTIMIZATION.md`
+§10 for the full SDK-controlled-vs-Forge-controlled lever taxonomy and honest
+limits (MCP tool-definition occupancy is not measurable from Forge).
+
+## Four more levers — as much as the architecture honestly allows (2026-06-19)
+
+The report's remaining four (observation masking, semantic response caching,
+prompt compression, RAG) — each with a pure tested core; wired only where the
+local-only / CLI-wrapper architecture permits (full detail + honest limits in
+`docs/TOKEN_OPTIMIZATION.md` §11):
+
+- **RAG / Contextual Retrieval** (`src/main/retrieval/`) — chunk workspace
+  content, BM25-rank top-k for the query (reuses `memory/bm25`), inject fresh-turn
+  only with `path:line` provenance (model-free Contextual Retrieval). Naturally
+  gated: no term overlap ⇒ nothing injected. **Live.**
+- **Response cache** (`efficiency/responseCache.ts`) — pure LRU+TTL; normalized-
+  exact by default (no embedder ⇒ not true semantic). Wired to **read-only goose
+  delegations only** (write tasks never cached). **Live, scoped.**
+- **Prose squeeze** (`efficiency/compress.ts` `squeezeProse`) — model-free filler-
+  phrase removal (not stopword removal; not true LLMLingua). Applied to memory
+  prose only, never code. **Live, conservative.**
+- **Observation masking** (`efficiency/mask.ts`) — faithful pure core, but the
+  live CLI loop owns its history so it can't be masked (same limit as
+  `clear_tool_uses`); ships as a **tested core, not live-wired.**
+
+All pure cores covered by `npm run test` (75 total); typecheck + build green.

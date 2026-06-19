@@ -39,10 +39,19 @@ interface Totals {
   output: number
   cacheRead: number
   cacheWrite: number
+  injected: number
 }
 
 function aggregate(entries: AgentActivity[]): Totals {
-  const t: Totals = { cost: 0, runs: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const t: Totals = {
+    cost: 0,
+    runs: 0,
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    injected: 0
+  }
   for (const a of entries) {
     if (typeof a.costUsd === 'number') t.cost += a.costUsd
     // Token/cache breakdown lives on `run` entries (lead agent of each turn).
@@ -54,6 +63,7 @@ function aggregate(entries: AgentActivity[]): Totals {
       t.output += a.outputTokens ?? 0
       t.cacheRead += a.cacheReadTokens ?? 0
       t.cacheWrite += a.cacheWriteTokens ?? 0
+      t.injected += a.injectedTokens ?? 0
     }
   }
   return t
@@ -170,6 +180,11 @@ export default function CostView(): JSX.Element {
             sub="billed at ~0.1×"
           />
           <Stat label="CACHE WRITE" value={fmtTokens(totals.cacheWrite)} sub="cache creation" />
+          <Stat
+            label="INJECTED CTX"
+            value={fmtTokens(totals.injected)}
+            sub="Forge: repo map + memory"
+          />
         </div>
 
         <div className="cost-cachebar-wrap">

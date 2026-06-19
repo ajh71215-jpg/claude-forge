@@ -15,6 +15,7 @@
 // stay denied, so orchestration can't fan out uncontrolled or stall on a human.
 
 import { buildEnv, ensureWorkspace, SETTING_SOURCES } from './env'
+import { capToolResult } from '../efficiency/compress'
 
 /** Tools a read-only subtask may use; everything else is denied. */
 const READ_ONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'TodoWrite'])
@@ -66,8 +67,16 @@ export async function runSubtaskQuery(opts: SubtaskRunOptions): Promise<SubtaskR
   const env = await buildEnv()
   const cwd = await ensureWorkspace()
 
-  const prompt = opts.context
-    ? `Context from earlier subtasks (read-only):\n${opts.context}\n\n---\nYour task: ${opts.instruction}`
+  // Bound the prior-subtask blackboard context before it enters the prompt, so a
+  // long plan can't re-feed an ever-growing context blob into each subtask. (This
+  // is the orchestration engine's analog of the delegate-result cap; the conductor
+  // engine is currently a selftest-only library with no runtime caller, so this is
+  // a latent consistency fix — it costs nothing until the engine is wired up.)
+  const ctx = opts.context
+    ? capToolResult(opts.context, undefined, 'prior-subtask context').text
+    : undefined
+  const prompt = ctx
+    ? `Context from earlier subtasks (read-only):\n${ctx}\n\n---\nYour task: ${opts.instruction}`
     : opts.instruction
 
   const builder = opts.writeCapable === true

@@ -2,6 +2,7 @@ node_modules/
 dist/
 out/
 out-selftest/
+out-test/
 *.log
 .env
 .env.local

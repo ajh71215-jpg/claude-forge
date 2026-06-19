@@ -22,6 +22,8 @@ import { active, pendingDialogs, pendingPerms } from './state'
 import { emitAgentEvent } from '../pet/bus'
 import { buildMemoryInjection, noteRunWorkspace } from '../memory'
 import { buildRepoMapInjection } from '../repomap'
+import { buildRetrievalInjection } from '../retrieval'
+import { estimateTokens } from '../efficiency/compress'
 import type { ActiveQuery, AgentEvent, AgentEventBody, QuestionResult, RunOptions } from './types'
 
 export async function runStreaming(
@@ -74,8 +76,11 @@ export async function runStreaming(
   if (skills) options.skills = skills
 
   // MCP (roadmap #4): Forge owns these connections (configured in the EXTEND
-  // console), passed programmatically rather than via project `.claude/`.
-  const mcpServers = await toSdkMcpServers()
+  // console), passed programmatically rather than via project `.claude/`. The
+  // per-conversation scope (opts.mcpScope) trims which servers load this run so a
+  // chat doesn't pay the per-turn tool-definition tax for servers it never uses
+  // (docs/TOKEN_OPTIMIZATION.md §10); undefined ⇒ all (unchanged default).
+  const mcpServers = await toSdkMcpServers(opts.mcpScope)
 
   // Free-provider delegation (docs/GOOSE_INTEGRATION.md): when ≥1 provider is
   // enabled, expose the in-process `delegate` tool so the orchestrator can offload
@@ -154,6 +159,7 @@ export async function runStreaming(
   // run's workspace so captured facts are scoped.
   noteRunWorkspace(runId, opts.workspaceId)
   let effectivePrompt = prompt
+  let injectedTokens = 0
   if (!opts.resume) {
     // Both are no-ops until there's something to inject (empty memory / empty
     // workspace), and both are budget-bounded + compressed. Repo map first
@@ -161,9 +167,18 @@ export async function runStreaming(
     const blocks: string[] = []
     const repo = await buildRepoMapInjection(cwd)
     if (repo.text) blocks.push(repo.text)
+    // RAG (docs/TOKEN_OPTIMIZATION.md §11): top-k workspace content chunks relevant
+    // to the prompt. Naturally gated — injects nothing when the query has no term
+    // overlap — so it complements the structural repo map with actual code passages.
+    const rag = await buildRetrievalInjection(cwd, prompt)
+    if (rag.text) blocks.push(rag.text)
     const mem = await buildMemoryInjection(prompt, { workspaceId: opts.workspaceId })
     if (mem.text) blocks.push(mem.text)
-    if (blocks.length) effectivePrompt = `${blocks.join('\n\n')}\n\n${prompt}`
+    if (blocks.length) {
+      const injected = blocks.join('\n\n')
+      injectedTokens = estimateTokens(injected)
+      effectivePrompt = `${injected}\n\n${prompt}`
+    }
   }
 
   const q: any = query({ prompt: singlePrompt(effectivePrompt, opts.attachments), options } as any)
@@ -348,6 +363,7 @@ export async function runStreaming(
           contextTokens,
           cacheReadTokens: u?.cache_read_input_tokens,
           cacheWriteTokens: u?.cache_creation_input_tokens,
+          injectedTokens: injectedTokens || undefined,
           error: ok ? undefined : resultErrorMessage(msg.subtype)
         })
       }

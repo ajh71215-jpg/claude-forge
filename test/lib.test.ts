@@ -242,3 +242,63 @@ test('conversationToJson: round-trips to a structured object', () => {
   assert.equal(obj.turns.length, 1)
   assert.equal(obj.turns[0].prompt, 'do the thing')
 })
+
+// ── cost.ts ──────────────────────────────────────────────────────────────
+import { trendSeries, byConversation, budgetLevel, hasTokens } from '../src/renderer/src/lib/cost'
+import type { AgentActivity } from '../src/renderer/src/types'
+
+const run = (p: Partial<AgentActivity>): AgentActivity =>
+  ({ id: 'r', kind: 'run', runId: 'r', name: 'main agent', status: 'ok', startedAt: 0, ...p }) as AgentActivity
+
+test('hasTokens: true only when a token field is present', () => {
+  assert.equal(hasTokens(run({ inputTokens: 1 })), true)
+  assert.equal(hasTokens(run({ cacheReadTokens: 5 })), true)
+  assert.equal(hasTokens(run({ costUsd: 0.5 })), false)
+})
+
+test('trendSeries: chronological, token-bearing only, capped', () => {
+  const entries = [
+    run({ startedAt: 30, endedAt: 30, inputTokens: 10, costUsd: 0.3 }),
+    run({ startedAt: 10, endedAt: 10, inputTokens: 10, costUsd: 0.1 }),
+    run({ startedAt: 20, costUsd: 0.2 }), // no tokens → excluded
+  ]
+  const s = trendSeries(entries, 40)
+  assert.equal(s.length, 2)
+  assert.deepEqual(
+    s.map((p) => p.t),
+    [10, 30]
+  )
+  const capped = trendSeries(
+    Array.from({ length: 50 }, (_, i) => run({ startedAt: i, endedAt: i, inputTokens: 1 })),
+    40
+  )
+  assert.equal(capped.length, 40)
+  assert.equal(capped[0].t, 10) // oldest 10 dropped
+})
+
+test('byConversation: groups by sessionId, sorted by cost desc', () => {
+  const entries = [
+    run({ sessionId: 'a', inputTokens: 100, cacheReadTokens: 100, outputTokens: 50, costUsd: 0.2 }),
+    run({ sessionId: 'a', inputTokens: 0, cacheReadTokens: 100, costUsd: 0.1 }),
+    run({ sessionId: 'b', inputTokens: 10, costUsd: 0.9 }),
+    run({ inputTokens: 5, costUsd: 0.05 }), // no sessionId → '' bucket
+  ]
+  const g = byConversation(entries)
+  assert.equal(g.length, 3)
+  assert.equal(g[0].sessionId, 'b') // highest cost first
+  const a = g.find((c) => c.sessionId === 'a')!
+  assert.equal(a.runs, 2)
+  assert.ok(Math.abs(a.cost - 0.3) < 1e-9) // cost summed (0.2 + 0.1)
+  assert.equal(a.cacheRead, 200)
+  // cache hit = read / (fresh+read+write) = 200 / (100+200+0) = 67%
+  assert.equal(a.cacheHit, 67)
+})
+
+test('budgetLevel: 0 / 80 / 100 thresholds; 0 budget never crosses', () => {
+  assert.equal(budgetLevel(5, 0), 0)
+  assert.equal(budgetLevel(7, 10), 0)
+  assert.equal(budgetLevel(8, 10), 80)
+  assert.equal(budgetLevel(9.9, 10), 80)
+  assert.equal(budgetLevel(10, 10), 100)
+  assert.equal(budgetLevel(12, 10), 100)
+})

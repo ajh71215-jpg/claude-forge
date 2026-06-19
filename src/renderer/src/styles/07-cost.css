@@ -123,6 +123,264 @@
   color: var(--muted);
 }
 
+/* ---- spend budget ---- */
+.cost-budget {
+  margin-top: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 14px 16px;
+}
+.cost-budget.lvl-80 {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+}
+.cost-budget.lvl-100 {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+.cost-budget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cost-budget-title {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.cost-budget-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cost-budget-input input {
+  width: 72px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cost-budget-input input:focus {
+  outline: none;
+  border-color: var(--amber);
+}
+.cost-budget-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-deep);
+  margin: 12px 0 7px;
+  overflow: hidden;
+}
+.cost-budget-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--amber);
+  transition: width var(--dur-2) var(--ease-out), background var(--dur-2);
+}
+.cost-budget.lvl-80 .cost-budget-fill {
+  background: var(--warn);
+}
+.cost-budget.lvl-100 .cost-budget-fill {
+  background: var(--danger);
+}
+.cost-budget-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cost-budget-pct {
+  color: var(--text);
+}
+.cost-budget.lvl-80 .cost-budget-pct {
+  color: var(--warn);
+}
+.cost-budget.lvl-100 .cost-budget-pct {
+  color: var(--danger-bright);
+}
+.cost-budget-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ---- panel wrapper (chart host) ---- */
+.cost-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 14px 16px 10px;
+}
+
+/* ---- trend chart (cost bars + cache-hit line) ---- */
+.cost-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.cost-chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cc-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cc-key i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.cc-key-cost i {
+  background: var(--amber);
+}
+.cc-key-hit i {
+  border-radius: 999px;
+  background: var(--ok);
+}
+.cost-chart-axis {
+  font-size: 10.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.cost-chart-plot {
+  position: relative;
+}
+.cost-chart-svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+.cc-bar {
+  fill: var(--amber);
+  fill-opacity: 0.5;
+  transition: fill-opacity var(--dur-1);
+}
+.cc-bar.on {
+  fill-opacity: 1;
+}
+.cost-chart-tip {
+  position: absolute;
+  top: 2px;
+  pointer-events: none;
+  background: var(--bg-float);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  padding: 7px 10px;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  z-index: 2;
+  font-variant-numeric: tabular-nums;
+}
+.cct-when {
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.cct-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cct-row.muted {
+  color: var(--muted);
+  margin-top: 2px;
+}
+.cct-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+.cct-dot.cost {
+  background: var(--amber);
+}
+.cct-dot.hit {
+  border-radius: 999px;
+  background: var(--ok);
+}
+.cost-chart-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- per-conversation comparison ---- */
+.cost-conv {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 16px;
+}
+.cost-conv-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.cost-conv-label {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cost-conv-cost {
+  color: var(--amber-bright);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.cost-conv-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-deep);
+  margin: 6px 0;
+  overflow: hidden;
+}
+.cost-conv-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--amber);
+  transition: width var(--dur-2) var(--ease-out);
+}
+.cost-conv-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cost-conv-meta .good {
+  color: var(--ok);
+}
+.cost-conv-when {
+  margin-left: auto;
+  color: var(--faint);
+}
+
 /* ---- per-run table ---- */
 .cost-section-head {
   display: flex;
@@ -225,4 +483,75 @@
   max-width: 440px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* ---- budget toasts (portaled to <body>; visible over any tab) ---- */
+.forge-toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 360px;
+}
+.forge-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px 11px 13px;
+  background: var(--bg-float);
+  border: 1px solid var(--border-strong);
+  border-left-width: 3px;
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  animation: cost-toast-in var(--dur-2) var(--ease-out) both;
+}
+.forge-toast.lvl-80 {
+  border-left-color: var(--warn);
+}
+.forge-toast.lvl-100 {
+  border-left-color: var(--danger);
+}
+.forge-toast-mark {
+  flex: none;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.forge-toast.lvl-80 .forge-toast-mark {
+  color: var(--warn);
+}
+.forge-toast.lvl-100 .forge-toast-mark {
+  color: var(--danger-bright);
+}
+.forge-toast-msg {
+  flex: 1;
+}
+.forge-toast-x {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color var(--dur-1);
+}
+.forge-toast-x:hover {
+  color: var(--text);
+}
+@keyframes cost-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

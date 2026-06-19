@@ -39,6 +39,12 @@ export interface AgentActivity {
   runId: string
   /** Display name: 'main agent' | subagent_type | role/subtask id. */
   name: string
+  /** Conversation (SDK session) this run belongs to, captured from the `session`
+   * event. Stable across the turns of a conversation (each turn is its own runId
+   * but shares this sessionId), so the Cost dashboard can aggregate spend
+   * per-conversation. Absent on subagent/orchestration cards and on runs recorded
+   * before this field existed. */
+  sessionId?: string
   /** Description / instruction / the current action while running. */
   detail?: string
   status: ActivityStatus
@@ -228,6 +234,13 @@ export function onActivityEvent(ev: AgentEvent): void {
   const run = live.get(ev.runId)
 
   switch (ev.type) {
+    case 'session': {
+      // Tag the run with its conversation id so the Cost dashboard can group
+      // spend per-conversation. Fires early (first message carrying session_id),
+      // so it lands on the live entry before 'result' persists it to history.
+      if (run) run.sessionId = ev.sessionId
+      break
+    }
     case 'block-start': {
       // A subagent's block carries parent_tool_use_id → attribute to that
       // subagent's entry; otherwise to the lead run.

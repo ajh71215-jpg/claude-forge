@@ -26,6 +26,7 @@ import {
   deleteMcpServer,
   type McpSaveInput
 } from '../mcp'
+import { listBundledMcpServers, installBundledMcpServer } from '../mcpPack'
 import {
   listAgents,
   readAgent,
@@ -68,6 +69,9 @@ export function register(ipc: IpcMain): void {
   ipc.handle('mcp:list', () => listMcpServers())
   ipc.handle('mcp:save', (_e, input: McpSaveInput) => saveMcpServer(input))
   ipc.handle('mcp:delete', (_e, name: string) => deleteMcpServer(name))
+  // Curated MCP pack (codegraph absorption) — recommended local servers, one-click register.
+  ipc.handle('mcp:bundled', () => listBundledMcpServers())
+  ipc.handle('mcp:install', (_e, name: string) => installBundledMcpServer(name))
 
   // Reusable subagents — `.claude/agents/<name>.md`.
   ipc.handle('agents:list', () => listAgents())

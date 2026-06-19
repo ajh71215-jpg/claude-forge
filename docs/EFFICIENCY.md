@@ -128,3 +128,58 @@ local-only / CLI-wrapper architecture permits (full detail + honest limits in
   `clear_tool_uses`); ships as a **tested core, not live-wired.**
 
 All pure cores covered by `npm run test` (75 total); typecheck + build green.
+
+## codegraph + claude-mem absorption (call-graph MCP + progressive disclosure)
+
+Two more open-source ideas distilled, each chosen to fill a *specific* gap in the
+existing efficiency layer rather than duplicate it. Both keep the local-only /
+BYO-key constraint intact.
+
+### 1. CodeGraph as a recommended MCP server (`src/main/mcpPack.ts`)
+
+Forge's own repo map (`repomap/`) is structure-only: a regex symbol map, rebuilt
+not synced, with no call edges. **CodeGraph** (github.com/colbymchenry/codegraph,
+MIT) is a standalone, 100%-local MCP server that adds exactly what's missing —
+call-graph navigation (`who calls this?` / caller-callee trails), OS file-watch
+incremental sync, and on-demand symbol queries against a local SQLite graph (no
+API keys, no egress). Because it's a *server*, the honest integration is to
+**register, not port**: `mcpPack.ts` is a curated "Recommended" pack (mirroring
+`skillsPack.ts`) that one-click writes CodeGraph's config
+(`codegraph serve --mcp`, stdio) into the Forge-private `forge-mcp.json` via the
+existing `saveMcpServer` path — idempotent, never clobbering a user edit. EXTEND →
+MCP shows a card with the author-reported metric (median across 7 repos: 16%
+cheaper · 58% fewer tool calls · 47% fewer tokens) and the one-time binary
+prerequisite (`npm i -g @colbymchenry/codegraph` + `codegraph init` per project).
+Querying a graph on demand beats injecting a static map up front. **Wiring +
+typecheck/build green; the live MCP handshake needs the user to install the
+binary (not bundled like goose — registration only).**
+
+### 2. Progressive disclosure for memory (`src/main/memory/disclose.ts` + `memoryServer.ts`)
+
+The portable win from **claude-mem** (thedotmack/claude-mem, MIT) is *not* its
+heavy stack (SQLite + Chroma + a port-37777 worker + hooks — all of which overlap
+Forge's existing `memory/`), but its retrieval shape: a three-stage,
+graduated-detail flow that **filters before fetching detail** (claude-mem reports
+~10× savings). Ported as a pure core over Forge's own `MemoryEntry[]`:
+
+- `searchIndex` — a compact INDEX (id + kind + ~90-char snippet), BM25-ranked via
+  the existing `memory/bm25`. Cheap to scan many.
+- `timeline` — the chronological NEIGHBORS of chosen ids (deltaMs from the
+  anchor) — context to judge relevance before paying for detail.
+- `getRecords` — the FULL text, for a filtered id set only (the one expensive call).
+
+`memoryServer.ts` is the thin SDK glue exposing these as `memory_search` /
+`memory_timeline` / `memory_get` MCP tools (reusing the in-process-server pattern
+from goose's `delegateTool`). Registered in `runStreaming` **only when the user
+opts in** (`memory.toolsEnabled`, default off, EXTEND → Memory) so the
+token-frugal default never pays the live-tool tax; gated on the stable enabled
+flag so the tool prefix stays cache-stable across a conversation. Complements (not
+replaces) the cheap fresh-turn upfront recall — the tools let the model go *deeper*
+on demand instead of dumping everything. **Pure core covered by `npm run test`
+(now 85 total); the live tool round-trip + 10× claim are unverified in the cloud
+session (no key/GUI) — confirm on a local Electron run.**
+
+> Deferred: **graphify** (interactive HTML graph + god-node report) overlaps repo
+> map most and its non-code path costs LLM tokens (local-only exception). For the
+> coding loop, CodeGraph is the strict upgrade; a future "Repo Graph" Workspace tab
+> could surface graphify's visualization, but it's lower priority and unbuilt.

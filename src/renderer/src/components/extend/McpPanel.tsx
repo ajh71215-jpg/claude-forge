@@ -5,6 +5,7 @@ import { useEffect, useState, type JSX } from 'react'
 import Icon from '../Icon'
 import { useConfirm } from '../ConfirmDialog'
 import type { McpServer, McpServerEntry, McpTransport } from '../../types'
+import type { BundledMcpStatus } from '../../../../main/mcpPack'
 import { mcpStatusClass } from '../../lib/format'
 
 interface McpDraft {
@@ -45,6 +46,7 @@ export default function McpPanel({
 }): JSX.Element {
   const confirm = useConfirm()
   const [servers, setServers] = useState<McpServerEntry[] | null>(null)
+  const [pack, setPack] = useState<BundledMcpStatus[] | null>(null)
   const [editing, setEditing] = useState<McpDraft | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -53,10 +55,26 @@ export default function McpPanel({
       .list()
       .then(setServers)
       .catch(() => setServers([]))
+    window.forge.mcp
+      .bundled()
+      .then(setPack)
+      .catch(() => setPack([]))
   }
   useEffect(refresh, [])
 
   const statusByName = new Map(status.map((s) => [s.name, s.status]))
+
+  async function install(name: string): Promise<void> {
+    setBusy(true)
+    try {
+      const res = await window.forge.mcp.install(name)
+      if (res.ok) setServers(res.servers)
+      setPack(await window.forge.mcp.bundled())
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function remove(name: string): Promise<void> {
     if (!(await confirm({ message: `Remove MCP server "${name}"?`, danger: true, confirmLabel: 'Remove' }))) return
@@ -151,6 +169,53 @@ export default function McpPanel({
               </div>
             )
           })}
+        </div>
+      )}
+
+      {pack && pack.length > 0 && (
+        <div className="skills-pack">
+          <div className="skills-pack-head">
+            <span className="skills-pack-title">Recommended</span>
+            <span className="skills-pack-sub">
+              Local-only MCP servers that complement Forge · one-click register
+            </span>
+          </div>
+          {pack.map((b) => (
+            <div key={b.name} className="skill-row" style={{ cursor: 'default' }}>
+              <div className="skill-main" style={{ cursor: 'default' }}>
+                <div className="skill-name">
+                  {b.title}
+                  {b.localOnly && <span className="mcp-transport">local-only</span>}
+                </div>
+                <div className="skill-desc">{b.description}</div>
+                {b.metrics && (
+                  <div className="skills-sub" style={{ marginTop: 4 }}>
+                    {b.metrics}
+                  </div>
+                )}
+                {b.prerequisite?.note && (
+                  <div className="skill-note" style={{ marginTop: 6 }}>
+                    Requires the <code>{b.entry.command}</code> binary.{' '}
+                    {b.prerequisite.npm && (
+                      <>
+                        Install: <code>{b.prerequisite.npm}</code>.{' '}
+                      </>
+                    )}
+                    {b.prerequisite.note}
+                  </div>
+                )}
+              </div>
+              <div className="skill-actions">
+                {b.installed ? (
+                  <span className="mcp-status-inline">registered</span>
+                ) : (
+                  <button className="skill-act" disabled={busy} onClick={() => install(b.name)}>
+                    Register
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

@@ -13,6 +13,10 @@ const MAX_ENTRIES = 4000
 
 interface MemoryConfig {
   enabled?: boolean
+  /** Expose the progressive-disclosure MCP tools (search/timeline/get) to the
+   *  model. Default OFF — opt-in, since live tools add a small per-turn tool tax
+   *  the token-frugal default shouldn't pay automatically. */
+  toolsEnabled?: boolean
   budgetTokens?: number
   entries?: MemoryEntry[]
 }
@@ -23,6 +27,7 @@ async function read(): Promise<Required<MemoryConfig>> {
   const c = await readForgeConfig<MemoryConfig>(FILE, {})
   return {
     enabled: c.enabled ?? true, // on by default; a no-op until memories accrue
+    toolsEnabled: c.toolsEnabled ?? false,
     budgetTokens: c.budgetTokens ?? 1500,
     entries: Array.isArray(c.entries) ? c.entries : []
   }
@@ -40,6 +45,15 @@ export async function memoryBudgetTokens(): Promise<number> {
 export async function setMemoryEnabled(on: boolean): Promise<boolean> {
   const c = await read()
   c.enabled = on
+  await write(c)
+  return on
+}
+export async function isMemoryToolsEnabled(): Promise<boolean> {
+  return (await read()).toolsEnabled
+}
+export async function setMemoryToolsEnabled(on: boolean): Promise<boolean> {
+  const c = await read()
+  c.toolsEnabled = on
   await write(c)
   return on
 }

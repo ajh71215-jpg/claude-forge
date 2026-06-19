@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { observationToEntry, redactSecrets, fnv1a } from '../src/main/memory/observe'
 import { rankBm25, tokenize } from '../src/main/memory/bm25'
 import { retrieve, assembleMemory } from '../src/main/memory/retrieve'
+import { searchIndex, timeline, getRecords } from '../src/main/memory/disclose'
 import type { MemoryEntry } from '../src/main/memory/types'
 
 function entry(p: Partial<MemoryEntry> & { id: string; text: string }): MemoryEntry {
@@ -124,4 +125,77 @@ test('retrieve: recency decay favors newer over older', () => {
 test('assembleMemory: kind-tagged bullets', () => {
   const out = assembleMemory([entry({ id: '1', text: 'Edited x.ts' })])
   assert.match(out, /- \(semantic\) Edited x\.ts/)
+})
+
+// ── disclose.ts (progressive disclosure, claude-mem absorption) ───────────────
+const LONG = 'Refactored the authentication middleware to validate JWT signatures before any database lookup, short-circuiting unauthorized requests'
+
+test('searchIndex: ranks by relevance and returns compact, clipped snippets', () => {
+  const now = Date.now()
+  const entries = [
+    entry({ id: '1', text: LONG, createdAt: now }),
+    entry({ id: '2', text: 'Edited src/billing/invoice.ts', createdAt: now })
+  ]
+  const rows = searchIndex(entries, 'authentication JWT', { limit: 5 })
+  assert.equal(rows[0].id, '1')
+  // Snippet is clipped (the full LONG text is never surfaced at this stage).
+  assert.ok(rows[0].snippet.length < LONG.length)
+  assert.ok(rows[0].snippet.length <= 90)
+  // Compact row: no full `text`/`source` fields leak in.
+  assert.equal((rows[0] as unknown as Record<string, unknown>).text, undefined)
+})
+
+test('searchIndex: empty query browses newest-first; limit + kind filters apply', () => {
+  const now = Date.now()
+  const entries = [
+    entry({ id: 'a', text: 'older edit', createdAt: now - 1000 }),
+    entry({ id: 'b', text: 'newer edit', createdAt: now }),
+    entry({ id: 'c', text: 'Ran build', kind: 'procedural', createdAt: now })
+  ]
+  const rows = searchIndex(entries, '', { limit: 2 })
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].id, 'b') // newest first
+  const proc = searchIndex(entries, '', { kind: 'procedural' })
+  assert.deepEqual(proc.map((r) => r.id), ['c'])
+})
+
+test('searchIndex: sinceMs filters out stale entries', () => {
+  const now = Date.now()
+  const entries = [
+    entry({ id: 'old', text: 'auth thing', createdAt: now - 10 * 86_400_000 }),
+    entry({ id: 'new', text: 'auth thing', createdAt: now })
+  ]
+  const rows = searchIndex(entries, 'auth', { sinceMs: now - 86_400_000 })
+  assert.deepEqual(rows.map((r) => r.id), ['new'])
+})
+
+test('timeline: returns chronological neighbors with deltaMs from earliest anchor', () => {
+  const t0 = 1_000_000_000_000
+  const entries = [
+    entry({ id: 'far', text: 'unrelated', createdAt: t0 - 10 * 3_600_000 }),
+    entry({ id: 'before', text: 'set up env', createdAt: t0 - 600_000 }),
+    entry({ id: 'anchor', text: 'edited auth', createdAt: t0 }),
+    entry({ id: 'after', text: 'ran tests', createdAt: t0 + 600_000 })
+  ]
+  const rows = timeline(entries, ['anchor'], { windowMs: 3_600_000 })
+  const ids = rows.map((r) => r.id)
+  assert.deepEqual(ids, ['before', 'anchor', 'after']) // chronological, 'far' excluded
+  const anchorRow = rows.find((r) => r.id === 'anchor')!
+  assert.equal(anchorRow.deltaMs, 0)
+  assert.equal(rows.find((r) => r.id === 'before')!.deltaMs, -600_000)
+})
+
+test('timeline: unknown anchors yield no rows', () => {
+  const entries = [entry({ id: 'x', text: 'a' })]
+  assert.deepEqual(timeline(entries, ['nope']), [])
+})
+
+test('getRecords: returns full text for requested ids in order, skipping unknown', () => {
+  const entries = [
+    entry({ id: '1', text: LONG }),
+    entry({ id: '2', text: 'second fact' })
+  ]
+  const recs = getRecords(entries, ['2', '1', 'missing'])
+  assert.deepEqual(recs.map((r) => r.id), ['2', '1'])
+  assert.equal(recs[1].text, LONG) // full text, not the snippet
 })

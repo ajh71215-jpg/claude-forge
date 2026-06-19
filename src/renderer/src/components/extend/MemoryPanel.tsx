@@ -18,6 +18,7 @@ export default function MemoryPanel(): JSX.Element {
   const confirm = useConfirm()
   const [entries, setEntries] = useState<MemoryEntry[] | null>(null)
   const [enabled, setEnabled] = useState<boolean>(true)
+  const [tools, setTools] = useState<boolean>(false)
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -27,6 +28,7 @@ export default function MemoryPanel(): JSX.Element {
   }
   useEffect(() => {
     window.forge.memory.enabled().then(setEnabled).catch(() => {})
+    window.forge.memory.toolsEnabled().then(setTools).catch(() => {})
     refresh('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -35,6 +37,14 @@ export default function MemoryPanel(): JSX.Element {
     setBusy(true)
     try {
       setEnabled(await window.forge.memory.setEnabled(!enabled))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function toggleTools(): Promise<void> {
+    setBusy(true)
+    try {
+      setTools(await window.forge.memory.setToolsEnabled(!tools))
     } finally {
       setBusy(false)
     }
@@ -83,6 +93,26 @@ export default function MemoryPanel(): JSX.Element {
         >
           <span className="skill-knob" />
         </button>
+      </div>
+
+      <div className="skill-row" style={{ cursor: 'default' }}>
+        <button
+          className={`skill-switch ${tools ? 'on' : ''}`}
+          title={tools ? 'Disclosure tools on' : 'Disclosure tools off'}
+          disabled={busy || !enabled}
+          onClick={toggleTools}
+        >
+          <span className="skill-knob" />
+        </button>
+        <div className="skill-main" style={{ cursor: 'default' }}>
+          <div className="skill-name">Progressive disclosure tools</div>
+          <div className="skill-desc">
+            Expose <code>memory_search</code> → <code>memory_timeline</code> →{' '}
+            <code>memory_get</code> so the agent recalls deep facts on demand — scanning a cheap
+            index and fetching full text only for what it needs (claude-mem style, ~filter-before-fetch).
+            Off by default: live tools add a small per-turn tool cost.
+          </div>
+        </div>
       </div>
 
       <div className="plugin-add">

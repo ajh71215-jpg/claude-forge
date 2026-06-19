@@ -27,6 +27,7 @@ import type {
 } from '../main/commands'
 import type { HookRule } from '../main/hooks'
 import type { McpServerEntry, McpSaveInput, McpSaveResult } from '../main/mcp'
+import type { BundledMcpStatus, InstallBundledMcpResult } from '../main/mcpPack'
 import type {
   AgentMeta,
   AgentDetail,
@@ -122,7 +123,12 @@ const forge = {
   mcp: {
     list: (): Promise<McpServerEntry[]> => ipcRenderer.invoke('mcp:list'),
     save: (input: McpSaveInput): Promise<McpSaveResult> => ipcRenderer.invoke('mcp:save', input),
-    delete: (name: string): Promise<McpServerEntry[]> => ipcRenderer.invoke('mcp:delete', name)
+    delete: (name: string): Promise<McpServerEntry[]> => ipcRenderer.invoke('mcp:delete', name),
+    /** Curated recommended servers (codegraph absorption), with installed flags. */
+    bundled: (): Promise<BundledMcpStatus[]> => ipcRenderer.invoke('mcp:bundled'),
+    /** Register one bundled server into forge-mcp.json (idempotent). */
+    install: (name: string): Promise<InstallBundledMcpResult> =>
+      ipcRenderer.invoke('mcp:install', name)
   },
   agents: {
     list: (): Promise<AgentMeta[]> => ipcRenderer.invoke('agents:list'),
@@ -186,7 +192,11 @@ const forge = {
     clear: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:clear'),
     /** Whether memory capture + recall is enabled (default on). */
     enabled: (): Promise<boolean> => ipcRenderer.invoke('memory:enabled'),
-    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('memory:set-enabled', on)
+    setEnabled: (on: boolean): Promise<boolean> => ipcRenderer.invoke('memory:set-enabled', on),
+    /** Whether the progressive-disclosure MCP tools are exposed (default off). */
+    toolsEnabled: (): Promise<boolean> => ipcRenderer.invoke('memory:tools-enabled'),
+    setToolsEnabled: (on: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('memory:set-tools-enabled', on)
   },
   activity: {
     /** Current live + persisted agent activity for the Squad dashboard. */

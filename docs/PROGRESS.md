@@ -3,6 +3,19 @@
 > `docs/` 5개 플랜의 진행 상태를 **실제 코드 검증** 기반으로 추적한다. 각 플랜의 자체 원칙
 > ("추측 말고 측정")에 따라, 문서의 진행 기록을 코드와 대조해 확인한 결과만 기록한다.
 >
+> **업데이트(2026-06-19, codegraph MCP + claude-mem 점진적 공개 흡수)**: 두 오픈소스의 *특정 약점
+> 보완* 아이디어만 증류(EFFICIENCY.md 신규 섹션). ① **CodeGraph**(colbymchenry/codegraph, MIT) —
+> repomap이 못 하는 콜그래프·증분 동기화·온디맨드 쿼리를 가진 100% 로컬 MCP 서버. 포팅이 아니라
+> **등록**: `mcpPack.ts`(skillsPack 미러)로 EXTEND → MCP에 "Recommended" 카드 + 원클릭으로
+> `codegraph serve --mcp`(stdio) 설정을 forge-mcp.json에 기록(멱등). 바이너리 설치 + `codegraph init`은
+> 사용자 몫(goose처럼 번들 안 함 — 등록만). ② **claude-mem**(thedotmack, MIT) 점진적 공개만 cherry-pick —
+> `memory/disclose.ts`(순수): `searchIndex`(압축 인덱스) → `timeline`(시간축 이웃) → `getRecords`(전문),
+> "디테일 가져오기 전 필터"(claude-mem 보고 ~10×↓). `memoryServer.ts`가 in-process MCP 툴
+> (`memory_search`/`timeline`/`get`)로 노출, **opt-in**(`memory.toolsEnabled` 기본 off → 토큰-프루걸
+> 기본값은 툴 세금 안 냄; enabled 플래그로 캐시 안정). graphify는 우선순위 낮아 보류(repomap 중복+비코드
+> LLM 비용). 정적 게이트: **typecheck 0 · test 85(+6 disclose) · selftest 133 · lint 신규에러 0 · build
+> green**. 잔여(키/GUI 필요): 라이브 MCP 핸드셰이크·점진공개 10× 실측·렌더러 패널 — 로컬 Electron 검증 대기.
+>
 > **업데이트(2026-06-14, 재개)**: MAINTAINABILITY Phase 4(main 백엔드 분해) + `max-lines` 래칫
 > 실행 완료 — `agent.ts`(740) → `agent/`(11파일·배럴), `index.ts`(181→58) → `ipc/*`. 정적 게이트
 > 통과(typecheck·build green, lint 신규 에러 0). 상세는 §2 / MAINTAINABILITY.md §9.

@@ -8,7 +8,9 @@ import {
   deleteMemory,
   clearMemories,
   isMemoryEnabled,
-  setMemoryEnabled
+  setMemoryEnabled,
+  isMemoryToolsEnabled,
+  setMemoryToolsEnabled
 } from '../memory'
 
 export function register(ipc: IpcMain): void {
@@ -21,4 +23,7 @@ export function register(ipc: IpcMain): void {
   })
   ipc.handle('memory:enabled', () => isMemoryEnabled())
   ipc.handle('memory:set-enabled', (_e, on: boolean) => setMemoryEnabled(on))
+  // Progressive-disclosure MCP tools (claude-mem absorption) — opt-in.
+  ipc.handle('memory:tools-enabled', () => isMemoryToolsEnabled())
+  ipc.handle('memory:set-tools-enabled', (_e, on: boolean) => setMemoryToolsEnabled(on))
 }

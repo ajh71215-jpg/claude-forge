@@ -9,12 +9,15 @@ export { initMemoryCapture, noteRunWorkspace } from './capture'
 export {
   isMemoryEnabled,
   setMemoryEnabled,
+  isMemoryToolsEnabled,
+  setMemoryToolsEnabled,
   listMemories,
   searchMemories,
   deleteMemory,
   clearMemories,
   memoryBudgetTokens
 } from './store'
+export { buildMemoryServer } from './memoryServer'
 export type { MemoryEntry, MemoryKind } from './types'
 
 export interface MemoryInjection {

@@ -20,7 +20,7 @@ import { getSessionCwd } from './sessions'
 import { resultErrorMessage, singlePrompt, toolContentToString } from './helpers'
 import { active, pendingDialogs, pendingPerms } from './state'
 import { emitAgentEvent } from '../pet/bus'
-import { buildMemoryInjection, noteRunWorkspace } from '../memory'
+import { buildMemoryInjection, buildMemoryServer, isMemoryToolsEnabled, noteRunWorkspace } from '../memory'
 import { buildRepoMapInjection } from '../repomap'
 import { buildRetrievalInjection } from '../retrieval'
 import { estimateTokens } from '../efficiency/compress'
@@ -89,6 +89,16 @@ export async function runStreaming(
   if ((await enabledProviders()).length) {
     mcpServers.forge = buildDelegateServer(cwd, runId) as unknown as Record<string, unknown>
     if (!env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT) env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '600000'
+  }
+
+  // Progressive-disclosure memory tools (claude-mem absorption). Opt-in
+  // (memory.toolsEnabled, default off): when on, expose memory_search/timeline/get
+  // so the model recalls deep facts on demand — scanning a cheap index and
+  // fetching full text only for qualified ids — instead of paying for an up-front
+  // dump. Gated on the stable enabled flag so the tool prefix stays cache-stable
+  // across a conversation.
+  if (await isMemoryToolsEnabled()) {
+    mcpServers.memory = buildMemoryServer(opts.workspaceId) as unknown as Record<string, unknown>
   }
 
   if (Object.keys(mcpServers).length) options.mcpServers = mcpServers

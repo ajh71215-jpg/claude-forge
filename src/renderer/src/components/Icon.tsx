@@ -18,6 +18,7 @@ export type IconName =
   | 'tool'
   | 'guide'
   | 'cost'
+  | 'theme'
   | 'thinking'
   | 'inspect'
 
@@ -98,6 +99,15 @@ const PATHS: Record<IconName, JSX.Element> = {
   // with quadratic curves so it reads as a single clean glyph in the line family.
   thinking: (
     <path d="M12 3 Q12.6 9.4 18 12 Q12.6 14.6 12 21 Q11.4 14.6 6 12 Q11.4 9.4 12 3 Z" />
+  ),
+  // Artist palette + paint wells — recolor the app (Theme tab).
+  theme: (
+    <>
+      <path d="M12 3a9 9 0 0 0 0 18 2.4 2.4 0 0 0 2.4-2.4c0-.6-.2-1.1-.6-1.5-.4-.4-.6-.9-.6-1.5a2 2 0 0 1 2-2H18a3 3 0 0 0 3-3c0-4.4-4-8-9-8z" />
+      <circle cx="7.5" cy="11.5" r="0.6" />
+      <circle cx="9.5" cy="7.5" r="0.6" />
+      <circle cx="14.5" cy="7.5" r="0.6" />
+    </>
   ),
   // Magnifier — inspect / debug a run.
   inspect: (

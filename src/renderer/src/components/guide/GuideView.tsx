@@ -4,7 +4,7 @@
 // 페르소나, 데스크톱 펫, 설정 등. 순수 표시용이며 `onGoto`로 카드에서 해당 탭으로 점프한다.
 import type { JSX, ReactNode } from 'react'
 
-type View = 'chat' | 'squad' | 'cost' | 'extend' | 'guide'
+type View = 'chat' | 'squad' | 'cost' | 'extend' | 'guide' | 'theme'
 
 // 실제 keywords.ts(MODES)와 일치. name = 채팅에 그대로 입력하는 트리거.
 const KEYWORDS: { name: string; kind: string; desc: string }[] = [

@@ -12,6 +12,8 @@
  *   06-guide    Guide tab — first-run feature tour
  *   07-cost     Cost tab — cost & cache dashboard
  *   08-palette  Command palette (Cmd/Ctrl+K)
+ *   09-debug    Debug side panel
+ *   10-theme    Theme tab — theme marketplace + custom editor
  */
 @import './styles/00-core.css';
 @import './styles/01-auth.css';
@@ -23,3 +25,4 @@
 @import './styles/07-cost.css';
 @import './styles/08-palette.css';
 @import './styles/09-debug.css';
+@import './styles/10-theme.css';

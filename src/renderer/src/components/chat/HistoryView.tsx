@@ -7,6 +7,7 @@ import { toolArgObj, toolIcon } from '../../lib/format'
 import { parseTodos } from '../../lib/blocks'
 import Md from '../Md'
 import TodoList from './TodoList'
+import ToolResult from './ToolResult'
 
 /** Render a restored past-conversation transcript (read-only). */
 export default function HistoryView({ items }: { items: TranscriptItem[] }): JSX.Element | null {
@@ -52,7 +53,7 @@ export default function HistoryView({ items }: { items: TranscriptItem[] }): JSX
               <span className="tool-arg">{arg}</span>
               <span className={`tool-badge ${it.status}`}>{badge}</span>
             </div>
-            {result && <pre className="tool-result">{result}</pre>}
+            {result && <ToolResult text={result} />}
           </div>
         )
       })}

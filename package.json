@@ -6,19 +6,20 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "dev":      "node node_modules/electron-vite/bin/electron-vite.js dev",
-    "dev:web":  "node node_modules/vite/bin/vite.js --config vite.web.config.ts",
-    "build":    "node node_modules/electron-vite/bin/electron-vite.js build",
-    "dist":     "node node_modules/electron-vite/bin/electron-vite.js build && node node_modules/electron-builder/cli.js --win",
-    "start":    "node node_modules/electron-vite/bin/electron-vite.js preview",
-    "typecheck":"node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "dev": "node node_modules/electron-vite/bin/electron-vite.js dev",
+    "dev:web": "node node_modules/vite/bin/vite.js --config vite.web.config.ts",
+    "build": "node node_modules/electron-vite/bin/electron-vite.js build",
+    "dist": "node node_modules/electron-vite/bin/electron-vite.js build && node node_modules/electron-builder/cli.js --win",
+    "start": "node node_modules/electron-vite/bin/electron-vite.js preview",
+    "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "selftest": "node node_modules/typescript/bin/tsc -p tsconfig.selftest.json && node scripts/orchestration-selftest.cjs",
-    "test":     "node node_modules/typescript/bin/tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
-    "lint":     "node node_modules/eslint/bin/eslint.js src --ext .ts,.tsx",
-    "format":   "node node_modules/prettier/bin/prettier.cjs --write src"
+    "test": "node node_modules/typescript/bin/tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
+    "lint": "node node_modules/eslint/bin/eslint.js src --ext .ts,.tsx",
+    "format": "node node_modules/prettier/bin/prettier.cjs --write src"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.177",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "pretendard": "^1.3.9",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
@@ -27,18 +28,18 @@
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/eslint-plugin": "^7",
+    "@typescript-eslint/parser": "^7",
     "@vitejs/plugin-react": "^4",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5",
+    "eslint": "^8",
+    "eslint-plugin-react-hooks": "^4",
+    "prettier": "^3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
-    "vite": "^6",
-    "@typescript-eslint/eslint-plugin": "^7",
-    "@typescript-eslint/parser": "^7",
-    "eslint": "^8",
-    "eslint-plugin-react-hooks": "^4",
-    "prettier": "^3"
+    "vite": "^6"
   }
 }

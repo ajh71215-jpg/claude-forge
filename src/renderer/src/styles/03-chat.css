@@ -634,12 +634,54 @@
   background: var(--bg);
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1.55;
   color: var(--muted);
   max-height: 220px;
   overflow: auto;
   user-select: text;
+}
+/* Collapsible tool output: only the first line is shown by default; clicking
+   the header expands the full result. Keeps the live transcript scannable. */
+.tool-result-block {
+  display: flex;
+  flex-direction: column;
+}
+.tool-result-block .tool-result {
+  /* Collapsed = single line: drop the inner scroll cap so it hugs the line. */
+  max-height: none;
+  overflow: visible;
+}
+.tool-result-block.expanded .tool-result {
+  max-height: 320px;
+  overflow: auto;
+}
+.tool-result-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease;
+}
+.tool-result-toggle:hover {
+  color: var(--muted);
+}
+.tool-result-caret {
+  flex: none;
+  width: 10px;
+  color: var(--amber);
 }
 /* ---- file-edit diff (Edit / Write / NotebookEdit) ---- */
 .diff-stat {

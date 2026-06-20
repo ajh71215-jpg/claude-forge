@@ -9,6 +9,7 @@ import { parseTodos } from '../../lib/blocks'
 import Md from '../Md'
 import TodoList from './TodoList'
 import Elapsed from './Elapsed'
+import ToolResult from './ToolResult'
 
 // Memoized: a completed block keeps a stable `block` ref + streaming=false, so it
 // skips re-render on every streaming flush. docs/PERFORMANCE.md lever 3.
@@ -114,7 +115,7 @@ const BlockView = memo(function BlockView({
           )}
         </pre>
       )}
-      {result && block.status !== 'running' && <pre className="tool-result">{result}</pre>}
+      {result && block.status !== 'running' && <ToolResult text={result} />}
     </div>
   )
 })

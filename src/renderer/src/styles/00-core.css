@@ -43,7 +43,7 @@
   /* Latin/code render in monospace; Korean falls through to Pretendard
      (the monospace fonts lack Hangul glyphs, so per-glyph fallback pins
      Korean to Pretendard). */
-  --mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Pretendard Variable', 'Pretendard',
+  --mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', 'Pretendard Variable', 'Pretendard',
     ui-monospace, monospace;
   --sans: 'Pretendard Variable', 'Pretendard', system-ui, sans-serif;
 
@@ -283,12 +283,16 @@ select option {
   flex: none;
 }
 
-/* tabular figures for any data-bearing numerics */
+/* tabular figures for any data-bearing numerics.
+   Also pin code/pre/kbd/samp to the mono stack (JetBrains Mono) so a bare
+   <pre>/<code> without a class-level font-family never falls back to the OS
+   default monospace (e.g. Courier New on Windows). */
 .mono,
 code,
 kbd,
 samp,
 pre {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 

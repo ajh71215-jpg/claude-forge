@@ -26,7 +26,8 @@ import { activityLabel } from '../../lib/composer'
 import { goalDirective } from '../../lib/goal'
 import { handleSlashCommand } from '../../lib/slashCommands'
 import { useAgentEvents } from './useAgentEvents'
-import { useImageAttachments } from './useImageAttachments'
+import { useAttachments } from './useAttachments'
+import { useComposerInput } from './useComposerInput'
 import { useTranscriptSearch } from './useTranscriptSearch'
 import { useGoalLoop } from './useGoalLoop'
 import { useCompaction } from './useCompaction'
@@ -36,8 +37,8 @@ import TodoBar from './TodoBar'
 import ChatControls from './ChatControls'
 import PermissionModal from './PermissionModal'
 import QuestionModal from './QuestionModal'
-import PromptUpgrade from './PromptUpgrade'
 import ReliabilityBanner from './ReliabilityBanner'
+import ComposerInputBar from './ComposerInputBar'
 import WorkHeader from './WorkHeader'
 import Elapsed from './Elapsed'
 import type { KeywordMatch, LazySetting } from '../../types'
@@ -130,13 +131,11 @@ export default function Composer({
   onSetMcpScope: (scope: string[] | null) => void
 }): JSX.Element {
   const [prompt, setPrompt] = useState('')
-  const [menuIndex, setMenuIndex] = useState(0)
-  const [dismissed, setDismissed] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [history, setHistory] = useState<TranscriptItem[]>([])
-  // Image attachments (drag-drop / picker / paste) — own hook.
+  // Attachments (drag-drop / picker / paste): images + text/code files — own hook.
   const { attachments, setAttachments, dragOver, setDragOver, fileRef, addFiles, onDrop } =
-    useImageAttachments()
+    useAttachments()
   const [exportOpen, setExportOpen] = useState(false)
   // Configured MCP server names, for the per-conversation scope control. Fetched
   // once; an empty list hides the control (nothing to scope).
@@ -154,7 +153,6 @@ export default function Composer({
   // Magic-keyword modes detected in the current draft (shown as chips so the
   // trigger is discoverable before sending).
   const [detectedModes, setDetectedModes] = useState<KeywordMatch[]>([])
-  const [histIndex, setHistIndex] = useState<number | null>(null)
   // Auto-scroll mode. true = pin to latest line (follow); false = only nudge
   // when already near bottom (legacy — streaming text won't yank a reader down).
   const [stickBottom, setStickBottom] = useState<boolean>(() => {
@@ -171,7 +169,6 @@ export default function Composer({
       /* ignore */
     }
   }, [stickBottom])
-  const promptHistRef = useRef<string[]>([])
   const runIdRef = useRef<string | null>(null)
   const ownedRef = useRef<Set<string>>(new Set())
   const onResultRef = useRef(onResult)
@@ -195,6 +192,9 @@ export default function Composer({
     setPrompt(p)
     taRef.current?.focus()
   }, [])
+
+  // Textarea input concerns (slash-command menu + prompt history recall) — own hook.
+  const input = useComposerInput({ prompt, setPrompt, commands, taRef, send: () => void send() })
 
   // Live event-driven transcript state + the single streaming subscription. The
   // hook owns turns/perms/dialogs/context and the rAF-coalesced event routing
@@ -264,16 +264,6 @@ export default function Composer({
     })
     return () => cancelAnimationFrame(id)
   }, [turns, stickBottom])
-
-  // Load persisted prompt history once.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('forge-prompt-history')
-      if (raw) promptHistRef.current = JSON.parse(raw)
-    } catch {
-      /* ignore */
-    }
-  }, [])
 
   // Reset the visible transcript when starting a new / resumed conversation;
   // restore the past transcript when resuming an existing session.
@@ -368,28 +358,19 @@ export default function Composer({
     ownedRef.current.add(id)
     // Drop stale transient reliability notes on a new send (keep account rate-limit).
     setReliability((r) => (r?.rate ? { rate: r.rate } : null))
-    const previews = atts.map((a) => a.preview)
+    const previews = atts.filter((a) => a.kind === 'image' && a.preview).map((a) => a.preview!)
+    const fileCount = atts.filter((a) => a.kind === 'text').length
+    const placeholder = previews.length ? '(image)' : fileCount ? '(file)' : '(attachment)'
     setTurns((prev) => [
       ...prev,
-      { id, prompt: text || '(image)', previews, blocks: [], meta: null, running: true }
+      { id, prompt: text || placeholder, previews, blocks: [], meta: null, running: true }
     ])
-    setHistIndex(null)
+    input.resetCursor()
     if (!textArg) {
       setPrompt('')
       setAttachments([])
     }
-    if (text) {
-      const h = promptHistRef.current
-      if (h[h.length - 1] !== text) {
-        h.push(text)
-        if (h.length > 100) h.shift()
-        try {
-          localStorage.setItem('forge-prompt-history', JSON.stringify(h))
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    if (text) input.record(text)
     // In cost-saver mode the per-prompt router decides model + effort; otherwise
     // use the manually selected model/effort unchanged.
     let runModel = model
@@ -412,7 +393,11 @@ export default function Composer({
     if (mcpScope) opts.mcpScope = mcpScope
     if (sessionIdRef.current) opts.resume = sessionIdRef.current
     if (atts.length) {
-      opts.attachments = atts.map((a) => ({ mediaType: a.mediaType, base64: a.base64 }))
+      opts.attachments = atts.map((a) =>
+        a.kind === 'text'
+          ? { kind: 'text' as const, name: a.name, text: a.text }
+          : { kind: 'image' as const, mediaType: a.mediaType, base64: a.base64 }
+      )
     }
     // Per-model turn cap: resolve against the model actually running (cost-saver
     // may route to a different tier than the selected one).
@@ -535,88 +520,7 @@ export default function Composer({
     return () => clearTimeout(t)
   }, [prompt])
 
-  // Slash-command autocomplete: active while typing "/name" (before any space).
-  const slashQuery =
-    prompt.startsWith('/') && !prompt.includes(' ') ? prompt.slice(1).toLowerCase() : null
-  // Memoized so it isn't recomputed on every streaming flush; slashQuery is null
-  // unless the prompt starts with "/", so the filter only runs while typing a
-  // command. docs/PERFORMANCE.md lever 7.
-  const matches = useMemo<SlashCommand[]>(
-    () =>
-      slashQuery !== null && !dismissed
-        ? [...CLIENT_COMMANDS, ...commands]
-            .filter(
-              (c) =>
-                c.name.toLowerCase().startsWith(slashQuery) ||
-                (c.aliases ?? []).some((a) => a.toLowerCase().startsWith(slashQuery))
-            )
-            .slice(0, 8)
-        : [],
-    [slashQuery, dismissed, commands]
-  )
-  const menuOpen = matches.length > 0
-  const menuSel = Math.min(menuIndex, matches.length - 1)
-
-  function acceptCommand(cmd: SlashCommand): void {
-    setPrompt('/' + cmd.name + ' ')
-    setDismissed(false)
-    setMenuIndex(0)
-    taRef.current?.focus()
-  }
-
-  function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
-    if (menuOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setMenuIndex((i) => (i + 1) % matches.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setMenuIndex((i) => (i - 1 + matches.length) % matches.length)
-        return
-      }
-      if (e.key === 'Tab' || e.key === 'Enter') {
-        e.preventDefault()
-        acceptCommand(matches[menuSel])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setDismissed(true)
-        return
-      }
-    }
-    // Prompt history recall (slash menu closed, caret at the very start).
-    const ta = e.currentTarget
-    if (e.key === 'ArrowUp' && ta.selectionStart === 0 && ta.selectionEnd === 0) {
-      const h = promptHistRef.current
-      if (h.length) {
-        e.preventDefault()
-        const idx = histIndex === null ? h.length - 1 : Math.max(0, histIndex - 1)
-        setHistIndex(idx)
-        setPrompt(h[idx])
-        return
-      }
-    }
-    if (e.key === 'ArrowDown' && histIndex !== null) {
-      e.preventDefault()
-      const h = promptHistRef.current
-      const idx = histIndex + 1
-      if (idx >= h.length) {
-        setHistIndex(null)
-        setPrompt('')
-      } else {
-        setHistIndex(idx)
-        setPrompt(h[idx])
-      }
-      return
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
-  }
+  const { matches, menuOpen, menuSel, setMenuIndex, acceptCommand } = input
 
   const idle = turns.length === 0
   const ctxPct =
@@ -641,7 +545,7 @@ export default function Composer({
       {dragOver && (
         <div className="drop-overlay">
           <div className="drop-overlay-inner">
-            <span className="drop-icon">⌬</span> drop images to attach
+            <span className="drop-icon">⌬</span> drop images or code/text files to attach
           </div>
         </div>
       )}
@@ -796,108 +700,23 @@ export default function Composer({
           </div>
         )}
         {latestTodos && <TodoBar todos={latestTodos} />}
-        {attachments.length > 0 && (
-          <div className="attach-row">
-            {attachments.map((a) => (
-              <div className="attach-thumb" key={a.id} title={a.name}>
-                <img src={a.preview} alt={a.name} />
-                <button
-                  className="attach-x"
-                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="composer">
-          <button
-            className="attach-btn"
-            title="Attach image"
-            onClick={() => fileRef.current?.click()}
-          >
-            ＋
-          </button>
-          <span className="composer-prompt" aria-hidden="true">
-            ›
-          </span>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              addFiles(e.target.files)
-              e.target.value = ''
-            }}
-          />
-          <textarea
-            ref={taRef}
-            className="composer-input"
-            placeholder="Describe the work…  (Enter send · Shift+Enter newline · / commands · ↑ history)"
-            rows={3}
-            autoFocus
-            value={prompt}
-            onChange={(e) => {
-              setPrompt(e.target.value)
-              setDismissed(false)
-              setHistIndex(null)
-            }}
-            onKeyDown={onKey}
-            onPaste={(e) => {
-              const imgs = Array.from(e.clipboardData.items).filter((it) =>
-                it.type.startsWith('image/')
-              )
-              if (imgs.length) {
-                e.preventDefault()
-                const dt = new DataTransfer()
-                imgs.forEach((it) => {
-                  const f = it.getAsFile()
-                  if (f) dt.items.add(f)
-                })
-                addFiles(dt.files)
-              }
-            }}
-          />
-          <div className="send-col">
-            <PromptUpgrade
-              text={prompt}
-              model={model && model !== 'default' ? model : globalModel}
-              disabled={running}
-              onAccept={(next) => {
-                setPrompt(next)
-                setHistIndex(null)
-                taRef.current?.focus()
-              }}
-            />
-            <button
-              className={`scroll-toggle ${stickBottom ? 'on' : ''}`}
-              title={
-                stickBottom
-                  ? 'Auto-scroll: following latest line (click to stop at answers)'
-                  : 'Auto-scroll: stops at answers (click to follow latest)'
-              }
-              onClick={() => setStickBottom((v) => !v)}
-            >
-              {stickBottom ? '⤓ Follow' : '⤒ Manual'}
-            </button>
-            {running ? (
-              <button className="stop" onClick={stop}>
-                ■ STOP
-              </button>
-            ) : (
-              <button
-                className="primary send"
-                disabled={!prompt.trim() && attachments.length === 0}
-                onClick={() => send()}
-              >
-                Send
-              </button>
-            )}
-          </div>
-        </div>
+        <ComposerInputBar
+          prompt={prompt}
+          setPrompt={setPrompt}
+          attachments={attachments}
+          setAttachments={setAttachments}
+          fileRef={fileRef}
+          addFiles={addFiles}
+          taRef={taRef}
+          input={input}
+          running={running}
+          send={() => void send()}
+          stop={() => void stop()}
+          stickBottom={stickBottom}
+          setStickBottom={setStickBottom}
+          model={model}
+          globalModel={globalModel}
+        />
       </div>
 
       {perms[0] && (

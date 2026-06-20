@@ -604,6 +604,38 @@
   height: 100%;
   object-fit: cover;
 }
+.attach-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  align-self: flex-end;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--text);
+}
+.attach-file-icon {
+  flex: none;
+  opacity: 0.8;
+}
+.attach-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-file .attach-x {
+  position: static;
+  flex: none;
+  background: transparent;
+  color: var(--muted);
+}
+.attach-file .attach-x:hover {
+  color: var(--text);
+}
 .attach-x {
   position: absolute;
   top: 1px;

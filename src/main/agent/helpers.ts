@@ -36,17 +36,44 @@ export function toolContentToString(content: unknown): string {
   return content == null ? '' : JSON.stringify(content)
 }
 
+/** Fence info-string for a file name, so inlined code renders with the right
+ * highlighting. Falls back to the bare extension (still useful) or ''. */
+function fenceLang(name: string): string {
+  const ext = name.toLowerCase().includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
+  const map: Record<string, string> = {
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx',
+    ts: 'typescript', tsx: 'tsx', mts: 'typescript', cts: 'typescript',
+    py: 'python', rb: 'ruby', rs: 'rust', kt: 'kotlin', cs: 'csharp',
+    sh: 'bash', bash: 'bash', zsh: 'bash', ps1: 'powershell', yml: 'yaml',
+    md: 'markdown', html: 'html', htm: 'html', svg: 'xml'
+  }
+  return map[ext] ?? ext
+}
+
 export async function* singlePrompt(prompt: string, attachments?: Attachment[]): AsyncGenerator<any> {
+  const atts = attachments ?? []
+  const textFiles = atts.filter((a) => a.kind === 'text' && a.text != null)
+  const imageFiles = atts.filter((a) => a.kind !== 'text')
+
+  // Inline text/code files into the prompt as labelled fenced blocks.
+  let promptText = prompt
+  if (textFiles.length) {
+    const blocks = textFiles
+      .map((a) => `Attached file: ${a.name ?? 'file'}\n\`\`\`${fenceLang(a.name ?? '')}\n${a.text}\n\`\`\``)
+      .join('\n\n')
+    promptText = promptText ? `${promptText}\n\n${blocks}` : blocks
+  }
+
   const content =
-    attachments && attachments.length
+    imageFiles.length > 0
       ? [
-          { type: 'text', text: prompt },
-          ...attachments.map((a) => ({
+          { type: 'text', text: promptText },
+          ...imageFiles.map((a) => ({
             type: 'image',
             source: { type: 'base64', media_type: a.mediaType, data: a.base64 }
           }))
         ]
-      : prompt
+      : promptText
   yield {
     type: 'user',
     message: { role: 'user', content },

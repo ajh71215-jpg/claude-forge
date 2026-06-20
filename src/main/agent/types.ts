@@ -28,7 +28,8 @@ export interface RunOptions {
   permission?: Permission
   /** Resume an existing conversation (session id) for multi-turn continuity. */
   resume?: string
-  /** Images to attach to the prompt (sent as base64 content blocks). */
+  /** Files to attach to the prompt: images (base64 blocks) and/or text/code
+   * files (inlined as fenced blocks). */
   attachments?: Attachment[]
   /** Cap agent loop iterations (token/runaway guard). */
   maxTurns?: number
@@ -110,8 +111,17 @@ export interface UsageInfo {
 }
 
 export interface Attachment {
-  mediaType: string
-  base64: string
+  /** 'image' → base64 image block; 'text' → code/text file inlined into the
+   * prompt as a fenced block. Defaults to 'image' for back-compat. */
+  kind?: 'image' | 'text'
+  /** Image only: MIME type (e.g. image/png). */
+  mediaType?: string
+  /** Image only: base64-encoded data (no data-URL prefix). */
+  base64?: string
+  /** Text only: file name, used as the fenced-block label. */
+  name?: string
+  /** Text only: decoded file contents. */
+  text?: string
 }
 
 export type TranscriptItem =

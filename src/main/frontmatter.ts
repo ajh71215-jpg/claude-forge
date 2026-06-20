@@ -10,7 +10,7 @@ import { promises as fs } from 'fs'
  */
 
 /** Slug used for `.claude/<thing>/<name>` directory/file names. */
-export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 export function isValidSlug(name: string): boolean {
   return SLUG_RE.test(name)
 }

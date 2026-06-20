@@ -289,6 +289,13 @@
   border-color: var(--amber);
   background: rgba(var(--accent-rgb), 0.16);
 }
+/* Usage refresh feedback: spin the ↻ glyph while a manual probe is in flight. */
+.mini-btn.spinning {
+  display: inline-block;
+  cursor: default;
+  opacity: 0.7;
+  animation: spin 0.8s linear infinite;
+}
 
 /* conversations list */
 .conv-list {

@@ -86,7 +86,13 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
     cacheWrite: 0,
     promptTotal: 0
   })
-  const [subUsage, setSubUsage] = useState<UsageInfo | null>(null)
+  // Plan usage is sticky: seeded from the last persisted snapshot and only ever
+  // replaced by a SUCCESSFUL manual refresh. A failed/empty probe never clobbers
+  // it, so the panel never flips to a transient "unavailable" state.
+  const [subUsage, setSubUsage] = useState<UsageInfo | null>(() =>
+    loadJson<UsageInfo | null>('forge-usage', null)
+  )
+  const [usageLoading, setUsageLoading] = useState(false)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   // Open conversation tabs. Each runs concurrently in its own isolated workspace
   // (tab.key) and keeps streaming when you switch tabs (no interrupt). The active
@@ -186,8 +192,21 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
   function refreshSessions(): void {
     window.forge.agent.sessions().then(setSessions).catch(() => {})
   }
+  // Manual-only usage refresh. Updates the panel ONLY when the probe returns
+  // real entries; on empty/error we keep the previous snapshot (never show an
+  // "unavailable" state) and persist the last good value so it survives reloads.
   function refreshUsage(): void {
-    window.forge.agent.usage().then(setSubUsage).catch(() => {})
+    setUsageLoading(true)
+    window.forge.agent
+      .usage()
+      .then((u) => {
+        if (u && u.entries.length > 0) {
+          setSubUsage(u)
+          saveJson('forge-usage', u)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setUsageLoading(false))
   }
   // Re-probe capabilities (slash commands, MCP, models) — e.g. after the EXTEND
   // console authors a new command, so it appears in the composer slash menu.
@@ -201,26 +220,14 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
       .then(setCaps)
       .catch(() => setCaps({ models: [], commands: [], mcpServers: [] }))
     refreshSessions()
-    refreshUsage()
+    // NOTE: plan usage is intentionally NOT auto-loaded here. The old 90s poll +
+    // visibility refresh randomly clobbered good data with empty probes, which is
+    // what made the panel look broken. Usage now updates ONLY when the user clicks
+    // the ↻ button; until then the last persisted snapshot is shown as-is.
     window.forge.persona
       .get()
       .then(setPersonaState)
       .catch(() => setPersonaState({ enabled: false, mode: 'append', text: '' }))
-    // Refresh plan usage on a slow timer instead of every turn (avoids a
-    // /usage subprocess spawn per message). Skip ticks while the window is hidden
-    // — no point spawning a /usage subprocess for a backgrounded window — and
-    // refresh once when it becomes visible again so the panel isn't stale.
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') refreshUsage()
-    }, 90_000)
-    const onVisible = (): void => {
-      if (document.visibilityState === 'visible') refreshUsage()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
   }, [])
 
   const models: ModelInfo[] = caps?.models ?? []
@@ -418,6 +425,7 @@ function MainShell({ mode, onClear }: { mode: AuthMode; onClear: () => void }): 
         maxBudget={maxBudget}
         autoCompact={autoCompact}
         subUsage={subUsage}
+        usageLoading={usageLoading}
         usage={usage}
         sessions={sessions}
         sessionId={sessionId}

@@ -51,6 +51,7 @@ export interface SidebarProps {
   maxBudget: number
   autoCompact: boolean
   subUsage: UsageInfo | null
+  usageLoading: boolean
   usage: SessionUsage
   sessions: SessionInfo[]
   sessionId: string | null
@@ -94,6 +95,7 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
     maxBudget,
     autoCompact,
     subUsage,
+    usageLoading,
     usage,
     sessions,
     sessionId,
@@ -400,14 +402,20 @@ export default function Sidebar(props: SidebarProps): JSX.Element {
             {caps?.account?.subscriptionType && (
               <span className="plan-badge">{caps.account.subscriptionType}</span>
             )}
-            <button className="mini-btn" title="Refresh usage" onClick={onRefreshUsage}>
+            <button
+              className={`mini-btn${usageLoading ? ' spinning' : ''}`}
+              title="Refresh usage"
+              onClick={onRefreshUsage}
+              disabled={usageLoading}
+            >
               ↻
             </button>
           </div>
         </div>
-        {!subUsage && <div className="selector-hint">…</div>}
-        {subUsage && subUsage.entries.length === 0 && (
-          <div className="selector-hint">usage unavailable</div>
+        {/* Never show an error/unavailable state. Before the first successful
+            refresh there's simply no data — a neutral hint invites a manual ↻. */}
+        {(!subUsage || subUsage.entries.length === 0) && (
+          <div className="selector-hint">{usageLoading ? 'updating…' : 'press ↻ to update'}</div>
         )}
         {subUsage?.entries.map((e) => (
           <div className="usage-entry" key={e.label}>

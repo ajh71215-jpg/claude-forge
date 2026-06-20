@@ -196,6 +196,14 @@ export async function runStreaming(
 
   let turn = 0
   let sessionSent = false
+  // Whether a terminal 'result' event was emitted for this run. A user STOP
+  // (q.interrupt()) ends the SDK stream gracefully — the for-await loop simply
+  // completes with no `result` message and no throw — so without this guard the
+  // run never gets a terminal event: the chat turn stays running:true and the
+  // Agents dashboard's live card never moves to history (the "still spinning
+  // after the conversation ended" leak). The finally block emits a synthetic
+  // result when this stayed false.
+  let resultSent = false
   // Did the current assistant message stream content as partial deltas? Local
   // slash commands (/context, /cost, …) reply with a complete assistant message
   // and no stream_events, so we synthesize block events for those (see below).
@@ -356,6 +364,7 @@ export async function runStreaming(
           resetsAt: ri.resetsAt
         })
       } else if (msg.type === 'result') {
+        resultSent = true
         const ok = msg.subtype === 'success'
         const u = msg.usage
         const contextTokens = u
@@ -383,8 +392,13 @@ export async function runStreaming(
     let msg = raw
     if (/maximum budget/i.test(raw)) msg = 'Stopped: per-run budget limit reached.'
     else if (/maximum number/i.test(raw)) msg = 'Stopped: max turns reached (raise the limit to continue).'
+    resultSent = true
     send({ type: 'result', ok: false, error: msg })
   } finally {
+    // A graceful stream end with no `result` message (a user STOP / interrupt)
+    // would otherwise leave the run with no terminal event — emit one so the
+    // chat turn clears its spinner and the Agents dashboard reaps the live card.
+    if (!resultSent) send({ type: 'result', ok: false, error: 'Stopped.' })
     active.delete(runId)
     // Resolve any dangling ASK prompts for this run as denied.
     for (const [id, resolve] of pendingPerms) {

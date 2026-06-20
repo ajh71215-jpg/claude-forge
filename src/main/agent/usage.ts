@@ -32,8 +32,18 @@ export async function getUsage(): Promise<UsageInfo> {
   // middot, hyphen, en/em dash, or bullet across CLI versions.
   const re = /Current\s+([^:]+):\s*(\d+)%\s*used\s*[·•\-–—]\s*resets\s*([^\n]+)/gi
   let m: RegExpExecArray | null
+  // Dedupe by window label: the /usage output is captured from BOTH the assistant
+  // message AND the final result string (an SDK/CLI-version safety net above), so
+  // when a CLI version emits it in both envelopes every window line matches twice
+  // — which surfaced as each plan window appearing duplicated in the sidebar
+  // ("plan usage shows 2"). Keep the first occurrence of each label.
+  const seen = new Set<string>()
   while ((m = re.exec(text))) {
-    entries.push({ label: m[1].trim(), percent: Number(m[2]), resets: m[3].trim() })
+    const label = m[1].trim()
+    const key = label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    entries.push({ label, percent: Number(m[2]), resets: m[3].trim() })
   }
   return { entries, raw: text.trim() }
 }

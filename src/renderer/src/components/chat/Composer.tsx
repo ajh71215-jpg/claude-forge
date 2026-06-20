@@ -171,6 +171,10 @@ export default function Composer({
     }
   }, [stickBottom])
   const runIdRef = useRef<string | null>(null)
+  // Latest stickBottom, read by the per-flush streaming-follow effect without
+  // making it a dep (so toggling Follow doesn't re-run the cheap streaming path).
+  const stickBottomRef = useRef(stickBottom)
+  stickBottomRef.current = stickBottom
   const ownedRef = useRef<Set<string>>(new Set())
   const onResultRef = useRef(onResult)
   onResultRef.current = onResult
@@ -251,12 +255,14 @@ export default function Composer({
   // when the user is already near the bottom (don't yank them down if they
   // scrolled up to read), and via rAF so scrollTop is written at most once per
   // frame instead of forcing a layout on every delta. docs/PERFORMANCE.md lever 4.
+  // Depends on `turns` ONLY (stickBottom read via ref) so this cheap per-flush
+  // path doesn't re-fire on a Follow toggle — that's the robust effect below.
   useEffect(() => {
     const el = transcriptRef.current
     if (!el) return
     // Follow mode pins unconditionally; legacy mode only nudges when the user is
     // already near the bottom (don't yank them down mid-read).
-    if (!stickBottom) {
+    if (!stickBottomRef.current) {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
       if (!nearBottom) return
     }
@@ -264,7 +270,35 @@ export default function Composer({
       el.scrollTop = el.scrollHeight
     })
     return () => cancelAnimationFrame(id)
-  }, [turns, stickBottom])
+  }, [turns])
+
+  // Clicking "Follow" (stickBottom → true) must jump all the way to the latest
+  // line in one go. A single rAF pin undershoots on a static transcript: content
+  // below the fold (markdown, code blocks, images) gains height *after* the first
+  // paint, so scrollHeight read on the next frame is still short — and with no
+  // further streaming flush to self-correct, the view lands mid-transcript at an
+  // earlier turn. Re-pin across several frames + a short timeout so late layout
+  // settles before we stop pinning. Cheap: runs only on the Follow toggle, not
+  // per streaming flush.
+  useEffect(() => {
+    if (!stickBottom) return
+    const el = transcriptRef.current
+    if (!el) return
+    const pin = (): void => {
+      el.scrollTop = el.scrollHeight
+    }
+    const rafs: number[] = []
+    const step = (n: number): void => {
+      pin()
+      if (n > 0) rafs.push(requestAnimationFrame(() => step(n - 1)))
+    }
+    step(3)
+    const t = setTimeout(pin, 120)
+    return () => {
+      rafs.forEach(cancelAnimationFrame)
+      clearTimeout(t)
+    }
+  }, [stickBottom])
 
   // Reset the visible transcript when starting a new / resumed conversation;
   // restore the past transcript when resuming an existing session.
